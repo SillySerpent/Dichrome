@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ChatGPT Relay</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>ChatGPT Relay</h1>
+        <div id="statusLine" class="status-line">Idle</div>
+      </div>
+      <button id="refreshButton" class="icon-button" type="button" title="Refresh">Refresh</button>
+    </header>
+
+    <main>
+      <section class="panel-section">
+        <div class="field-row">
+          <label for="profileSelect">Request type</label>
+          <select id="profileSelect"></select>
+        </div>
+        <label class="field-stack" for="manualText">
+          Text prompt
+          <textarea id="manualText" rows="5" spellcheck="true"></textarea>
+        </label>
+        <div class="button-row">
+          <button id="sendManualButton" class="primary-button" type="button">Send Text</button>
+          <button id="screenshotButton" type="button">Visible Screenshot</button>
+        </div>
+      </section>
+
+      <section class="panel-section current-request">
+        <div class="section-heading">
+          <h2>Current Request</h2>
+          <span id="stateBadge" class="state-badge">IDLE</span>
+        </div>
+        <dl class="metadata-grid">
+          <div>
+            <dt>Profile</dt>
+            <dd id="profileLabel">-</dd>
+          </div>
+          <div>
+            <dt>Source</dt>
+            <dd id="sourceLabel">-</dd>
+          </div>
+        </dl>
+        <div id="selectedBlock" class="text-block hidden">
+          <div class="block-label">Selection</div>
+          <pre id="selectedText"></pre>
+        </div>
+        <div class="text-block response-block">
+          <div class="block-label">Response</div>
+          <pre id="responseText"></pre>
+        </div>
+        <div id="errorBlock" class="error-block hidden"></div>
+        <div class="button-row">
+          <button id="retryButton" type="button" disabled>Retry</button>
+          <button id="retryRepairButton" type="button" disabled>Retry With Hints</button>
+          <button id="openChatGptButton" type="button" disabled>Open ChatGPT Tab</button>
+          <button id="cancelButton" type="button" disabled>Cancel</button>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <div class="section-heading">
+          <h2>Local Repair</h2>
+          <label class="switch-label">
+            <input id="repairEnabled" type="checkbox">
+            Enabled
+          </label>
+        </div>
+        <div class="field-row">
+          <label for="repairModel">Model</label>
+          <input id="repairModel" type="text" autocomplete="off">
+        </div>
+        <div class="field-row">
+          <label for="repairUrl">Ollama URL</label>
+          <input id="repairUrl" type="url" autocomplete="off">
+        </div>
+        <div class="button-row">
+          <button id="saveRepairButton" type="button">Save</button>
+          <button id="permissionRepairButton" type="button">Allow Localhost</button>
+        </div>
+        <div id="repairSuggestions" class="repair-suggestions"></div>
+      </section>
+
+      <section class="panel-section">
+        <h2>Events</h2>
+        <ol id="eventLog" class="event-log"></ol>
+      </section>
+    </main>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
