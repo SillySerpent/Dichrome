@@ -12,7 +12,7 @@ This is intentionally UI-driven. It does not use the OpenAI API, does not requir
    - `Define this word or phrase`
    - `Summarize this selection`
 3. The background service worker opens the extension side panel for the source tab.
-4. The worker finds or opens an inactive ChatGPT automation tab and applies debugger focus emulation in seamless mode.
+4. The worker resolves the canonical ChatGPT automation target and applies debugger focus emulation for background modes.
 5. If project routing is enabled, the ChatGPT content script selects the configured project or creates it before sending.
 6. Normal requests start from a fresh chat by default; follow-ups continue the active ChatGPT tab conversation.
 7. If model selection is enabled, the content script tries to select the configured model label.
@@ -22,13 +22,19 @@ This is intentionally UI-driven. It does not use the OpenAI API, does not requir
 
 ## Files
 
-- `manifest.json` - MV3 manifest, permissions, side panel entry, ChatGPT host permissions, and debugger permission.
-- `background/service-worker.js` - context menus, request state, tab discovery, injection, retries, screenshot capture, local repair routing.
-- `background/automation-settings.js` - stored ChatGPT project-routing, visibility, and model-selection settings.
-- `background/focus-emulation.js` - Chrome debugger focus emulation for seamless background streaming.
+- `manifest.json` - MV3 manifest, permissions, side panel entry, ChatGPT host permissions, debugger permission, and offscreen permission.
+- `background/service-worker.js` - listener registration, request orchestration, tab injection, and runtime message dispatch.
+- `background/automation/settings.js` - stored ChatGPT project-routing, visibility, and model-selection settings.
+- `background/automation/session.js` - canonical automation target/session storage and migration from the legacy remembered tab.
+- `background/automation/tab-target.js` - single inactive tab reuse, visible sidecar routing, and follow-up conversation navigation.
+- `background/automation/offscreen-target.js` - hidden offscreen target capability probe and fallback reason tracking.
+- `background/automation/source-focus.js` - source-tab selection, source-focus restoration, and screenshot capture helpers.
+- `background/requests/store.js` - request history, attachment payload storage, event appends, and panel update broadcasts.
+- `background/focus-emulation.js` - Chrome debugger focus emulation for background streaming.
 - `background/state-machine.js` - request states and prompt profiles.
 - `background/adapter-repair.js` - optional local-model repair prompt, response parsing, and mapping validation.
-- `content/chatgpt-automation.js` - ChatGPT-side DOM adapter and automation state transitions.
+- `content/chatgpt/*` - ordered injected ChatGPT-side automation files.
+- `content/chatgpt-automation.js` - compatibility marker for the old direct-injection path.
 - `sidepanel/*` - side panel UI for request state, streaming response, logs, retries, and repair settings.
 - `assets/icon.svg` and `icons/*` - source and generated Chrome toolbar icons.
 - `scripts/validate-extension.mjs` - dependency-free static validation.
@@ -72,17 +78,17 @@ The ChatGPT adapter avoids whole-page scraping for response extraction. It looks
 
 The side panel stores plain text and sanitized HTML fragments for responses. The HTML path preserves basic generated formatting such as paragraphs, lists, tables, blockquotes, inline code, and code blocks while removing scripts, forms, buttons, iframes, event attributes, and unsafe links.
 
-## Visibility Mode
+## Automation Target Mode
 
-`Seamless background` is the default automation mode. It keeps the source page focused and drives ChatGPT in an inactive browser tab. This mode requires the Chrome `debugger` permission so the extension can use DevTools Protocol focus emulation; without that, Chrome can keep the ChatGPT page at `visibilityState: hidden` and ChatGPT may not render streaming response DOM until the tab is selected.
+`Hidden internal` is the default mode. It first probes a Chrome offscreen document that hosts a ChatGPT iframe. Chrome offscreen documents must be extension-bundled HTML, and ChatGPT may block iframe embedding or content-script access. When that probe fails, the extension records the reason and falls back to one inactive reusable ChatGPT tab.
 
-The first run may create one non-selected ChatGPT tab if no reusable ChatGPT tab exists. That tab is still required because the prototype automates the real ChatGPT web UI rather than using the OpenAI API.
+Chrome cannot make a normal `chrome.tabs.create({ active: false })` tab completely internal. If offscreen automation is unavailable, the best UI-driven fallback is exactly one real, non-selected ChatGPT tab in the tab strip. The extension reuses that tab across requests, marks it non-discardable during automation, and recreates one replacement only after the stored tab is confirmed deleted or no longer points to ChatGPT.
 
-The worker remembers the last ChatGPT automation tab in local extension storage and recovers tab ids from recent request history, so new unrelated requests reuse the same ChatGPT tab when possible. `Start a new chat by default` creates a new conversation inside that reused tab; it does not intentionally create a new browser tab for each request.
+Background modes require the Chrome `debugger` permission so the extension can use DevTools Protocol focus emulation. Without it, Chrome can keep the ChatGPT page at `visibilityState: hidden`, and ChatGPT may not render streaming response DOM until the tab is selected.
 
-`Visible side window` keeps the separate popup/window shape for debugging or visual inspection, but still uses debugger focus emulation for streaming. `Focus ChatGPT` skips debugger focus emulation and keeps the ChatGPT automation window focused until the request completes, then restores the source tab. That mode is more intrusive, but remains available when debugger focus emulation cannot be used.
+`One background tab` skips the offscreen probe and always uses the reusable inactive tab. `Visible side window` keeps the separate popup/window shape for debugging or visual inspection, but still uses debugger focus emulation for streaming. `Focus ChatGPT` skips debugger focus emulation and keeps the ChatGPT automation window focused until the request completes, then restores the source tab.
 
-The side panel includes `Dump Debug` for debugging stale responses or unexpected focus movement. It writes a structured dump to the side panel console and the extension service-worker console, including current settings, active focus-emulation sessions, request state, tab/window summaries, and a ChatGPT-page DOM snapshot when the content script can be reached.
+The side panel includes target status in the routing settings and `Dump Debug` for debugging stale responses or unexpected focus movement. Debug dumps include current settings, the canonical automation session, active focus-emulation sessions, request state, tab/window summaries, and a ChatGPT-page DOM snapshot when the content script can be reached.
 
 ## Project Routing
 
@@ -98,7 +104,7 @@ The project picker avoids sidebar overflow/menu controls and clicks the left sid
 
 ## Conversation Mode
 
-`Start a new chat by default` is enabled by default. Normal context-menu and manual requests create a fresh ChatGPT conversation after project routing succeeds. The side panel also includes a follow-up box; follow-up requests reuse the associated ChatGPT tab conversation instead of creating a new chat.
+`Start a new chat by default` is enabled by default. Normal context-menu and manual requests create a fresh ChatGPT conversation after project routing succeeds, inside the canonical automation target. The side panel also includes a follow-up box; follow-up requests force `startNewChat: false`, reopen the saved parent conversation URL in the same automation target when needed, and fail clearly if the previous conversation cannot be reopened.
 
 ## Model Selection
 
@@ -127,4 +133,5 @@ The side panel includes an experimental visible-screenshot request. It uses `chr
 - Login screens, account gates, and modal dialogs require manual handling in the ChatGPT tab.
 - Multiple simultaneous requests are isolated by request id, but a single ChatGPT tab can only run one automation at a time.
 - Attachment upload through the ChatGPT web UI is best effort and depends on the page exposing a file input compatible with scripted `FileList` assignment.
-- Host permissions remain limited to ChatGPT plus optional local Ollama, but seamless mode requires Chrome's high-privilege `debugger` permission for the ChatGPT tab.
+- Host permissions remain limited to ChatGPT plus optional local Ollama, but background automation modes require Chrome's high-privilege `debugger` permission for the ChatGPT tab.
+- Fully hidden automation depends on Chrome offscreen iframe capability and ChatGPT frame policy. If that is blocked, the supported fallback is one inactive reusable browser tab.

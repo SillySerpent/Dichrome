@@ -4,7 +4,9 @@
 
 The prototype has three extension surfaces:
 
-- Background service worker: deterministic orchestration, state machine, tab selection, content-script injection, request history, repair calls.
+- Background service worker: deterministic orchestration, state machine transitions, content-script injection, message dispatch, repair calls.
+- Automation modules: settings migration, canonical target session storage, offscreen capability probing, source-focus restoration, and debugger focus emulation.
+- Request modules: request history, attachment payload storage, serialized panel updates.
 - ChatGPT content script: page-local DOM adapter, prompt insertion, send action, response observer, adapter snapshot collection.
 - Side panel: request display, streaming response, manual request entry, retry controls, local repair settings.
 
@@ -29,36 +31,54 @@ The request lifecycle uses these states:
 
 The background worker stores request history in `chrome.storage.session` when available. The content script emits state transitions with `chrome.runtime.sendMessage`; the worker records the transition and broadcasts panel updates.
 
-## Tab Selection
+## Automation Target Selection
 
-The worker searches existing tabs for `chatgpt.com` or `chat.openai.com`, preferring tabs in the same window as the source page and tabs that are not busy. If no candidate exists, it opens `https://chatgpt.com/` with `active: false`.
+The worker stores a canonical automation session in local extension storage:
 
-The extension does not intentionally switch away from the source tab during the normal relay workflow.
+```json
+{
+  "schemaVersion": 1,
+  "targetType": "single-tab",
+  "tabId": 123,
+  "windowId": 456,
+  "offscreenDocumentUrl": null,
+  "currentConversationUrl": "https://chatgpt.com/c/example",
+  "currentConversationKey": "example",
+  "activeRequestId": null,
+  "lastKnownUrl": "https://chatgpt.com/c/example",
+  "lastHealthyAt": "2026-05-14T00:00:00.000Z",
+  "offscreenCapability": {
+    "supported": false,
+    "checkedAt": "2026-05-14T00:00:00.000Z",
+    "failureReason": "iframe blocked"
+  }
+}
+```
 
-## Visibility Mode
+The old `chatGptAutomationWindowState` is still read once as a migration source. After migration, request history is not the primary source of truth for target reuse.
 
-The default runtime mode keeps the source page focused and automates ChatGPT in an inactive browser tab:
+The default runtime mode attempts a hidden internal target first and otherwise keeps the source page focused while automating exactly one inactive ChatGPT browser tab:
 
 ```json
 {
   "visibility": {
-    "schemaVersion": 4,
-    "mode": "seamless",
+    "schemaVersion": 5,
+    "mode": "hidden",
     "windowWidth": 520,
     "windowHeight": 760
   }
 }
 ```
 
-`mode: "seamless"` uses the Chrome debugger permission to attach to the ChatGPT tab and enable DevTools Protocol focus emulation. The worker sends `Emulation.setFocusEmulationEnabled` and `Page.setWebLifecycleState` before the content script starts the run. This keeps ChatGPT lifecycle-visible for streaming DOM updates without switching the user away from the source tab.
+`mode: "hidden"` probes `chrome.offscreen` with an extension-bundled host page and a ChatGPT iframe. Chrome offscreen documents cannot directly load arbitrary remote pages as the document URL, and ChatGPT may block iframe embedding. If the probe fails, the worker records the failure reason and falls back to `single-tab` behavior.
 
-The first seamless run may create one inactive ChatGPT tab if no reusable ChatGPT tab exists. That tab is required because this prototype drives the real ChatGPT web UI; it is not an API client. The tab is created with `active: false`, and the source page remains focused.
+`mode: "single-tab"` uses the canonical session tab if it still exists and points at ChatGPT. If the stored tab was deleted or navigated away from ChatGPT, only the session target fields are cleared and the next request lazily creates one replacement tab with `active: false`. The worker does not create a duplicate because a ping or content-script probe failed.
 
-The automation tab id is persisted in local extension storage and can also be recovered from recent request history. The worker prefers that remembered tab over creating a new one. Fresh unrelated requests create a new ChatGPT conversation inside the remembered tab when `conversation.startNewChat` is true.
+Background modes use the Chrome debugger permission to attach to the ChatGPT tab and enable DevTools Protocol focus emulation. The worker sends `Emulation.setFocusEmulationEnabled` and `Page.setWebLifecycleState` before the content script starts the run. This keeps ChatGPT lifecycle-visible for streaming DOM updates without switching the user away from the source tab.
 
 `mode: "sidecar"` keeps the older separate popup/window shape for visual inspection, but still uses debugger focus emulation for response streaming. `mode: "focused"` skips debugger focus emulation, focuses ChatGPT while generating, then restores the source tab after `RESPONSE_COMPLETE` or `ERROR_STATE`.
 
-The content script checks `document.visibilityState` at key run stages. In seamless and sidecar modes, a hidden ChatGPT page is treated as a focus-emulation failure and does not trigger local DOM repair. Visibility settings include a schema version. Older stored boolean visibility settings are migrated to `mode: "focused"` when `focusDuringRun` was true, otherwise to `mode: "seamless"`.
+The content script checks `document.visibilityState` at key run stages. In hidden, single-tab, and sidecar modes, a hidden ChatGPT page is treated as a focus-emulation failure and does not trigger local DOM repair. Older stored boolean visibility settings are migrated to `mode: "focused"` when `focusDuringRun` was true, otherwise to `mode: "hidden"`; legacy `mode: "seamless"` also migrates to `hidden`.
 
 ## Project Routing
 
@@ -92,7 +112,21 @@ Conversation mode is stored in local extension storage:
 }
 ```
 
-Normal requests start a fresh ChatGPT conversation after project routing succeeds. Follow-up requests set `startNewChat` to false and reuse the ChatGPT tab associated with the previous request.
+Normal requests start a fresh ChatGPT conversation after project routing succeeds when this flag is true. Follow-up requests set `mode: "continue"` and `startNewChat: false` regardless of the stored default.
+
+Requests store conversation metadata:
+
+```json
+{
+  "parentRequestId": "request-parent",
+  "conversationMode": "followup",
+  "chatConversationUrl": "https://chatgpt.com/c/example",
+  "chatConversationKey": "example",
+  "automationTargetType": "single-tab"
+}
+```
+
+The content script emits conversation URL/key metadata on conversation-ready, prompt-sent, streaming, and complete events. A follow-up uses the canonical automation session as the target. If the target tab is alive but on the wrong URL, the worker navigates that same tab back to the parent conversation URL before sending. If the tab was deleted, the worker creates one replacement target and navigates it to the parent conversation URL. If the old conversation URL cannot be reopened, the request fails instead of silently starting a new chat.
 
 ## Model Selection
 

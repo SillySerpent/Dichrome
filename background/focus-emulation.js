@@ -48,7 +48,7 @@ export async function enableFocusEmulation({ tabId, requestId }) {
     });
   } catch (error) {
     await detachDebuggee(debuggee).catch(() => null);
-    throw new FocusEmulationError(`Could not enable seamless ChatGPT focus emulation. ${serializeDebuggerError(error)}`);
+    throw new FocusEmulationError(`Could not enable background ChatGPT focus emulation. ${serializeDebuggerError(error)}`);
   }
 
   const session = {

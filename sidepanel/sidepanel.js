@@ -36,6 +36,7 @@ const dom = {
   projectCreateIfMissing: document.getElementById("projectCreateIfMissing"),
   startNewChat: document.getElementById("startNewChat"),
   automationVisibilityMode: document.getElementById("automationVisibilityMode"),
+  automationTargetStatus: document.getElementById("automationTargetStatus"),
   modelSelectionEnabled: document.getElementById("modelSelectionEnabled"),
   modelLabel: document.getElementById("modelLabel"),
   modelRequireExact: document.getElementById("modelRequireExact"),
@@ -56,6 +57,7 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "PANEL_STATE_UPDATED") {
     panelState = message.panelState;
     render();
+    void refreshAutomationTargetStatus();
   }
 });
 
@@ -179,6 +181,7 @@ async function loadAutomationSettings() {
   dom.modelSelectionEnabled.checked = Boolean(settings.model?.enabled);
   dom.modelLabel.value = settings.model?.label || "";
   dom.modelRequireExact.checked = Boolean(settings.model?.requireExact);
+  renderAutomationTargetStatus(settings.automationSession || null);
 }
 
 async function sendManualRequest() {
@@ -301,7 +304,16 @@ async function saveAutomationSettings() {
   dom.modelSelectionEnabled.checked = Boolean(settings.model.enabled);
   dom.modelLabel.value = settings.model.label;
   dom.modelRequireExact.checked = Boolean(settings.model.requireExact);
+  renderAutomationTargetStatus(settings.automationSession || null);
   setTransientStatus("ChatGPT routing settings saved.");
+}
+
+async function refreshAutomationTargetStatus() {
+  const response = await sendMessage("GET_AUTOMATION_SESSION").catch(() => null);
+
+  if (response?.automationSession) {
+    renderAutomationTargetStatus(response.automationSession);
+  }
 }
 
 async function requestRepairPermission() {
@@ -337,7 +349,7 @@ function render() {
   const hasRepairHints = Boolean(request?.repairSuggestions?.hints?.length);
 
   dom.retryButton.disabled = !hasRequest;
-  dom.followupButton.disabled = !hasRequest || !request?.chatTabId || isRunning;
+  dom.followupButton.disabled = !hasRequest || isRunning || (!request?.chatConversationUrl && !request?.chatTabId);
   dom.retryRepairButton.disabled = !hasRepairHints;
   dom.openChatGptButton.disabled = !hasRequest;
   dom.cancelButton.disabled = !isRunning;
@@ -499,11 +511,28 @@ function formatState(state) {
 }
 
 function normalizeVisibilityMode(value) {
-  if (value === VISIBILITY_MODES.SIDECAR || value === VISIBILITY_MODES.FOCUSED || value === VISIBILITY_MODES.SEAMLESS) {
+  if (value === VISIBILITY_MODES.HIDDEN || value === VISIBILITY_MODES.SINGLE_TAB || value === VISIBILITY_MODES.SIDECAR || value === VISIBILITY_MODES.FOCUSED) {
     return value;
   }
 
-  return VISIBILITY_MODES.SEAMLESS;
+  return VISIBILITY_MODES.HIDDEN;
+}
+
+function renderAutomationTargetStatus(session) {
+  if (!dom.automationTargetStatus) {
+    return;
+  }
+
+  if (!session?.targetType) {
+    dom.automationTargetStatus.textContent = "Automation target: not created yet.";
+    return;
+  }
+
+  const fallback = session.offscreenCapability && !session.offscreenCapability.supported
+    ? ` (${session.offscreenCapability.failureReason || "hidden internal unavailable"})`
+    : "";
+
+  dom.automationTargetStatus.textContent = `Automation target: ${session.targetType}${fallback}`;
 }
 
 function formatTime(value) {

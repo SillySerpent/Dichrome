@@ -8,6 +8,7 @@
     "activeTab",
     "contextMenus",
     "debugger",
+    "offscreen",
     "scripting",
     "sidePanel",
     "storage",
@@ -21,6 +22,9 @@
     "https://chatgpt.com/*",
     "https://chat.openai.com/*"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://chatgpt.com https://chat.openai.com;"
+  },
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"

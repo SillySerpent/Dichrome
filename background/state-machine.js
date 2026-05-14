@@ -131,7 +131,11 @@ export function createRequestRecord({
   selectedText,
   manualText,
   prompt,
-  attachments = []
+  attachments = [],
+  parentRequestId = null,
+  conversationMode = "new",
+  expectedConversationUrl = null,
+  expectedConversationKey = null
 }) {
   const profile = getProfile(profileId);
   const now = new Date().toISOString();
@@ -160,6 +164,13 @@ export function createRequestRecord({
     })),
     responseText: "",
     responseHtml: "",
+    parentRequestId,
+    conversationMode: conversationMode === "followup" ? "followup" : "new",
+    chatConversationUrl: expectedConversationUrl || null,
+    chatConversationKey: expectedConversationKey || null,
+    automationTargetType: null,
+    expectedConversationUrl: expectedConversationUrl || null,
+    expectedConversationKey: expectedConversationKey || null,
     error: null,
     repairSuggestions: null,
     events: [],

@@ -17,8 +17,13 @@ import {
   AUTOMATION_SETTINGS_KEY,
   VISIBILITY_MODES,
   getDefaultAutomationSettings,
+  getVisibilityMode,
   mergeAutomationSettings,
-  sanitizeAutomationSettings
+  sanitizeAutomationSettings,
+  usesFocusedAutomation,
+  usesFocusEmulation,
+  usesHiddenAutomation,
+  usesSidecarWindow
 } from "./automation-settings.js";
 import {
   summarizeDebugData,
@@ -32,21 +37,52 @@ import {
   getFocusEmulationDebugState,
   setFocusEmulationDetachHandler
 } from "./focus-emulation.js";
+import {
+  clearAutomationRequestActive,
+  clearAutomationTabIfMatches,
+  getAutomationSession,
+  markAutomationRequestActive,
+  summarizeAutomationSession,
+  updateSessionConversation
+} from "./automation/session.js";
+import {
+  probeOffscreenAutomationTarget
+} from "./automation/offscreen-target.js";
+import {
+  findOrCreateChatGptTab,
+  getAutomationTargetType,
+  getAutomationWindowState,
+  getUsableChatGptTab,
+  navigateTabToConversation,
+  prepareAutomationTab,
+  resolvePreferredAutomationTabId,
+  setAutomationWindowState
+} from "./automation/tab-target.js";
+import {
+  CHATGPT_CONTENT_SCRIPT_FILES,
+  REPAIR_SETTINGS_KEY,
+  getTabId,
+  isChatGptUrl,
+  serializeError
+} from "./constants.js";
+import {
+  appendEvent,
+  getPanelState,
+  getRequest,
+  putRequest,
+  restoreAttachmentPayloads,
+  storeAttachmentPayloads,
+  updateRequest
+} from "./requests/store.js";
+import {
+  captureVisibleTabScreenshot,
+  getSourceFocusTarget,
+  queryBestSourceTab,
+  rememberSourceTab,
+  restoreSourceFocus
+} from "./automation/source-focus.js";
 
-const CHATGPT_HOME_URL = "https://chatgpt.com/";
 const EXTENSION_NAME = chrome.runtime.getManifest().name;
-const CHATGPT_HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
-const CONTENT_SCRIPT_FILE = "content/chatgpt-automation.js";
-const PANEL_STATE_KEY = "panelState";
-const REPAIR_SETTINGS_KEY = "adapterRepairSettings";
-const AUTOMATION_WINDOW_STATE_KEY = "chatGptAutomationWindowState";
-const LAST_SOURCE_TAB_KEY = "lastSourceTab";
-const HISTORY_LIMIT = 20;
-const EVENT_LIMIT = 100;
-const CHATGPT_LOAD_TIMEOUT_MS = 30000;
-
-const storageArea = chrome.storage.session || chrome.storage.local;
-let panelStateWriteQueue = Promise.resolve();
 
 setFocusEmulationDetachHandler((event) => {
   void handleFocusEmulationDetached(event);
@@ -66,6 +102,10 @@ chrome.action.onClicked.addListener((tab) => {
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   void handleContextMenuClick(info, tab);
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void clearAutomationTabIfMatches(tabId);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -163,7 +203,12 @@ async function handleRuntimeMessage(message, sender) {
 
     case "GET_CHATGPT_AUTOMATION_SETTINGS":
       return {
-        settings: await getAutomationSettings()
+        settings: await getPublicAutomationSettings()
+      };
+
+    case "GET_AUTOMATION_SESSION":
+      return {
+        automationSession: summarizeAutomationSession(await getAutomationSession())
       };
 
     case "SET_CHATGPT_AUTOMATION_SETTINGS":
@@ -229,27 +274,33 @@ async function startFollowupRequest(message) {
     throw new Error("Request not found.");
   }
 
-  if (!existing.chatTabId) {
-    throw new Error("The request does not have an associated ChatGPT tab for follow-up.");
-  }
-
   const manualText = normalizeText(message.text);
 
   if (!manualText) {
     throw new Error("Follow-up prompt is empty.");
   }
 
+  if (!existing.chatConversationUrl && !existing.chatTabId) {
+    throw new Error("The previous request does not have a saved ChatGPT conversation for follow-up.");
+  }
+
   return startRequest({
     profileId: "custom_text",
     sourceTab: existing.source,
     manualText,
-    preferredChatTabId: existing.chatTabId,
+    parentRequestId: existing.id,
+    conversationMode: "followup",
+    expectedConversationUrl: existing.chatConversationUrl || null,
+    expectedConversationKey: existing.chatConversationKey || null,
+    preferredChatTabId: existing.chatTabId || null,
     chatOptionsOverride: {
       project: {
         enabled: false
       },
       conversation: {
-        startNewChat: false
+        mode: "continue",
+        startNewChat: false,
+        expectedConversationUrl: existing.chatConversationUrl || null
       },
       model: {
         enabled: false
@@ -277,6 +328,10 @@ async function retryRequest(message) {
     manualText: existing.manualText,
     attachments,
     adapterHints,
+    parentRequestId: existing.parentRequestId || null,
+    conversationMode: existing.conversationMode || "new",
+    expectedConversationUrl: existing.conversationMode === "followup" ? existing.chatConversationUrl || null : null,
+    expectedConversationKey: existing.conversationMode === "followup" ? existing.chatConversationKey || null : null,
     preferredChatTabId: existing.chatTabId || null
   });
 
@@ -335,7 +390,11 @@ async function startRequest({
   attachments = [],
   adapterHints = [],
   preferredChatTabId = null,
-  chatOptionsOverride = null
+  chatOptionsOverride = null,
+  parentRequestId = null,
+  conversationMode = "new",
+  expectedConversationUrl = null,
+  expectedConversationKey = null
 }) {
   await rememberSourceTab(sourceTab);
 
@@ -352,7 +411,11 @@ async function startRequest({
     selectedText,
     manualText,
     prompt,
-    attachments
+    attachments,
+    parentRequestId,
+    conversationMode,
+    expectedConversationUrl,
+    expectedConversationKey
   });
 
   await storeAttachmentPayloads(requestId, attachments);
@@ -395,8 +458,19 @@ async function orchestrateRequest(requestId, {
     );
     const visibility = automationSettings.visibility;
     const sourceFocus = getSourceFocusTarget(request.source);
-    const discoveredChatTab = preferredChatTabId
-      ? await getUsableChatGptTab(preferredChatTabId, {
+    const hiddenCapability = usesHiddenAutomation(visibility)
+      ? await probeOffscreenAutomationTarget()
+      : null;
+
+    if (hiddenCapability && !hiddenCapability.supported) {
+      await updateRequest(requestId, (draft) => {
+        appendEvent(draft, `Hidden internal target unavailable; using one inactive tab. ${hiddenCapability.failureReason || ""}`.trim());
+      });
+    }
+
+    const preferredAutomationTabId = await resolvePreferredAutomationTabId(preferredChatTabId, visibility);
+    const discoveredChatTab = preferredAutomationTabId
+      ? await getUsableChatGptTab(preferredAutomationTabId, {
         sourceFocus,
         visibility
       })
@@ -406,9 +480,20 @@ async function orchestrateRequest(requestId, {
       });
     const chatTab = await prepareAutomationTab(discoveredChatTab);
 
+    if (request.conversationMode === "followup") {
+      if (request.expectedConversationUrl) {
+        await navigateTabToConversation(chatTab.id, request.expectedConversationUrl);
+      } else if (!preferredChatTabId || chatTab.id !== preferredChatTabId) {
+        throw new Error("The previous request has no saved ChatGPT conversation URL, and its original ChatGPT tab is not available. The extension will not start a new chat for this follow-up.");
+      }
+    }
+
+    await markAutomationRequestActive(requestId);
+
     await updateRequest(requestId, (draft) => {
       draft.chatTabId = chatTab.id;
       draft.automationVisibilityMode = getVisibilityMode(visibility);
+      draft.automationTargetType = getAutomationTargetType(visibility);
       draft.state = REQUEST_STATES.CHATGPT_TAB_READY;
       appendEvent(draft, `Using ChatGPT tab ${chatTab.id}.`);
     });
@@ -419,7 +504,7 @@ async function orchestrateRequest(requestId, {
         requestId
       });
       await updateRequest(requestId, (draft) => {
-        appendEvent(draft, "Chrome debugger focus emulation enabled for seamless ChatGPT streaming.");
+        appendEvent(draft, "Chrome debugger focus emulation enabled for background ChatGPT streaming.");
       });
     }
 
@@ -437,7 +522,17 @@ async function orchestrateRequest(requestId, {
         prompt: request.prompt,
         attachments,
         adapterHints,
-        chatOptions: automationSettings
+        chatOptions: {
+          ...automationSettings,
+          conversation: {
+            ...automationSettings.conversation,
+            mode: request.conversationMode === "followup" ? "continue" : "new",
+            startNewChat: request.conversationMode === "followup"
+              ? false
+              : automationSettings.conversation.startNewChat,
+            expectedConversationUrl: request.expectedConversationUrl || null
+          }
+        }
       }
     });
 
@@ -450,408 +545,9 @@ async function orchestrateRequest(requestId, {
     }
   } catch (error) {
     await disableFocusEmulationForRequest(requestId).catch(() => null);
+    await clearAutomationRequestActive(requestId).catch(() => null);
     await markRequestError(requestId, error);
   }
-}
-
-async function prepareAutomationTab(tab) {
-  if (!tab?.id) {
-    return tab;
-  }
-
-  await chrome.tabs.update(tab.id, {
-    autoDiscardable: false
-  }).catch(() => null);
-
-  return chrome.tabs.get(tab.id).catch(() => tab);
-}
-
-async function findOrCreateChatGptTab({ sourceFocus, visibility } = {}) {
-  if (usesSidecarWindow(visibility)) {
-    return findOrCreateVisibleChatGptTab({
-      sourceFocus,
-      visibility
-    });
-  }
-
-  return findOrCreateSeamlessChatGptTab({
-    sourceFocus
-  });
-}
-
-async function findOrCreateSeamlessChatGptTab({ sourceFocus } = {}) {
-  const sourceWindowId = sourceFocus?.windowId || null;
-  const rememberedTab = await findRememberedChatGptTab();
-
-  if (rememberedTab) {
-    const usableRememberedTab = await getAvailableChatGptTab([rememberedTab]);
-
-    if (usableRememberedTab) {
-      console.info("[ChatGPT Relay] Reusing seamless ChatGPT automation tab", {
-        tabId: usableRememberedTab.id,
-        windowId: usableRememberedTab.windowId,
-        sourceWindowId
-      });
-      return usableRememberedTab;
-    }
-  }
-
-  const tabs = await chrome.tabs.query({});
-  const existingTab = await getAvailableChatGptTab(
-    tabs
-      .filter((tab) => isChatGptUrl(tab.url || tab.pendingUrl || ""))
-      .sort((a, b) => scoreChatTab(b, sourceWindowId) - scoreChatTab(a, sourceWindowId))
-  );
-
-  if (existingTab) {
-    console.info("[ChatGPT Relay] Reusing existing ChatGPT tab for seamless automation", {
-      tabId: existingTab.id,
-      windowId: existingTab.windowId,
-      sourceWindowId
-    });
-    return existingTab;
-  }
-
-  const createOptions = {
-    url: CHATGPT_HOME_URL,
-    active: false
-  };
-
-  if (sourceWindowId) {
-    createOptions.windowId = sourceWindowId;
-  }
-
-  const created = await chrome.tabs.create(createOptions);
-  console.info("[ChatGPT Relay] Created inactive ChatGPT tab for seamless automation", {
-    tabId: created.id,
-    windowId: created.windowId,
-    sourceWindowId
-  });
-
-  return waitForTabToLoad(created.id, CHATGPT_LOAD_TIMEOUT_MS);
-}
-
-async function findOrCreateVisibleChatGptTab({ sourceFocus, visibility }) {
-  const sourceWindowId = sourceFocus?.windowId || null;
-  const rememberedTab = await findRememberedChatGptTab({
-    excludeWindowId: sourceWindowId
-  });
-
-  if (rememberedTab) {
-    console.info("[ChatGPT Relay] Reusing visible ChatGPT automation tab", {
-      tabId: rememberedTab.id,
-      windowId: rememberedTab.windowId,
-      sourceWindowId
-    });
-    return ensureChatGptTabVisible(rememberedTab, {
-      sourceFocus,
-      visibility
-    });
-  }
-
-  const tabs = await chrome.tabs.query({});
-  const existingAutomationTab = tabs
-    .filter((tab) => {
-      if (!isChatGptUrl(tab.url || tab.pendingUrl || "")) {
-        return false;
-      }
-
-      return !sourceWindowId || tab.windowId !== sourceWindowId;
-    })
-    .sort((a, b) => scoreChatTab(b, sourceWindowId) - scoreChatTab(a, sourceWindowId))[0];
-
-  if (existingAutomationTab) {
-    console.info("[ChatGPT Relay] Reusing existing ChatGPT tab outside source window", {
-      tabId: existingAutomationTab.id,
-      windowId: existingAutomationTab.windowId,
-      sourceWindowId
-    });
-    return ensureChatGptTabVisible(existingAutomationTab, {
-      sourceFocus,
-      visibility
-    });
-  }
-
-  return createVisibleAutomationWindow({
-    sourceFocus,
-    visibility
-  });
-}
-
-async function createVisibleAutomationWindow({ sourceFocus, visibility }) {
-  const sourceWindowId = sourceFocus?.windowId || null;
-  const sourceWindow = sourceFocus?.windowId
-    ? await chrome.windows.get(sourceFocus.windowId).catch(() => null)
-    : null;
-  const width = visibility?.windowWidth || 520;
-  const height = visibility?.windowHeight || 760;
-  const focused = usesFocusedAutomation(visibility);
-  const createOptions = {
-    url: CHATGPT_HOME_URL,
-    type: "popup",
-    focused,
-    width,
-    height,
-    state: "normal"
-  };
-
-  if (sourceWindow && Number.isFinite(sourceWindow.left) && Number.isFinite(sourceWindow.width)) {
-    createOptions.left = Math.max(0, sourceWindow.left + sourceWindow.width - width - 24);
-  }
-
-  if (sourceWindow && Number.isFinite(sourceWindow.top)) {
-    createOptions.top = Math.max(0, sourceWindow.top + 64);
-  }
-
-  const createdWindow = await chrome.windows.create(createOptions);
-  const createdTab = createdWindow.tabs?.[0];
-
-  if (!createdTab?.id) {
-    throw new Error("Chrome did not return a tab for the ChatGPT automation window.");
-  }
-
-  await setAutomationWindowState({
-    windowId: createdWindow.id,
-    tabId: createdTab.id
-  });
-  console.info("[ChatGPT Relay] Created visible ChatGPT automation window", {
-    tabId: createdTab.id,
-    windowId: createdWindow.id,
-    sourceWindowId,
-    focused
-  });
-  if (!focused) {
-    await restoreSourceFocus(sourceFocus, createdWindow.id);
-  }
-
-  const loadedTab = await waitForTabToLoad(createdTab.id, CHATGPT_LOAD_TIMEOUT_MS);
-
-  if (!focused) {
-    await restoreSourceFocus(sourceFocus, loadedTab.windowId);
-  }
-
-  return loadedTab;
-}
-
-async function ensureChatGptTabVisible(tab, { sourceFocus, visibility }) {
-  if (sourceFocus?.windowId && tab.windowId === sourceFocus.windowId) {
-    console.info("[ChatGPT Relay] ChatGPT tab is in source window; creating dedicated automation window instead", {
-      tabId: tab.id,
-      sourceWindowId: sourceFocus.windowId
-    });
-    return createVisibleAutomationWindow({
-      sourceFocus,
-      visibility
-    });
-  }
-
-  const window = await chrome.windows.get(tab.windowId).catch(() => null);
-
-  if (window?.state === "minimized") {
-    await chrome.windows.update(tab.windowId, {
-      state: "normal"
-    }).catch(() => null);
-  }
-
-  if (visibility?.windowWidth || visibility?.windowHeight) {
-    await chrome.windows.update(tab.windowId, {
-      width: visibility.windowWidth,
-      height: visibility.windowHeight
-    }).catch(() => null);
-  }
-
-  await chrome.tabs.update(tab.id, {
-    active: true
-  });
-
-  if (usesFocusedAutomation(visibility)) {
-    await chrome.windows.update(tab.windowId, {
-      focused: true
-    }).catch(() => null);
-  }
-
-  await setAutomationWindowState({
-    windowId: tab.windowId,
-    tabId: tab.id
-  });
-  if (!usesFocusedAutomation(visibility)) {
-    await restoreSourceFocus(sourceFocus, tab.windowId);
-  }
-
-  const updatedTab = await chrome.tabs.get(tab.id);
-
-  if (!usesFocusedAutomation(visibility)) {
-    await restoreSourceFocus(sourceFocus, updatedTab.windowId);
-  }
-
-  return updatedTab;
-}
-
-async function restoreSourceFocus(sourceFocus, automationWindowId) {
-  if (!sourceFocus?.windowId || sourceFocus.windowId === automationWindowId) {
-    return;
-  }
-
-  await focusSourceTarget(sourceFocus);
-  await sleep(120);
-  await focusSourceTarget(sourceFocus);
-}
-
-async function focusSourceTarget(sourceFocus) {
-  if (sourceFocus.tabId) {
-    await chrome.tabs.update(sourceFocus.tabId, {
-      active: true
-    }).catch(() => null);
-  }
-
-  await chrome.windows.update(sourceFocus.windowId, {
-    focused: true
-  }).catch(() => null);
-}
-
-async function getUsableChatGptTab(tabId, { sourceFocus, visibility } = {}) {
-  try {
-    const tab = await chrome.tabs.get(tabId);
-
-    if (isChatGptUrl(tab.url || tab.pendingUrl || "")) {
-      if (usesSeamlessAutomation(visibility)) {
-        return ensureChatGptTabLoaded(tab);
-      }
-
-      if (usesSidecarWindow(visibility) && sourceFocus?.windowId && tab.windowId === sourceFocus.windowId) {
-        console.info("[ChatGPT Relay] Preferred ChatGPT tab is in source window; using dedicated automation window instead", {
-          tabId: tab.id,
-          sourceWindowId: sourceFocus.windowId
-        });
-        return findOrCreateVisibleChatGptTab({
-          sourceFocus,
-          visibility
-        });
-      }
-
-      return ensureChatGptTabVisible(tab, {
-        sourceFocus,
-        visibility
-      });
-    }
-  } catch (_error) {
-    // Fall through to regular discovery.
-  }
-
-  return findOrCreateChatGptTab({
-    sourceFocus,
-    visibility
-  });
-}
-
-async function getChatGptTabOrNull(tabId) {
-  try {
-    const tab = await chrome.tabs.get(tabId);
-
-    return isChatGptUrl(tab.url || tab.pendingUrl || "") ? tab : null;
-  } catch (_error) {
-    return null;
-  }
-}
-
-async function getAutomationWindowState() {
-  const result = await chrome.storage.local.get(AUTOMATION_WINDOW_STATE_KEY);
-
-  return result[AUTOMATION_WINDOW_STATE_KEY] || null;
-}
-
-async function setAutomationWindowState(state) {
-  await chrome.storage.local.set({
-    [AUTOMATION_WINDOW_STATE_KEY]: state
-  });
-}
-
-async function findRememberedChatGptTab({ excludeWindowId = null } = {}) {
-  const stored = await getAutomationWindowState();
-
-  if (stored?.tabId) {
-    const storedTab = await getChatGptTabOrNull(stored.tabId);
-
-    if (storedTab && (!excludeWindowId || storedTab.windowId !== excludeWindowId)) {
-      return storedTab;
-    }
-  }
-
-  const panelState = await getPanelState();
-  const recentChatTabIds = panelState.requests
-    .map((request) => request.chatTabId)
-    .filter(Boolean);
-
-  for (const tabId of recentChatTabIds) {
-    const tab = await getChatGptTabOrNull(tabId);
-
-    if (tab && (!excludeWindowId || tab.windowId !== excludeWindowId)) {
-      return tab;
-    }
-  }
-
-  return null;
-}
-
-async function getAvailableChatGptTab(candidates) {
-  for (const tab of candidates) {
-    const loadedTab = await ensureChatGptTabLoaded(tab);
-    const probe = await probeChatGptTab(loadedTab.id);
-
-    if (probe.ok && !probe.busy) {
-      return loadedTab;
-    }
-  }
-
-  return null;
-}
-
-async function ensureChatGptTabLoaded(tab) {
-  if (tab.discarded) {
-    await chrome.tabs.reload(tab.id).catch(() => null);
-    return waitForTabToLoad(tab.id, CHATGPT_LOAD_TIMEOUT_MS);
-  }
-
-  if (tab.status !== "complete") {
-    return waitForTabToLoad(tab.id, CHATGPT_LOAD_TIMEOUT_MS);
-  }
-
-  return tab;
-}
-
-async function probeChatGptTab(tabId) {
-  try {
-    await injectAutomationScript(tabId);
-    const response = await sendMessageToTab(tabId, {
-      type: "CHATGPT_AUTOMATION_PING"
-    });
-
-    return {
-      ok: Boolean(response?.ok),
-      busy: Boolean(response?.busy)
-    };
-  } catch (_error) {
-    return {
-      ok: false,
-      busy: false
-    };
-  }
-}
-
-async function waitForTabToLoad(tabId, timeoutMs) {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    const tab = await chrome.tabs.get(tabId);
-
-    if (isChatGptUrl(tab.url || tab.pendingUrl || "") && tab.status === "complete") {
-      return tab;
-    }
-
-    await sleep(300);
-  }
-
-  return chrome.tabs.get(tabId);
 }
 
 async function injectAutomationScript(tabId) {
@@ -859,7 +555,7 @@ async function injectAutomationScript(tabId) {
     target: {
       tabId
     },
-    files: [CONTENT_SCRIPT_FILE]
+    files: CHATGPT_CONTENT_SCRIPT_FILES
   });
 }
 
@@ -900,6 +596,14 @@ async function handleAutomationEvent(message, sender) {
       draft.error = message.error;
     }
 
+    if (message.conversationUrl) {
+      draft.chatConversationUrl = message.conversationUrl;
+    }
+
+    if (message.conversationKey) {
+      draft.chatConversationKey = message.conversationKey;
+    }
+
     if (message.state === REQUEST_STATES.RESPONSE_COMPLETE) {
       draft.completedAt = new Date().toISOString();
     }
@@ -918,6 +622,13 @@ async function handleAutomationEvent(message, sender) {
     });
   }
 
+  if (message.conversationUrl || message.conversationKey) {
+    await updateSessionConversation({
+      conversationUrl: message.conversationUrl || null,
+      conversationKey: message.conversationKey || null
+    }).catch(() => null);
+  }
+
   if (
     message.state === REQUEST_STATES.RESPONSE_COMPLETE
     || message.state === REQUEST_STATES.ERROR_STATE
@@ -927,6 +638,7 @@ async function handleAutomationEvent(message, sender) {
     const requestVisibilityMode = request?.automationVisibilityMode || getVisibilityMode(settings.visibility);
 
     await disableFocusEmulationForRequest(requestId).catch(() => null);
+    await clearAutomationRequestActive(requestId).catch(() => null);
 
     if (requestVisibilityMode === VISIBILITY_MODES.FOCUSED) {
       await restoreSourceFocus(getSourceFocusTarget(request?.source), sender.tab?.windowId);
@@ -947,7 +659,7 @@ async function handleFocusEmulationDetached({ requestId, reason }) {
 
   await markRequestError(
     requestId,
-    new Error(`Chrome debugger focus emulation detached (${reason}). Seamless ChatGPT streaming cannot continue while the ChatGPT page is hidden. Close DevTools for the ChatGPT tab and retry, or switch routing mode to Focus ChatGPT.`)
+    new Error(`Chrome debugger focus emulation detached (${reason}). Background ChatGPT streaming cannot continue while the ChatGPT page is hidden. Close DevTools for the ChatGPT tab and retry, or switch routing mode to Focus ChatGPT.`)
   );
 }
 
@@ -983,6 +695,7 @@ async function dumpDebugState(requestId) {
   const settings = await getAutomationSettings();
   const repairSettings = await getRepairSettings();
   const automationWindowState = await getAutomationWindowState();
+  const automationSession = await getAutomationSession();
   const tabs = await chrome.tabs.query({});
   const windows = await chrome.windows.getAll({
     populate: true
@@ -993,6 +706,7 @@ async function dumpDebugState(requestId) {
     .sort((a, b) => scoreChatTab(b, sourceWindowId) - scoreChatTab(a, sourceWindowId))[0] || null;
   const contentDumpCandidates = [
     request?.chatTabId,
+    automationSession?.tabId,
     automationWindowState?.tabId,
     fallbackChatTab?.id
   ].filter((tabId, index, values) => tabId && values.indexOf(tabId) === index);
@@ -1012,6 +726,7 @@ async function dumpDebugState(requestId) {
     },
     request: request ? summarizeRequestForDebug(request) : null,
     automationWindowState,
+    automationSession: summarizeAutomationSession(automationSession),
     focusEmulation: getFocusEmulationDebugState(),
     contentDumpTabId: contentDumpResult.tabId,
     tabs: tabs.map(summarizeTabForDebug),
@@ -1098,217 +813,6 @@ async function markRequestError(requestId, error) {
   });
 }
 
-async function queryBestSourceTab() {
-  const [lastFocusedTab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true
-  });
-
-  if (isUsableSourceTab(lastFocusedTab)) {
-    return lastFocusedTab;
-  }
-
-  const [activeTab] = await chrome.tabs.query({
-    active: true,
-    currentWindow: true
-  });
-
-  if (isUsableSourceTab(activeTab)) {
-    return activeTab;
-  }
-
-  return getRememberedSourceTab();
-}
-
-async function rememberSourceTab(tab) {
-  if (!isUsableSourceTab(tab)) {
-    return;
-  }
-
-  await storageArea.set({
-    [LAST_SOURCE_TAB_KEY]: {
-      tabId: tab.id,
-      windowId: tab.windowId,
-      title: tab.title || "",
-      url: tab.url || ""
-    }
-  });
-}
-
-async function getRememberedSourceTab() {
-  const result = await storageArea.get(LAST_SOURCE_TAB_KEY);
-  const remembered = result[LAST_SOURCE_TAB_KEY];
-
-  if (!remembered?.tabId) {
-    return null;
-  }
-
-  try {
-    const tab = await chrome.tabs.get(remembered.tabId);
-
-    return isUsableSourceTab(tab) ? tab : null;
-  } catch (_error) {
-    return null;
-  }
-}
-
-function getSourceFocusTarget(source) {
-  return {
-    tabId: source?.tabId ?? source?.id ?? null,
-    windowId: source?.windowId ?? null
-  };
-}
-
-function isUsableSourceTab(tab) {
-  const url = tab?.url || tab?.pendingUrl || "";
-
-  return Boolean(tab?.id && tab?.windowId && url && !isExtensionUrl(url) && !isChatGptUrl(url));
-}
-
-async function captureVisibleTabScreenshot(windowId) {
-  let dataUrl;
-
-  try {
-    dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
-      format: "png"
-    });
-  } catch (error) {
-    throw new Error(`Visible screenshot capture failed. Chrome usually requires a recent extension gesture for page capture. ${serializeError(error)}`);
-  }
-
-  const sizeBytes = Math.ceil((dataUrl.length * 3) / 4);
-
-  return {
-    id: createRequestId(),
-    kind: "image",
-    name: `visible-tab-${Date.now()}.png`,
-    mimeType: "image/png",
-    dataUrl,
-    sizeBytes
-  };
-}
-
-async function storeAttachmentPayloads(requestId, attachments) {
-  if (!attachments.length) {
-    return;
-  }
-
-  await storageArea.set({
-    [`attachments:${requestId}`]: attachments
-  });
-}
-
-async function restoreAttachmentPayloads(request) {
-  if (!request?.attachments?.length) {
-    return [];
-  }
-
-  const result = await storageArea.get(`attachments:${request.id}`);
-
-  return result[`attachments:${request.id}`] || [];
-}
-
-async function putRequest(request) {
-  const panelState = await getPanelState();
-  const nextRequests = [
-    request,
-    ...panelState.requests.filter((item) => item.id !== request.id)
-  ].slice(0, HISTORY_LIMIT);
-
-  await setPanelState({
-    activeRequestId: request.id,
-    requests: nextRequests
-  });
-}
-
-async function updateRequest(requestId, mutator) {
-  const nextWrite = panelStateWriteQueue.then(() => updateRequestImmediately(requestId, mutator));
-  panelStateWriteQueue = nextWrite.catch(() => null);
-
-  return nextWrite;
-}
-
-async function updateRequestImmediately(requestId, mutator) {
-  const panelState = await getPanelState();
-  const index = panelState.requests.findIndex((request) => request.id === requestId);
-
-  if (index === -1) {
-    throw new Error(`Request not found: ${requestId}`);
-  }
-
-  const request = structuredClone(panelState.requests[index]);
-  mutator(request);
-  request.updatedAt = new Date().toISOString();
-
-  const requests = [...panelState.requests];
-  requests[index] = request;
-
-  await setPanelState({
-    ...panelState,
-    requests
-  });
-}
-
-async function getRequest(requestId) {
-  const panelState = await getPanelState();
-
-  return panelState.requests.find((request) => request.id === requestId) || null;
-}
-
-async function getPanelState() {
-  const result = await storageArea.get(PANEL_STATE_KEY);
-
-  return normalizePanelState(result[PANEL_STATE_KEY]);
-}
-
-async function setPanelState(panelState) {
-  const normalized = normalizePanelState(panelState);
-
-  await storageArea.set({
-    [PANEL_STATE_KEY]: normalized
-  });
-
-  await broadcastPanelState(normalized);
-}
-
-function normalizePanelState(value) {
-  if (!value || typeof value !== "object") {
-    return {
-      activeRequestId: null,
-      requests: []
-    };
-  }
-
-  const requests = Array.isArray(value.requests)
-    ? value.requests.slice(0, HISTORY_LIMIT)
-    : [];
-  const activeRequestId = value.activeRequestId && requests.some((request) => request.id === value.activeRequestId)
-    ? value.activeRequestId
-    : requests[0]?.id || null;
-
-  return {
-    activeRequestId,
-    requests
-  };
-}
-
-async function broadcastPanelState(panelState) {
-  await chrome.runtime.sendMessage({
-    type: "PANEL_STATE_UPDATED",
-    panelState
-  }).catch(() => null);
-}
-
-function appendEvent(request, detail) {
-  request.events = [
-    ...(Array.isArray(request.events) ? request.events : []),
-    {
-      at: new Date().toISOString(),
-      detail
-    }
-  ].slice(-EVENT_LIMIT);
-}
-
 async function openSidePanel(tabId) {
   if (!tabId || !chrome.sidePanel?.open) {
     return;
@@ -1345,7 +849,7 @@ async function setAutomationSettings(settings) {
   });
 
   return {
-    settings: sanitized
+    settings: await getPublicAutomationSettings()
   };
 }
 
@@ -1356,6 +860,16 @@ async function getAutomationSettings() {
     result[AUTOMATION_SETTINGS_KEY] || getDefaultAutomationSettings(EXTENSION_NAME),
     EXTENSION_NAME
   );
+}
+
+async function getPublicAutomationSettings() {
+  const settings = await getAutomationSettings();
+  const session = await getAutomationSession();
+
+  return {
+    ...settings,
+    automationSession: summarizeAutomationSession(session)
+  };
 }
 
 async function sendMessageToTab(tabId, message) {
@@ -1378,73 +892,4 @@ function scoreChatTab(tab, sourceWindowId) {
   }
 
   return score;
-}
-
-function getVisibilityMode(visibility) {
-  switch (visibility?.mode) {
-    case VISIBILITY_MODES.SIDECAR:
-    case VISIBILITY_MODES.FOCUSED:
-    case VISIBILITY_MODES.SEAMLESS:
-      return visibility.mode;
-    default:
-      return VISIBILITY_MODES.SEAMLESS;
-  }
-}
-
-function usesSeamlessAutomation(visibility) {
-  return getVisibilityMode(visibility) === VISIBILITY_MODES.SEAMLESS;
-}
-
-function usesSidecarWindow(visibility) {
-  const mode = getVisibilityMode(visibility);
-
-  return mode === VISIBILITY_MODES.SIDECAR || mode === VISIBILITY_MODES.FOCUSED;
-}
-
-function usesFocusedAutomation(visibility) {
-  return getVisibilityMode(visibility) === VISIBILITY_MODES.FOCUSED;
-}
-
-function usesFocusEmulation(visibility) {
-  const mode = getVisibilityMode(visibility);
-
-  return mode === VISIBILITY_MODES.SEAMLESS || mode === VISIBILITY_MODES.SIDECAR;
-}
-
-function isChatGptUrl(value) {
-  try {
-    const url = new URL(value);
-
-    return url.protocol === "https:" && CHATGPT_HOSTS.has(url.hostname);
-  } catch (_error) {
-    return false;
-  }
-}
-
-function isExtensionUrl(value) {
-  return value.startsWith(`chrome-extension://${chrome.runtime.id}/`);
-}
-
-function getTabId(tabLike) {
-  return tabLike?.id ?? tabLike?.tabId ?? null;
-}
-
-function serializeError(error) {
-  if (!error) {
-    return "Unknown error";
-  }
-
-  if (typeof error === "string") {
-    return error;
-  }
-
-  if (error.message) {
-    return error.message;
-  }
-
-  return String(error);
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

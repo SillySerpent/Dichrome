@@ -7,17 +7,32 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const requiredFiles = [
   "manifest.json",
   "background/service-worker.js",
+  "background/constants.js",
   "background/automation-settings.js",
+  "background/automation/focus-emulation.js",
+  "background/automation/offscreen-target.js",
+  "background/automation/source-focus.js",
+  "background/automation/session.js",
+  "background/automation/settings.js",
+  "background/automation/tab-target.js",
   "background/debug-dump.js",
   "background/focus-emulation.js",
+  "background/requests/store.js",
   "background/state-machine.js",
   "background/adapter-repair.js",
   "content/chatgpt-automation.js",
+  "content/chatgpt/00-namespace.js",
+  "content/chatgpt/90-bootstrap.js",
+  "offscreen/automation-host.html",
+  "offscreen/automation-host.js",
   "icons/icon-16.png",
   "icons/icon-32.png",
   "icons/icon-48.png",
   "icons/icon-128.png",
   "assets/icon.svg",
+  "scripts/test.mjs",
+  "scripts/test-automation-session.mjs",
+  "scripts/test-request-records.mjs",
   "scripts/test-settings.mjs",
   "sidepanel/sidepanel.html",
   "sidepanel/sidepanel.css",
@@ -52,7 +67,7 @@ async function validateManifest() {
 
   const permissions = new Set(manifest.permissions || []);
 
-  for (const permission of ["activeTab", "contextMenus", "debugger", "scripting", "sidePanel", "storage", "tabs", "windows"]) {
+  for (const permission of ["activeTab", "contextMenus", "debugger", "offscreen", "scripting", "sidePanel", "storage", "tabs", "windows"]) {
     assert(permissions.has(permission), `Missing permission: ${permission}`);
   }
 
@@ -60,6 +75,10 @@ async function validateManifest() {
 
   assert(hostPermissions.has("https://chatgpt.com/*"), "Missing chatgpt.com host permission.");
   assert(hostPermissions.has("https://chat.openai.com/*"), "Missing chat.openai.com host permission.");
+  assert(
+    manifest.content_security_policy?.extension_pages?.includes("frame-src https://chatgpt.com https://chat.openai.com"),
+    "Extension CSP must allow ChatGPT offscreen iframe probe hosts."
+  );
 }
 
 async function validateFilesExist() {

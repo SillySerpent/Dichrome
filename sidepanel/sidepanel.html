@@ -92,11 +92,13 @@
         <div class="field-row">
           <label for="automationVisibilityMode">Automation mode</label>
           <select id="automationVisibilityMode">
-            <option value="seamless">Seamless background</option>
+            <option value="hidden">Hidden internal</option>
+            <option value="single-tab">One background tab</option>
             <option value="sidecar">Visible side window</option>
             <option value="focused">Focus ChatGPT</option>
           </select>
         </div>
+        <div id="automationTargetStatus" class="target-status"></div>
         <div class="section-heading compact-heading">
           <h2>Model</h2>
           <label class="switch-label">

@@ -14,7 +14,7 @@ assert.equal(defaults.project.name, "ChatGPT Page Relay Prototype");
 assert.equal(defaults.project.createIfMissing, true);
 assert.equal(defaults.conversation.startNewChat, true);
 assert.equal(defaults.visibility.schemaVersion, VISIBILITY_SETTINGS_VERSION);
-assert.equal(defaults.visibility.mode, VISIBILITY_MODES.SEAMLESS);
+assert.equal(defaults.visibility.mode, VISIBILITY_MODES.HIDDEN);
 assert.equal(defaults.visibility.windowWidth, 520);
 assert.equal(defaults.visibility.windowHeight, 760);
 assert.equal(defaults.model.enabled, false);
@@ -70,7 +70,16 @@ const migrated = sanitizeAutomationSettings({
   }
 }, "Fallback Name");
 
-assert.equal(migrated.visibility.mode, VISIBILITY_MODES.SEAMLESS);
+assert.equal(migrated.visibility.mode, VISIBILITY_MODES.HIDDEN);
+
+const migratedSeamlessMode = sanitizeAutomationSettings({
+  visibility: {
+    schemaVersion: VISIBILITY_SETTINGS_VERSION - 1,
+    mode: "seamless"
+  }
+}, "Fallback Name");
+
+assert.equal(migratedSeamlessMode.visibility.mode, VISIBILITY_MODES.HIDDEN);
 
 const previousSchemaVisibility = sanitizeAutomationSettings({
   visibility: {
@@ -98,7 +107,7 @@ const invalidVisibility = sanitizeAutomationSettings({
   }
 }, "Fallback Name");
 
-assert.equal(invalidVisibility.visibility.mode, VISIBILITY_MODES.SEAMLESS);
+assert.equal(invalidVisibility.visibility.mode, VISIBILITY_MODES.HIDDEN);
 
 const repairValidation = validateRepairSuggestions({
   hints: [
