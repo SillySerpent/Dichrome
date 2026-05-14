@@ -2,6 +2,9 @@ export const REQUEST_STATES = Object.freeze({
   IDLE: "IDLE",
   SELECTED_TEXT_RECEIVED: "SELECTED_TEXT_RECEIVED",
   CHATGPT_TAB_READY: "CHATGPT_TAB_READY",
+  PROJECT_READY: "PROJECT_READY",
+  CONVERSATION_READY: "CONVERSATION_READY",
+  MODEL_SELECTED: "MODEL_SELECTED",
   PROMPT_INSERTED: "PROMPT_INSERTED",
   PROMPT_SENT: "PROMPT_SENT",
   WAITING_FOR_ASSISTANT_MESSAGE: "WAITING_FOR_ASSISTANT_MESSAGE",
@@ -156,6 +159,7 @@ export function createRequestRecord({
       sizeBytes: attachment.sizeBytes || null
     })),
     responseText: "",
+    responseHtml: "",
     error: null,
     repairSuggestions: null,
     events: [],

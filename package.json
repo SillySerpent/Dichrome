@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node scripts/validate-extension.mjs"
+    "check": "node scripts/validate-extension.mjs",
+    "icons": "node scripts/generate-icons.mjs",
+    "test": "node scripts/test-settings.mjs"
   }
 }

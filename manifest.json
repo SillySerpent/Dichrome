@@ -7,10 +7,12 @@
   "permissions": [
     "activeTab",
     "contextMenus",
+    "debugger",
     "scripting",
     "sidePanel",
     "storage",
-    "tabs"
+    "tabs",
+    "windows"
   ],
   "optional_host_permissions": [
     "http://localhost:11434/*"
@@ -27,6 +29,18 @@
     "default_path": "sidepanel/sidepanel.html"
   },
   "action": {
-    "default_title": "Open ChatGPT relay panel"
+    "default_title": "Open ChatGPT relay panel",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   }
 }

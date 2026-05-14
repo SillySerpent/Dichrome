@@ -7,17 +7,33 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const requiredFiles = [
   "manifest.json",
   "background/service-worker.js",
+  "background/automation-settings.js",
+  "background/debug-dump.js",
+  "background/focus-emulation.js",
   "background/state-machine.js",
   "background/adapter-repair.js",
   "content/chatgpt-automation.js",
+  "icons/icon-16.png",
+  "icons/icon-32.png",
+  "icons/icon-48.png",
+  "icons/icon-128.png",
+  "assets/icon.svg",
+  "scripts/test-settings.mjs",
   "sidepanel/sidepanel.html",
   "sidepanel/sidepanel.css",
   "sidepanel/sidepanel.js"
 ];
 const javascriptFiles = requiredFiles.filter((file) => file.endsWith(".js"));
+const moduleScriptFiles = [
+  ...javascriptFiles,
+  "scripts/validate-extension.mjs",
+  "scripts/generate-icons.mjs",
+  "scripts/test-settings.mjs"
+];
 
 await validateManifest();
 await validateFilesExist();
+await validatePngFiles();
 validateJavaScriptSyntax();
 
 console.log("Extension validation passed.");
@@ -31,10 +47,12 @@ async function validateManifest() {
   assert(manifest.background?.service_worker === "background/service-worker.js", "background service worker path is wrong.");
   assert(manifest.background?.type === "module", "background service worker must be an ES module.");
   assert(manifest.side_panel?.default_path === "sidepanel/sidepanel.html", "side panel path is wrong.");
+  assert(manifest.icons?.["128"] === "icons/icon-128.png", "manifest 128px icon path is wrong.");
+  assert(manifest.action?.default_icon?.["32"] === "icons/icon-32.png", "action 32px icon path is wrong.");
 
   const permissions = new Set(manifest.permissions || []);
 
-  for (const permission of ["activeTab", "contextMenus", "scripting", "sidePanel", "storage", "tabs"]) {
+  for (const permission of ["activeTab", "contextMenus", "debugger", "scripting", "sidePanel", "storage", "tabs", "windows"]) {
     assert(permissions.has(permission), `Missing permission: ${permission}`);
   }
 
@@ -50,8 +68,17 @@ async function validateFilesExist() {
   }
 }
 
+async function validatePngFiles() {
+  for (const file of ["icons/icon-16.png", "icons/icon-32.png", "icons/icon-48.png", "icons/icon-128.png"]) {
+    const bytes = await readFile(join(root, file));
+    const signature = bytes.subarray(0, 8).toString("hex");
+
+    assert(signature === "89504e470d0a1a0a", `${file} is not a valid PNG file.`);
+  }
+}
+
 function validateJavaScriptSyntax() {
-  for (const file of javascriptFiles) {
+  for (const file of moduleScriptFiles) {
     const result = spawnSync(process.execPath, ["--check", join(root, file)], {
       encoding: "utf8"
     });

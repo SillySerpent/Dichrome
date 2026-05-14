@@ -7,7 +7,12 @@ const ALLOWED_TARGETS = new Set([
   "sendButton",
   "assistantMessage",
   "stopButton",
-  "fileInput"
+  "fileInput",
+  "projectNavigationItem",
+  "projectCreateButton",
+  "projectNameInput",
+  "modelPicker",
+  "modelOption"
 ]);
 const ALLOWED_STRATEGIES = new Set([
   "aria",
@@ -137,7 +142,7 @@ function buildRepairPrompt(snapshot, failure) {
     JSON.stringify({
       hints: [
         {
-          target: "composer | sendButton | assistantMessage | stopButton | fileInput",
+          target: "composer | sendButton | assistantMessage | stopButton | fileInput | projectNavigationItem | projectCreateButton | projectNameInput | modelPicker | modelOption",
           strategy: "aria | role | placeholder | dataAttribute | text | selector | relativeLayout",
           selector: "optional CSS selector",
           role: "optional ARIA role",

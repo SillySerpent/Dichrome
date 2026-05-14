@@ -52,14 +52,75 @@
         </div>
         <div class="text-block response-block">
           <div class="block-label">Response</div>
-          <pre id="responseText"></pre>
+          <div id="responseText" class="response-content"></div>
         </div>
+        <label class="field-stack" for="followupText">
+          Follow up
+          <textarea id="followupText" rows="3" spellcheck="true"></textarea>
+        </label>
         <div id="errorBlock" class="error-block hidden"></div>
         <div class="button-row">
+          <button id="followupButton" type="button" disabled>Send Follow-up</button>
           <button id="retryButton" type="button" disabled>Retry</button>
           <button id="retryRepairButton" type="button" disabled>Retry With Hints</button>
           <button id="openChatGptButton" type="button" disabled>Open ChatGPT Tab</button>
           <button id="cancelButton" type="button" disabled>Cancel</button>
+          <button id="debugDumpButton" type="button">Dump Debug</button>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <div class="section-heading">
+          <h2>ChatGPT Routing</h2>
+          <label class="switch-label">
+            <input id="projectRoutingEnabled" type="checkbox">
+            Project
+          </label>
+        </div>
+        <div class="field-row">
+          <label for="projectName">Project name</label>
+          <input id="projectName" type="text" autocomplete="off">
+        </div>
+        <label class="switch-label inline-check">
+          <input id="projectCreateIfMissing" type="checkbox">
+          Create if missing
+        </label>
+        <label class="switch-label inline-check">
+          <input id="startNewChat" type="checkbox">
+          Start a new chat by default
+        </label>
+        <div class="field-row">
+          <label for="automationVisibilityMode">Automation mode</label>
+          <select id="automationVisibilityMode">
+            <option value="seamless">Seamless background</option>
+            <option value="sidecar">Visible side window</option>
+            <option value="focused">Focus ChatGPT</option>
+          </select>
+        </div>
+        <div class="section-heading compact-heading">
+          <h2>Model</h2>
+          <label class="switch-label">
+            <input id="modelSelectionEnabled" type="checkbox">
+            Enabled
+          </label>
+        </div>
+        <div class="field-row">
+          <label for="modelLabel">Model label</label>
+          <input id="modelLabel" type="text" list="modelSuggestions" autocomplete="off">
+          <datalist id="modelSuggestions">
+            <option value="Auto"></option>
+            <option value="Instant"></option>
+            <option value="Thinking"></option>
+            <option value="Pro"></option>
+            <option value="o3"></option>
+          </datalist>
+        </div>
+        <label class="switch-label inline-check">
+          <input id="modelRequireExact" type="checkbox">
+          Require exact match
+        </label>
+        <div class="button-row">
+          <button id="saveAutomationButton" type="button">Save Routing</button>
         </div>
       </section>
 

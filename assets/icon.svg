@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">ChatGPT Page Relay Prototype icon</title>
+  <desc id="desc">A green relay arrow inside a white chat bubble on a dark round square.</desc>
+  <defs>
+    <linearGradient id="bg" x1="18" y1="12" x2="112" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#143f35"/>
+      <stop offset="0.58" stop-color="#1f7a5c"/>
+      <stop offset="1" stop-color="#e0b74f"/>
+    </linearGradient>
+    <linearGradient id="arrow" x1="38" y1="67" x2="92" y2="67" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1f7a5c"/>
+      <stop offset="1" stop-color="#e0b74f"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#bg)"/>
+  <path d="M34 34h60c8.3 0 15 6.7 15 15v31c0 8.3-6.7 15-15 15H62.5L41 108.5V95h-7c-8.3 0-15-6.7-15-15V49c0-8.3 6.7-15 15-15z" fill="#ffffff"/>
+  <path d="M39 65.5c0-3.6 2.9-6.5 6.5-6.5H76l-8.1-8.1c-2.3-2.3-2.3-6 0-8.3 2.3-2.3 6-2.3 8.3 0l18 18c2.3 2.3 2.3 6 0 8.3l-18 18c-2.3 2.3-6 2.3-8.3 0-2.3-2.3-2.3-6 0-8.3l8.1-8.1H45.5c-3.6 0-6.5-2.9-6.5-6.5z" fill="url(#arrow)"/>
+  <circle cx="95" cy="35" r="13" fill="#f8d36a"/>
+  <path d="M95 27l2.3 5.2 5.7.6-4.2 3.8 1.2 5.6-5-2.9-5 2.9 1.2-5.6-4.2-3.8 5.7-.6L95 27z" fill="#143f35"/>
+</svg>

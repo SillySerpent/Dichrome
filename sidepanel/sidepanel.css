@@ -124,6 +124,11 @@ main {
   justify-content: space-between;
 }
 
+.compact-heading {
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
 .button-row {
   flex-wrap: wrap;
 }
@@ -142,6 +147,12 @@ main {
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
+}
+
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .field-row input,
@@ -245,10 +256,6 @@ pre {
   line-height: 1.45;
 }
 
-.response-block pre {
-  min-height: 160px;
-}
-
 .error-block {
   border: 1px solid rgba(160, 44, 44, 0.3);
   border-radius: 6px;
@@ -257,6 +264,91 @@ pre {
   background: #fff4f4;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.response-content {
+  min-height: 160px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.response-content:empty::before {
+  content: "No response yet.";
+  color: var(--muted);
+}
+
+.response-content p,
+.response-content ul,
+.response-content ol,
+.response-content blockquote,
+.response-content pre,
+.response-content table {
+  margin: 0 0 10px;
+}
+
+.response-content p:last-child,
+.response-content ul:last-child,
+.response-content ol:last-child,
+.response-content blockquote:last-child,
+.response-content pre:last-child,
+.response-content table:last-child {
+  margin-bottom: 0;
+}
+
+.response-content pre {
+  max-height: 260px;
+  border: 1px solid #c8d0c5;
+  border-radius: 6px;
+  padding: 10px;
+  background: #101511;
+  color: #edf6ec;
+}
+
+.response-content code {
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: rgba(31, 122, 92, 0.12);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.response-content pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.response-content blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+  color: var(--muted);
+}
+
+.response-content table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.response-content th,
+.response-content td {
+  border: 1px solid var(--border);
+  padding: 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.response-content .katex-display,
+.response-content .math {
+  overflow: auto;
+  border: 1px solid #c8d0c5;
+  border-radius: 6px;
+  padding: 8px;
+  background: #fbfcfa;
 }
 
 .repair-suggestions {

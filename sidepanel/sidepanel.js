@@ -1,3 +1,8 @@
+import {
+  VISIBILITY_MODES,
+  VISIBILITY_SETTINGS_VERSION
+} from "../background/automation-settings.js";
+
 const dom = {
   statusLine: document.getElementById("statusLine"),
   refreshButton: document.getElementById("refreshButton"),
@@ -11,9 +16,12 @@ const dom = {
   selectedBlock: document.getElementById("selectedBlock"),
   selectedText: document.getElementById("selectedText"),
   responseText: document.getElementById("responseText"),
+  followupText: document.getElementById("followupText"),
+  followupButton: document.getElementById("followupButton"),
   errorBlock: document.getElementById("errorBlock"),
   retryButton: document.getElementById("retryButton"),
   retryRepairButton: document.getElementById("retryRepairButton"),
+  debugDumpButton: document.getElementById("debugDumpButton"),
   openChatGptButton: document.getElementById("openChatGptButton"),
   cancelButton: document.getElementById("cancelButton"),
   repairEnabled: document.getElementById("repairEnabled"),
@@ -22,7 +30,16 @@ const dom = {
   saveRepairButton: document.getElementById("saveRepairButton"),
   permissionRepairButton: document.getElementById("permissionRepairButton"),
   repairSuggestions: document.getElementById("repairSuggestions"),
-  eventLog: document.getElementById("eventLog")
+  eventLog: document.getElementById("eventLog"),
+  projectRoutingEnabled: document.getElementById("projectRoutingEnabled"),
+  projectName: document.getElementById("projectName"),
+  projectCreateIfMissing: document.getElementById("projectCreateIfMissing"),
+  startNewChat: document.getElementById("startNewChat"),
+  automationVisibilityMode: document.getElementById("automationVisibilityMode"),
+  modelSelectionEnabled: document.getElementById("modelSelectionEnabled"),
+  modelLabel: document.getElementById("modelLabel"),
+  modelRequireExact: document.getElementById("modelRequireExact"),
+  saveAutomationButton: document.getElementById("saveAutomationButton")
 };
 
 let profiles = [];
@@ -47,7 +64,8 @@ async function initialize() {
   await Promise.all([
     loadProfiles(),
     loadPanelState(),
-    loadRepairSettings()
+    loadRepairSettings(),
+    loadAutomationSettings()
   ]);
   render();
 }
@@ -72,8 +90,16 @@ function bindEvents() {
     void runPanelAction(() => retryActiveRequest(false));
   });
 
+  dom.followupButton.addEventListener("click", () => {
+    void runPanelAction(sendFollowupRequest);
+  });
+
   dom.retryRepairButton.addEventListener("click", () => {
     void runPanelAction(() => retryActiveRequest(true));
+  });
+
+  dom.debugDumpButton.addEventListener("click", () => {
+    void runPanelAction(dumpDebugState);
   });
 
   dom.openChatGptButton.addEventListener("click", () => {
@@ -98,6 +124,10 @@ function bindEvents() {
 
   dom.saveRepairButton.addEventListener("click", () => {
     void runPanelAction(saveRepairSettings);
+  });
+
+  dom.saveAutomationButton.addEventListener("click", () => {
+    void runPanelAction(saveAutomationSettings);
   });
 
   dom.permissionRepairButton.addEventListener("click", () => {
@@ -135,6 +165,20 @@ async function loadRepairSettings() {
   dom.repairEnabled.checked = Boolean(settings.enabled);
   dom.repairModel.value = settings.model || "llama3.2:3b";
   dom.repairUrl.value = settings.ollamaUrl || "http://localhost:11434/api/generate";
+}
+
+async function loadAutomationSettings() {
+  const response = await sendMessage("GET_CHATGPT_AUTOMATION_SETTINGS");
+  const settings = response.settings || {};
+
+  dom.projectRoutingEnabled.checked = Boolean(settings.project?.enabled);
+  dom.projectName.value = settings.project?.name || "ChatGPT Page Relay Prototype";
+  dom.projectCreateIfMissing.checked = settings.project?.createIfMissing !== false;
+  dom.startNewChat.checked = settings.conversation?.startNewChat !== false;
+  dom.automationVisibilityMode.value = normalizeVisibilityMode(settings.visibility?.mode);
+  dom.modelSelectionEnabled.checked = Boolean(settings.model?.enabled);
+  dom.modelLabel.value = settings.model?.label || "";
+  dom.modelRequireExact.checked = Boolean(settings.model?.requireExact);
 }
 
 async function sendManualRequest() {
@@ -177,6 +221,28 @@ async function retryActiveRequest(useRepairHints) {
   render();
 }
 
+async function sendFollowupRequest() {
+  const request = getActiveRequest();
+  const text = dom.followupText.value.trim();
+
+  if (!request) {
+    return;
+  }
+
+  if (!text) {
+    setTransientStatus("Follow-up prompt is empty.");
+    return;
+  }
+
+  await sendMessage("RUN_FOLLOWUP_REQUEST", {
+    requestId: request.id,
+    text
+  });
+  dom.followupText.value = "";
+  await loadPanelState();
+  render();
+}
+
 async function saveRepairSettings() {
   const response = await sendMessage("SET_LOCAL_REPAIR_SETTINGS", {
     settings: {
@@ -191,6 +257,51 @@ async function saveRepairSettings() {
   dom.repairModel.value = settings.model;
   dom.repairUrl.value = settings.ollamaUrl;
   setTransientStatus("Local repair settings saved.");
+}
+
+async function dumpDebugState() {
+  const request = getActiveRequest();
+  const response = await sendMessage("DUMP_DEBUG", {
+    requestId: request?.id || null
+  });
+
+  console.log("[ChatGPT Relay] Side panel debug dump", response.dump);
+  setTransientStatus("Debug dump written to console.");
+}
+
+async function saveAutomationSettings() {
+  const response = await sendMessage("SET_CHATGPT_AUTOMATION_SETTINGS", {
+    settings: {
+      project: {
+        enabled: dom.projectRoutingEnabled.checked,
+        name: dom.projectName.value,
+        createIfMissing: dom.projectCreateIfMissing.checked
+      },
+      conversation: {
+        startNewChat: dom.startNewChat.checked
+      },
+      visibility: {
+        schemaVersion: VISIBILITY_SETTINGS_VERSION,
+        mode: normalizeVisibilityMode(dom.automationVisibilityMode.value)
+      },
+      model: {
+        enabled: dom.modelSelectionEnabled.checked,
+        label: dom.modelLabel.value,
+        requireExact: dom.modelRequireExact.checked
+      }
+    }
+  });
+  const settings = response.settings;
+
+  dom.projectRoutingEnabled.checked = Boolean(settings.project.enabled);
+  dom.projectName.value = settings.project.name;
+  dom.projectCreateIfMissing.checked = Boolean(settings.project.createIfMissing);
+  dom.startNewChat.checked = Boolean(settings.conversation.startNewChat);
+  dom.automationVisibilityMode.value = normalizeVisibilityMode(settings.visibility.mode);
+  dom.modelSelectionEnabled.checked = Boolean(settings.model.enabled);
+  dom.modelLabel.value = settings.model.label;
+  dom.modelRequireExact.checked = Boolean(settings.model.requireExact);
+  setTransientStatus("ChatGPT routing settings saved.");
 }
 
 async function requestRepairPermission() {
@@ -211,7 +322,7 @@ function render() {
   dom.sourceLabel.textContent = request?.source?.title || request?.source?.url || "-";
   dom.selectedText.textContent = request?.selectedText || "";
   dom.selectedBlock.classList.toggle("hidden", !request?.selectedText);
-  dom.responseText.textContent = request?.responseText || "";
+  renderResponse(request);
 
   if (request?.error) {
     dom.errorBlock.textContent = request.error;
@@ -226,12 +337,89 @@ function render() {
   const hasRepairHints = Boolean(request?.repairSuggestions?.hints?.length);
 
   dom.retryButton.disabled = !hasRequest;
+  dom.followupButton.disabled = !hasRequest || !request?.chatTabId || isRunning;
   dom.retryRepairButton.disabled = !hasRepairHints;
   dom.openChatGptButton.disabled = !hasRequest;
   dom.cancelButton.disabled = !isRunning;
 
   renderRepairSuggestions(request);
   renderEvents(request);
+}
+
+function renderResponse(request) {
+  const html = request?.responseHtml || "";
+  const text = request?.responseText || "";
+
+  if (html) {
+    dom.responseText.innerHTML = sanitizeResponseHtml(html);
+    dom.responseText.scrollTop = dom.responseText.scrollHeight;
+    return;
+  }
+
+  dom.responseText.textContent = text;
+  dom.responseText.scrollTop = dom.responseText.scrollHeight;
+}
+
+function sanitizeResponseHtml(html) {
+  const template = document.createElement("template");
+  const allowedTags = new Set([
+    "A",
+    "B",
+    "BLOCKQUOTE",
+    "BR",
+    "CODE",
+    "DEL",
+    "DIV",
+    "EM",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    "HR",
+    "I",
+    "KBD",
+    "LI",
+    "OL",
+    "P",
+    "PRE",
+    "S",
+    "SPAN",
+    "STRONG",
+    "SUB",
+    "SUP",
+    "TABLE",
+    "TBODY",
+    "TD",
+    "TH",
+    "THEAD",
+    "TR",
+    "UL"
+  ]);
+  const allowedAttributes = new Set(["class", "href", "title"]);
+
+  template.innerHTML = html;
+
+  for (const element of Array.from(template.content.querySelectorAll("*"))) {
+    if (!allowedTags.has(element.tagName)) {
+      element.replaceWith(document.createTextNode(element.textContent || ""));
+      continue;
+    }
+
+    for (const attribute of Array.from(element.attributes)) {
+      if (!allowedAttributes.has(attribute.name)) {
+        element.removeAttribute(attribute.name);
+        continue;
+      }
+
+      if (attribute.name === "href" && !/^https?:\/\//i.test(attribute.value)) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  }
+
+  return template.innerHTML;
 }
 
 function renderRepairSuggestions(request) {
@@ -308,6 +496,14 @@ function setTransientStatus(text) {
 
 function formatState(state) {
   return String(state || "IDLE").toLowerCase().replace(/_/g, " ");
+}
+
+function normalizeVisibilityMode(value) {
+  if (value === VISIBILITY_MODES.SIDECAR || value === VISIBILITY_MODES.FOCUSED || value === VISIBILITY_MODES.SEAMLESS) {
+    return value;
+  }
+
+  return VISIBILITY_MODES.SEAMLESS;
 }
 
 function formatTime(value) {
