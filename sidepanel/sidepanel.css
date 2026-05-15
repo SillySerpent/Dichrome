@@ -277,6 +277,7 @@ pre {
   min-height: 160px;
   max-height: 360px;
   overflow: auto;
+  overflow-anchor: none;
   padding: 10px;
   color: var(--text);
   font-size: 13px;
@@ -390,4 +391,134 @@ pre {
 
 .hidden {
   display: none;
+}
+
+.response-content h1,
+.response-content h2,
+.response-content h3,
+.response-content h4,
+.response-content h5,
+.response-content h6 {
+  margin: 12px 0 6px;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.response-content h1 { font-size: 18px; }
+.response-content h2 { font-size: 16px; }
+.response-content h3 { font-size: 15px; }
+.response-content h4,
+.response-content h5,
+.response-content h6 { font-size: 14px; }
+
+.response-content .math-inline {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid #d9ded6;
+  border-radius: 4px;
+  background: #fbfcfa;
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+}
+
+.response-content .math-display {
+  display: block;
+  margin: 8px 0 10px;
+  white-space: pre-wrap;
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+}
+
+.response-content hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+
+.response-copy-wrapper {
+  position: relative;
+  margin: 0 0 10px;
+}
+
+.response-copy-wrapper pre,
+.response-copy-wrapper .math-display {
+  margin-bottom: 0;
+}
+
+.response-copy-toolbar {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+}
+
+.response-copy-button {
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(4px);
+}
+
+.code-copy-wrapper .response-copy-button {
+  color: #edf6ec;
+  background: rgba(16, 21, 17, 0.78);
+  border-color: rgba(237, 246, 236, 0.28);
+}
+
+.response-content .math {
+  line-height: 1.45;
+}
+
+.response-content .math-rendered {
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  font-size: 15px;
+}
+
+.response-content .math-display {
+  padding: 16px 48px 16px 16px;
+  text-align: center;
+  white-space: normal;
+}
+
+.response-content .math-inline {
+  vertical-align: baseline;
+}
+
+.response-content .math-source {
+  display: none;
+}
+
+.response-content .math-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0.18em;
+  vertical-align: middle;
+  line-height: 1.05;
+}
+
+.response-content .math-num {
+  display: block;
+  border-bottom: 1px solid currentColor;
+  padding: 0 0.18em 0.08em;
+}
+
+.response-content .math-den {
+  display: block;
+  padding: 0.08em 0.18em 0;
+}
+
+.response-content .math-root {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.08em;
+}
+
+.response-content .math-root-body {
+  border-top: 1px solid currentColor;
+  padding: 0.02em 0.1em 0;
 }

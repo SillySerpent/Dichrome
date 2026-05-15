@@ -1,17 +1,26 @@
-export const CHATGPT_HOME_URL = "https://chatgpt.com/";
-export const CHATGPT_HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
-export const CHATGPT_LOAD_TIMEOUT_MS = 30000;
-export const HISTORY_LIMIT = 20;
-export const EVENT_LIMIT = 100;
-export const PANEL_STATE_KEY = "panelState";
-export const REPAIR_SETTINGS_KEY = "adapterRepairSettings";
-export const LAST_SOURCE_TAB_KEY = "lastSourceTab";
-export const AUTOMATION_WINDOW_STATE_KEY = "chatGptAutomationWindowState";
+import {
+  CHATGPT_CONTENT_SCRIPT_FILES,
+  CHATGPT_HOME_URL,
+  CHATGPT_HOSTS as CHATGPT_HOST_LIST,
+  CHATGPT_LOAD_TIMEOUT_MS,
+  EVENT_LIMIT,
+  HISTORY_LIMIT,
+  STORAGE_KEYS
+} from "../shared/contracts.js";
 
-export const CHATGPT_CONTENT_SCRIPT_FILES = Object.freeze([
-  "content/chatgpt/00-namespace.js",
-  "content/chatgpt/90-bootstrap.js"
-]);
+export {
+  CHATGPT_CONTENT_SCRIPT_FILES,
+  CHATGPT_HOME_URL,
+  CHATGPT_LOAD_TIMEOUT_MS,
+  EVENT_LIMIT,
+  HISTORY_LIMIT
+};
+
+export const CHATGPT_HOSTS = new Set(CHATGPT_HOST_LIST);
+export const PANEL_STATE_KEY = STORAGE_KEYS.PANEL_STATE;
+export const REPAIR_SETTINGS_KEY = STORAGE_KEYS.REPAIR_SETTINGS;
+export const LAST_SOURCE_TAB_KEY = STORAGE_KEYS.LAST_SOURCE_TAB;
+export const AUTOMATION_WINDOW_STATE_KEY = STORAGE_KEYS.AUTOMATION_WINDOW_STATE;
 
 export const storageArea = chrome.storage.session || chrome.storage.local;
 

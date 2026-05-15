@@ -70,15 +70,21 @@ The default runtime mode attempts a hidden internal target first and otherwise k
 }
 ```
 
-`mode: "hidden"` probes `chrome.offscreen` with an extension-bundled host page and a ChatGPT iframe. Chrome offscreen documents cannot directly load arbitrary remote pages as the document URL, and ChatGPT may block iframe embedding. If the probe fails, the worker records the failure reason and falls back to `single-tab` behavior.
+`mode: "hidden"` probes `chrome.offscreen` with an extension-bundled host page and a ChatGPT iframe. Before creating or reusing the offscreen document, the worker installs a session `declarativeNetRequest` rule through `background/automation/offscreen-frame-policy.js`. The rule removes `X-Frame-Options` and `Content-Security-Policy` from ChatGPT `sub_frame` responses. Chrome gets the narrowest rule first: `requestDomains: ["chatgpt.com", "chat.openai.com"]`, `resourceTypes: ["sub_frame"]`, and `tabIds: [chrome.tabs.TAB_ID_NONE]`; if that non-tab scope is rejected, or if it installs but no offscreen frame bridge appears after reload, the fallback rule still stays limited to ChatGPT subframes.
+
+The ChatGPT content script is registered with `all_frames: true` and `document_start`; if Chrome can inject it into the offscreen ChatGPT iframe, that frame opens a long-lived runtime port to the service worker. The worker sends automation commands through that port instead of using `chrome.scripting.executeScript` or `tabs.sendMessage`.
+
+The bridge is deliberately reconnectable. MV3 can restart the background service worker while Chrome keeps the offscreen document alive, which invalidates the worker's in-memory `Port` reference even though the ChatGPT iframe remains loaded. The frame content script reconnects after `Port` disconnects, the worker replaces stale frame ports without letting stale disconnects fail active commands, notifies the offscreen host about bridge connect/disconnect state, and the probe reloads the iframe once with a cache-busted URL when the host load event succeeds but no frame bridge appears.
+
+Chrome offscreen documents cannot directly load arbitrary remote pages as the document URL, so the remote ChatGPT page must still live inside the extension-hosted iframe. The frame-policy override only targets embedding headers; it does not guarantee third-party cookie/session access, ChatGPT app compatibility inside an iframe, frame-script execution, or background streaming. If any probe step fails, the worker records the failure reason, removes the frame-policy override, and falls back to `single-tab` behavior.
 
 `mode: "single-tab"` uses the canonical session tab if it still exists and points at ChatGPT. If the stored tab was deleted or navigated away from ChatGPT, only the session target fields are cleared and the next request lazily creates one replacement tab with `active: false`. The worker does not create a duplicate because a ping or content-script probe failed.
 
-Background modes use the Chrome debugger permission to attach to the ChatGPT tab and enable DevTools Protocol focus emulation. The worker sends `Emulation.setFocusEmulationEnabled` and `Page.setWebLifecycleState` before the content script starts the run. This keeps ChatGPT lifecycle-visible for streaming DOM updates without switching the user away from the source tab.
+Tab-backed background modes use the Chrome debugger permission to attach to the ChatGPT tab and enable DevTools Protocol focus emulation. The worker sends `Emulation.setFocusEmulationEnabled` and `Page.setWebLifecycleState` before the content script starts the run. This keeps ChatGPT lifecycle-visible for streaming DOM updates without switching the user away from the source tab.
 
 `mode: "sidecar"` keeps the older separate popup/window shape for visual inspection, but still uses debugger focus emulation for response streaming. `mode: "focused"` skips debugger focus emulation, focuses ChatGPT while generating, then restores the source tab after `RESPONSE_COMPLETE` or `ERROR_STATE`.
 
-The content script checks `document.visibilityState` at key run stages. In hidden, single-tab, and sidecar modes, a hidden ChatGPT page is treated as a focus-emulation failure and does not trigger local DOM repair. Older stored boolean visibility settings are migrated to `mode: "focused"` when `focusDuringRun` was true, otherwise to `mode: "hidden"`; legacy `mode: "seamless"` also migrates to `hidden`.
+The content script checks `document.visibilityState` at key run stages. In single-tab and sidecar modes, a hidden ChatGPT page is treated as a focus-emulation failure and does not trigger local DOM repair. Offscreen-frame runs use a separate internal visibility mode because offscreen documents cannot be focused. Older stored boolean visibility settings are migrated to `mode: "focused"` when `focusDuringRun` was true, otherwise to `mode: "hidden"`; legacy `mode: "seamless"` also migrates to `hidden`.
 
 ## Project Routing
 
@@ -155,8 +161,10 @@ The ChatGPT adapter looks for:
 - Stop button: visible stop/cancel/interrupt generation controls.
 - Assistant response: explicit `data-message-author-role="assistant"` containers first, then bounded conversation-area fallbacks.
 - File input: `input[type=file]` accepting image files for screenshot attachment attempts.
+- Fresh hidden project chats: prefer ChatGPT's visible `New chat` control when available, but fall back to direct navigation from `/g/<project>/c/<conversation>` to `/g/<project>/project` when the control is hidden or responsive-layout dependent.
+- Screenshot capture: the local/unpacked prototype uses `<all_urls>` host access so `chrome.tabs.captureVisibleTab` works from the side panel without relying on a transient `activeTab` grant.
 
-Response tracking is deliberately scoped. The script selects the newest assistant message after the send action and extracts content only from that message container. It does not stream arbitrary page text. The content script emits both plain text and sanitized HTML fragments so the side panel can show basic formatting such as lists, tables, blockquotes, code blocks, and inline code.
+Response tracking is deliberately scoped. The script selects the newest assistant message after the send action and extracts content only from that message container. It does not stream arbitrary page text. Plain text is the canonical response payload; final HTML rendering, sanitization, markdown-ish formatting, and local math rendering are centralized in `shared/response-formatting.js` and applied by the side panel.
 
 ## Local Repair Boundary
 

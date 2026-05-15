@@ -4,7 +4,7 @@ import {
   VISIBILITY_SETTINGS_VERSION,
   getDefaultAutomationSettings,
   sanitizeAutomationSettings
-} from "../background/automation-settings.js";
+} from "../background/automation/settings.js";
 import { validateRepairSuggestions } from "../background/adapter-repair.js";
 
 const defaults = getDefaultAutomationSettings("ChatGPT Page Relay Prototype");

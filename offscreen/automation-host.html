@@ -3,9 +3,26 @@
   <head>
     <meta charset="utf-8">
     <title>ChatGPT Relay Offscreen Host</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 1280px;
+        height: 900px;
+        overflow: hidden;
+        background: transparent;
+      }
+
+      #chatgptFrame {
+        display: block;
+        width: 1280px;
+        height: 900px;
+        border: 0;
+      }
+    </style>
   </head>
   <body>
-    <iframe id="chatgptFrame" title="ChatGPT automation host" src="https://chatgpt.com/"></iframe>
+    <iframe id="chatgptFrame" title="ChatGPT automation host" src="https://chatgpt.com/" referrerpolicy="origin"></iframe>
     <script src="automation-host.js"></script>
   </body>
 </html>

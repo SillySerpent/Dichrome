@@ -1,18 +1,22 @@
+import {
+  STORAGE_KEYS,
+  VISIBILITY_MODES,
+  VISIBILITY_SETTINGS_VERSION
+} from "../../shared/contracts.js";
+
 const MAX_PROJECT_NAME_LENGTH = 80;
 const MAX_MODEL_LABEL_LENGTH = 80;
 const MIN_AUTOMATION_WINDOW_WIDTH = 420;
 const MAX_AUTOMATION_WINDOW_WIDTH = 900;
 const MIN_AUTOMATION_WINDOW_HEIGHT = 520;
 const MAX_AUTOMATION_WINDOW_HEIGHT = 1200;
-export const VISIBILITY_SETTINGS_VERSION = 5;
-export const VISIBILITY_MODES = Object.freeze({
-  HIDDEN: "hidden",
-  SINGLE_TAB: "single-tab",
-  SIDECAR: "sidecar",
-  FOCUSED: "focused"
-});
 
-export const AUTOMATION_SETTINGS_KEY = "chatGptAutomationSettings";
+export {
+  VISIBILITY_MODES,
+  VISIBILITY_SETTINGS_VERSION
+};
+
+export const AUTOMATION_SETTINGS_KEY = STORAGE_KEYS.AUTOMATION_SETTINGS;
 
 export function getDefaultAutomationSettings(extensionName) {
   return {

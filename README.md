@@ -22,20 +22,29 @@ This is intentionally UI-driven. It does not use the OpenAI API, does not requir
 
 ## Files
 
-- `manifest.json` - MV3 manifest, permissions, side panel entry, ChatGPT host permissions, debugger permission, and offscreen permission.
-- `background/service-worker.js` - listener registration, request orchestration, tab injection, and runtime message dispatch.
+- `manifest.json` - MV3 manifest, permissions, side panel entry, ChatGPT host permissions, debugger permission, offscreen permission, and the DNR host-access permission used for hidden iframe frame-policy overrides.
+- `shared/contracts.js` - shared request states, message strings, visibility modes, automation target constants, content script order, and response-rendering allowlists.
+- `shared/response-formatting.js` - response normalization, markdown-ish rendering, HTML sanitization, and deterministic local math rendering.
+- `background/service-worker.js` - small manifest-loaded entrypoint for the background runtime.
+- `background/runtime/*` - listener orchestration, runtime message routing, request control, and settings repositories.
+- `background/debug/debug-dump-collector.js` - debug dump assembly across background, content, offscreen, and tab state.
 - `background/automation/settings.js` - stored ChatGPT project-routing, visibility, and model-selection settings.
 - `background/automation/session.js` - canonical automation target/session storage and migration from the legacy remembered tab.
 - `background/automation/tab-target.js` - single inactive tab reuse, visible sidecar routing, and follow-up conversation navigation.
-- `background/automation/offscreen-target.js` - hidden offscreen target capability probe and fallback reason tracking.
+- `background/automation/offscreen-target.js` - hidden offscreen target capability probe, frame bridge, and fallback reason tracking.
+- `background/automation/offscreen-frame-policy.js` - session-scoped ChatGPT subframe header override for local hidden-internal probing.
 - `background/automation/source-focus.js` - source-tab selection, source-focus restoration, and screenshot capture helpers.
 - `background/requests/store.js` - request history, attachment payload storage, event appends, and panel update broadcasts.
 - `background/focus-emulation.js` - Chrome debugger focus emulation for background streaming.
 - `background/state-machine.js` - request states and prompt profiles.
 - `background/adapter-repair.js` - optional local-model repair prompt, response parsing, and mapping validation.
-- `content/chatgpt/*` - ordered injected ChatGPT-side automation files.
-- `content/chatgpt-automation.js` - compatibility marker for the old direct-injection path.
-- `sidepanel/*` - side panel UI for request state, streaming response, logs, retries, and repair settings.
+- `content/chatgpt/*` - ordered injected ChatGPT-side automation entrypoints.
+- `content/chatgpt/runtime/*` - ChatGPT-side runtime layers for contracts, messaging, URL/frame decisions, errors, adapter heuristics, response extraction, and the automation runner.
+- `sidepanel/*` - side panel HTML/CSS and entrypoint.
+- `sidepanel/runtime/*` - side panel client, DOM lookup, state helpers, response view, response animation, and app orchestration.
+- `docs/module-map.md` - maintainer map for module ownership and future extraction boundaries.
+- `docs/hidden-internal-invariants.md` - hidden internal mode behaviors that must not regress.
+- `docs/manual-smoke-tests.md` - manual validation scenarios for browser-dependent behavior.
 - `assets/icon.svg` and `icons/*` - source and generated Chrome toolbar icons.
 - `scripts/validate-extension.mjs` - dependency-free static validation.
 - `scripts/generate-icons.mjs` - dependency-free icon generator.
@@ -76,11 +85,15 @@ The automation is split deliberately:
 
 The ChatGPT adapter avoids whole-page scraping for response extraction. It looks for assistant message containers using semantic attributes first, then bounded conversation-area fallbacks. Once a candidate response is selected, the observer only tracks that message's content. Completion requires several signals: response stability, no visible stop-generation control, an enabled send button, and no detected error UI.
 
-The side panel stores plain text and sanitized HTML fragments for responses. The HTML path preserves basic generated formatting such as paragraphs, lists, tables, blockquotes, inline code, and code blocks while removing scripts, forms, buttons, iframes, event attributes, and unsafe links.
+The content runtime is layered under `content/chatgpt/runtime/`: `adapter/` owns ChatGPT DOM heuristics, `response/` owns response extraction and observation, `network/` owns main-world response capture, `offscreen/` owns the hidden iframe bridge, `page/` owns visibility checks, `debug/` owns content-side dumps and event payloads, and `runner/` owns the request lifecycle. `runtime/app.js` composes those modules and registers Chrome message listeners.
+
+The side panel stores plain text as the canonical response payload and renders final HTML through `shared/response-formatting.js`. The renderer preserves basic generated formatting such as paragraphs, lists, tables, blockquotes, inline code, code blocks, and common local math expressions while removing scripts, forms, buttons, iframes, event attributes, and unsafe links. If a math expression cannot be parsed confidently, it is shown as escaped source in a styled fallback instead of malformed HTML.
 
 ## Automation Target Mode
 
-`Hidden internal` is the default mode. It first probes a Chrome offscreen document that hosts a ChatGPT iframe. Chrome offscreen documents must be extension-bundled HTML, and ChatGPT may block iframe embedding or content-script access. When that probe fails, the extension records the reason and falls back to one inactive reusable ChatGPT tab.
+`Hidden internal` is the default mode. It first installs a session-scoped `declarativeNetRequest` rule for ChatGPT subframe responses, then creates a Chrome offscreen document that hosts a ChatGPT iframe. The rule removes `X-Frame-Options` and `Content-Security-Policy` from ChatGPT subframe responses so the local/unpacked prototype can test true hidden iframe automation. The rule is scoped to non-tab ChatGPT subframe requests when Chrome accepts `tabIds: [chrome.tabs.TAB_ID_NONE]`; if that scoped rule is rejected, or if it installs but the offscreen ChatGPT bridge still never connects, the extension falls back to a ChatGPT-subframe-only rule. The rule is removed when hidden automation is closed or when the probe records hidden automation as unsupported.
+
+The ChatGPT automation content script is registered for all ChatGPT frames at `document_start`; when Chrome can inject it into that offscreen iframe, the frame opens a runtime port back to the service worker and accepts automation commands through that port. The frame bridge reconnects if the MV3 service worker restarts while the offscreen document survives, and the background probe reloads the iframe once with a cache-busting probe URL if the host reports that ChatGPT loaded but the bridge still did not connect. If ChatGPT blocks cookies, frame-script injection, account/session access, or background streaming after that recovery path, the extension records the reason and falls back to one inactive reusable ChatGPT tab.
 
 Chrome cannot make a normal `chrome.tabs.create({ active: false })` tab completely internal. If offscreen automation is unavailable, the best UI-driven fallback is exactly one real, non-selected ChatGPT tab in the tab strip. The extension reuses that tab across requests, marks it non-discardable during automation, and recreates one replacement only after the stored tab is confirmed deleted or no longer points to ChatGPT.
 
@@ -88,7 +101,7 @@ Background modes require the Chrome `debugger` permission so the extension can u
 
 `One background tab` skips the offscreen probe and always uses the reusable inactive tab. `Visible side window` keeps the separate popup/window shape for debugging or visual inspection, but still uses debugger focus emulation for streaming. `Focus ChatGPT` skips debugger focus emulation and keeps the ChatGPT automation window focused until the request completes, then restores the source tab.
 
-The side panel includes target status in the routing settings and `Dump Debug` for debugging stale responses or unexpected focus movement. Debug dumps include current settings, the canonical automation session, active focus-emulation sessions, request state, tab/window summaries, and a ChatGPT-page DOM snapshot when the content script can be reached.
+The side panel includes target status in the routing settings and `Dump Debug` for debugging stale responses or unexpected focus movement. Debug dumps include current settings, the canonical automation session, active focus-emulation sessions, offscreen host/bridge state, the installed frame-policy override status, request state, tab/window summaries, and a ChatGPT-page DOM snapshot when the content script can be reached.
 
 ## Project Routing
 
@@ -124,7 +137,7 @@ The model must return strict JSON with `hints`. The extension validates target n
 
 ## Screenshot Status
 
-The side panel includes an experimental visible-screenshot request. It uses `chrome.tabs.captureVisibleTab`, so Chrome may only allow it after a recent extension gesture. It captures the visible viewport, not a stitched full-page screenshot. Full-page screenshot support would need a separate scroll-and-stitch flow and additional per-page host access decisions.
+The side panel includes an experimental visible-screenshot request. It uses `chrome.tabs.captureVisibleTab`, so Chrome requires host access to the visible page or a valid `activeTab` grant. In side-panel workflows, `activeTab` grants can be unreliable, so this local/unpacked prototype declares `<all_urls>` host access to make screenshot capture deterministic for normal web pages. It captures the visible viewport, not a stitched full-page screenshot. Full-page screenshot support would need a separate scroll-and-stitch flow.
 
 ## Known Constraints
 
@@ -134,4 +147,4 @@ The side panel includes an experimental visible-screenshot request. It uses `chr
 - Multiple simultaneous requests are isolated by request id, but a single ChatGPT tab can only run one automation at a time.
 - Attachment upload through the ChatGPT web UI is best effort and depends on the page exposing a file input compatible with scripted `FileList` assignment.
 - Host permissions remain limited to ChatGPT plus optional local Ollama, but background automation modes require Chrome's high-privilege `debugger` permission for the ChatGPT tab.
-- Fully hidden automation depends on Chrome offscreen iframe capability and ChatGPT frame policy. If that is blocked, the supported fallback is one inactive reusable browser tab.
+- Fully hidden automation depends on Chrome offscreen iframe capability, the local session-scoped frame-policy override, ChatGPT account/session behavior in an embedded frame, and successful content-script execution inside the ChatGPT iframe. If any of those are blocked, the supported fallback is one inactive reusable browser tab.

@@ -2,15 +2,14 @@ import {
   AUTOMATION_WINDOW_STATE_KEY,
   storageArea
 } from "../constants.js";
+import {
+  AUTOMATION_TARGET_TYPES,
+  STORAGE_KEYS
+} from "../../shared/contracts.js";
 
-export const AUTOMATION_SESSION_KEY = "chatGptAutomationSession";
+export const AUTOMATION_SESSION_KEY = STORAGE_KEYS.AUTOMATION_SESSION;
 export const AUTOMATION_SESSION_SCHEMA_VERSION = 1;
-export const AUTOMATION_TARGET_TYPES = Object.freeze({
-  OFFSCREEN_FRAME: "offscreen-frame",
-  SINGLE_TAB: "single-tab",
-  SIDECAR: "sidecar",
-  FOCUSED: "focused"
-});
+export { AUTOMATION_TARGET_TYPES };
 
 const DEFAULT_SESSION = Object.freeze({
   schemaVersion: AUTOMATION_SESSION_SCHEMA_VERSION,

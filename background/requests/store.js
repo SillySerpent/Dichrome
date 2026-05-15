@@ -4,6 +4,7 @@ import {
   PANEL_STATE_KEY,
   storageArea
 } from "../constants.js";
+import { PANEL_MESSAGES } from "../../shared/contracts.js";
 
 let panelStateWriteQueue = Promise.resolve();
 
@@ -123,7 +124,7 @@ function normalizePanelState(value) {
 
 async function broadcastPanelState(panelState) {
   await chrome.runtime.sendMessage({
-    type: "PANEL_STATE_UPDATED",
+    type: PANEL_MESSAGES.PANEL_STATE_UPDATED,
     panelState
   }).catch(() => null);
 }

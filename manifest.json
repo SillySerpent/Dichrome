@@ -8,6 +8,7 @@
     "activeTab",
     "contextMenus",
     "debugger",
+    "declarativeNetRequestWithHostAccess",
     "offscreen",
     "scripting",
     "sidePanel",
@@ -19,6 +20,7 @@
     "http://localhost:11434/*"
   ],
   "host_permissions": [
+    "<all_urls>",
     "https://chatgpt.com/*",
     "https://chat.openai.com/*"
   ],
@@ -29,6 +31,42 @@
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "content/chatgpt/00-namespace.js",
+        "content/chatgpt/runtime/contracts.js",
+        "content/chatgpt/runtime/messaging/messages.js",
+        "content/chatgpt/runtime/url/chatgpt-url.js",
+        "content/chatgpt/runtime/errors/errors.js",
+        "content/chatgpt/runtime/dom/utils.js",
+        "content/chatgpt/runtime/async/wait.js",
+        "content/chatgpt/runtime/adapter/options.js",
+        "content/chatgpt/runtime/adapter/scoring.js",
+        "content/chatgpt/runtime/adapter/base.js",
+        "content/chatgpt/runtime/adapter/project-routing.js",
+        "content/chatgpt/runtime/adapter/conversation.js",
+        "content/chatgpt/runtime/adapter/model-selection.js",
+        "content/chatgpt/runtime/adapter/composer-controls.js",
+        "content/chatgpt/runtime/adapter/assistant-response.js",
+        "content/chatgpt/runtime/response/extraction.js",
+        "content/chatgpt/runtime/network/capture-client.js",
+        "content/chatgpt/runtime/offscreen/bridge.js",
+        "content/chatgpt/runtime/page/visibility.js",
+        "content/chatgpt/runtime/debug/dump.js",
+        "content/chatgpt/runtime/response/observer.js",
+        "content/chatgpt/runtime/runner/automation-runner.js",
+        "content/chatgpt/runtime/app.js",
+        "content/chatgpt/90-bootstrap.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
   "side_panel": {
     "default_path": "sidepanel/sidepanel.html"
   },
@@ -46,5 +84,16 @@
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content/chatgpt/main-world-capture.js"
+      ],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ]
+    }
+  ]
 }
