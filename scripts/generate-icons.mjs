@@ -45,85 +45,70 @@ function sampleIcon(x, y) {
   }
 
   let color = gradientColor(x, y);
+  const glyphAlpha = dGlyphAlpha(x, y);
 
-  if (chatBubbleContains(x, y)) {
-    color = blend(rgba(255, 255, 255, 255), color);
+  if (glyphAlpha > 0) {
+    const glyphColor = lerpColor(rgba(255, 255, 255, 245), rgba(217, 255, 247, 245), clamp((y - 24) / 80, 0, 1));
+    glyphColor.a = Math.round(glyphColor.a * glyphAlpha);
+    color = blend(glyphColor, color);
   }
 
-  if (arrowContains(x, y)) {
-    color = blend(gradientArrowColor(x), color);
-  }
-
-  const sparkleAlpha = circleAlpha(x, y, 95, 35, 13);
-
-  if (sparkleAlpha > 0) {
-    color = blend(rgba(248, 211, 106, Math.round(255 * sparkleAlpha)), color);
+  if (prismContains(x, y)) {
+    color = blend(prismColor(y), color);
   }
 
   if (starContains(x, y)) {
-    color = blend(rgba(20, 63, 53, 255), color);
+    color = blend(rgba(240, 201, 91, 255), color);
   }
 
   color.a = Math.round(color.a * bgAlpha);
   return color;
 }
 
-function chatBubbleContains(x, y) {
-  if (roundedRectAlpha(x, y, 19, 34, 90, 61, 15) > 0) {
-    return true;
-  }
+function dGlyphAlpha(x, y) {
+  const stem = roundedRectAlpha(x, y, 32, 27, 24, 74, 5);
+  const outer = x >= 44 ? ellipseAlpha(x, y, 58, 64, 43, 37) : 0;
+  const inner = x >= 55 ? ellipseAlpha(x, y, 60, 64, 24, 19) : 0;
 
-  return pointInPolygon(x, y, [
-    [41, 91],
-    [41, 108.5],
-    [62.5, 95],
-    [50, 89]
-  ]);
+  return clamp(Math.max(stem, outer * (1 - inner)), 0, 1);
 }
 
-function arrowContains(x, y) {
-  if (roundedRectAlpha(x, y, 39, 59, 43, 13, 6.5) > 0) {
-    return true;
-  }
-
+function prismContains(x, y) {
   return pointInPolygon(x, y, [
-    [68, 42],
-    [96, 65.5],
-    [68, 89],
-    [66, 76],
-    [80, 70.5],
-    [80, 60.5],
-    [66, 55]
+    [53, 23],
+    [71, 23],
+    [53, 105],
+    [35, 105]
   ]);
 }
 
 function starContains(x, y) {
   return pointInPolygon(x, y, [
-    [95, 27],
-    [97.3, 32.2],
-    [103, 32.8],
-    [98.8, 36.6],
-    [100, 42.2],
-    [95, 39.3],
-    [90, 42.2],
-    [91.2, 36.6],
-    [87, 32.8],
-    [92.7, 32.2]
+    [76, 30],
+    [79.1, 37],
+    [86.8, 37.8],
+    [81.1, 43],
+    [82.7, 50.5],
+    [76, 46.6],
+    [69.3, 50.5],
+    [70.9, 43],
+    [65.2, 37.8],
+    [72.9, 37]
   ]);
 }
 
 function gradientColor(x, y) {
   const t = clamp(((x - 18) + (y - 12)) / 198, 0, 1);
 
-  if (t < 0.58) {
-    return lerpColor(rgba(20, 63, 53, 255), rgba(31, 122, 92, 255), t / 0.58);
+  if (t < 0.52) {
+    return lerpColor(rgba(13, 22, 24, 255), rgba(20, 63, 53, 255), t / 0.52);
   }
 
-  return lerpColor(rgba(31, 122, 92, 255), rgba(224, 183, 79, 255), (t - 0.58) / 0.42);
+  return lerpColor(rgba(20, 63, 53, 255), rgba(59, 39, 90, 255), (t - 0.52) / 0.48);
 }
 
-function gradientArrowColor(x) {
-  return lerpColor(rgba(31, 122, 92, 255), rgba(224, 183, 79, 255), clamp((x - 38) / 54, 0, 1));
+function prismColor(y) {
+  return lerpColor(rgba(117, 230, 212, 240), rgba(240, 201, 91, 240), clamp((y - 23) / 82, 0, 1));
 }
 
 function roundedRectAlpha(x, y, rx, ry, width, height, radius) {
@@ -142,18 +127,18 @@ function roundedRectAlpha(x, y, rx, ry, width, height, radius) {
   return clamp((radius + 0.75 - distance) / 1.5, 0, 1);
 }
 
-function circleAlpha(x, y, cx, cy, radius) {
-  const distance = Math.hypot(x - cx, y - cy);
+function ellipseAlpha(x, y, cx, cy, rx, ry) {
+  const distance = Math.hypot((x - cx) / rx, (y - cy) / ry);
 
-  if (distance <= radius - 0.75) {
+  if (distance <= 0.98) {
     return 1;
   }
 
-  if (distance >= radius + 0.75) {
+  if (distance >= 1.02) {
     return 0;
   }
 
-  return clamp((radius + 0.75 - distance) / 1.5, 0, 1);
+  return clamp((1.02 - distance) / 0.04, 0, 1);
 }
 
 function pointInPolygon(x, y, points) {
