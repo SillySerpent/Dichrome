@@ -3,156 +3,179 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ChatGPT Relay</title>
+    <title>Dichrome</title>
     <link rel="stylesheet" href="sidepanel.css">
   </head>
   <body>
     <header class="app-header">
-      <div>
-        <h1>ChatGPT Relay</h1>
-        <div id="statusLine" class="status-line">Idle</div>
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <h1>Dichrome</h1>
       </div>
-      <button id="refreshButton" class="icon-button" type="button" title="Refresh">Refresh</button>
+      <div class="header-actions">
+        <button id="newChatButton" class="ghost-button" type="button" title="Start a separate new conversation">New</button>
+        <button id="refreshButton" class="icon-button" type="button" title="Refresh panel state">Refresh</button>
+      </div>
     </header>
 
-    <main>
-      <section class="panel-section">
-        <div class="field-row">
-          <label for="profileSelect">Request type</label>
-          <select id="profileSelect"></select>
-        </div>
-        <label class="field-stack" for="manualText">
-          Text prompt
-          <textarea id="manualText" rows="5" spellcheck="true"></textarea>
-        </label>
-        <div class="button-row">
-          <button id="sendManualButton" class="primary-button" type="button">Send Text</button>
-          <button id="screenshotButton" type="button">Visible Screenshot</button>
+    <main class="chat-shell">
+      <section id="chatMessages" class="chat-messages" aria-label="Conversation messages">
+        <div class="empty-chat">
+          <strong>Start a chat</strong>
+          <span>Type below, attach context, or select webpage text. Follow-ups continue this conversation until you press New.</span>
         </div>
       </section>
 
-      <section class="panel-section current-request">
-        <div class="section-heading">
-          <h2>Current Request</h2>
-          <span id="stateBadge" class="state-badge">IDLE</span>
-        </div>
-        <dl class="metadata-grid">
-          <div>
-            <dt>Profile</dt>
-            <dd id="profileLabel">-</dd>
+      <section id="composerPanel" class="composer-panel" aria-label="Message composer">
+        <div id="selectedContextCard" class="context-card hidden">
+          <div class="context-header">
+            <strong>Selected webpage text</strong>
+            <button id="clearSelectedContextButton" class="tiny-button" type="button">Remove</button>
           </div>
-          <div>
-            <dt>Source</dt>
-            <dd id="sourceLabel">-</dd>
+          <div id="selectedContextPreview" class="context-preview"></div>
+          <div id="quickActions" class="quick-actions" aria-label="Selected text quick actions">
+            <button type="button" data-action="explain">Explain</button>
+            <button type="button" data-action="summarize">Summarize</button>
+            <button type="button" data-action="improve">Improve</button>
+            <button type="button" data-action="rewrite">Rewrite</button>
+            <button type="button" data-action="define">Define</button>
           </div>
-        </dl>
-        <div id="selectedBlock" class="text-block hidden">
-          <div class="block-label">Selection</div>
-          <pre id="selectedText"></pre>
         </div>
-        <div class="text-block response-block">
-          <div class="block-label">Response</div>
-          <div id="responseText" class="response-content"></div>
+
+        <label class="composer-label" for="manualText">Message</label>
+        <div id="composerDropZone" class="composer-box">
+          <input id="attachmentInput" class="hidden" type="file" multiple>
+          <div id="attachmentsTray" class="attachments-tray hidden" aria-label="Pending attachments"></div>
+          <textarea id="manualText" rows="3" spellcheck="true" placeholder="Message Dichrome..."></textarea>
+          <div class="composer-actions">
+            <div class="composer-left-actions">
+              <button id="composerScreenshotButton" class="icon-only-button" type="button" title="Attach screenshot">Screenshot</button>
+              <button id="composerAttachButton" class="icon-only-button" type="button" title="Attach files">Files</button>
+            </div>
+            <div class="composer-right-actions">
+              <label class="composer-model-control">
+                <span class="visually-hidden">Mode</span>
+                <select id="modelLabel" aria-label="Mode">
+                  <option value="">Default</option>
+                  <option value="Auto">Auto</option>
+                  <option value="Instant">Instant</option>
+                  <option value="Thinking">Thinking</option>
+                  <option value="Extended">Extended</option>
+                  <option value="Pro">Pro</option>
+                  <option value="o3">o3</option>
+                  <option value="o4">o4</option>
+                </select>
+              </label>
+              <button id="sendManualButton" class="primary-button send-button" type="button" title="Send message" aria-label="Send message">
+                <span aria-hidden="true">↑</span>
+              </button>
+            </div>
+          </div>
         </div>
-        <label class="field-stack" for="followupText">
-          Follow up
-          <textarea id="followupText" rows="3" spellcheck="true"></textarea>
-        </label>
         <div id="errorBlock" class="error-block hidden"></div>
-        <div class="button-row">
-          <button id="followupButton" type="button" disabled>Send Follow-up</button>
+        <div class="request-actions">
           <button id="retryButton" type="button" disabled>Retry</button>
-          <button id="retryRepairButton" type="button" disabled>Retry With Hints</button>
-          <button id="openChatGptButton" type="button" disabled>Open ChatGPT Tab</button>
+          <button id="openChatGptButton" type="button" disabled>Open workspace</button>
           <button id="cancelButton" type="button" disabled>Cancel</button>
-          <button id="debugDumpButton" type="button">Dump Debug</button>
+          <span id="statusLine" class="status-line">Ready</span>
         </div>
       </section>
 
-      <section class="panel-section">
-        <div class="section-heading">
-          <h2>ChatGPT Routing</h2>
-          <label class="switch-label">
-            <input id="projectRoutingEnabled" type="checkbox">
-            Project
-          </label>
-        </div>
-        <div class="field-row">
-          <label for="projectName">Project name</label>
-          <input id="projectName" type="text" autocomplete="off">
-        </div>
-        <label class="switch-label inline-check">
-          <input id="projectCreateIfMissing" type="checkbox">
-          Create if missing
-        </label>
-        <label class="switch-label inline-check">
-          <input id="startNewChat" type="checkbox">
-          Start a new chat by default
-        </label>
-        <div class="field-row">
-          <label for="automationVisibilityMode">Automation mode</label>
-          <select id="automationVisibilityMode">
-            <option value="hidden">Hidden internal</option>
-            <option value="single-tab">One background tab</option>
-            <option value="sidecar">Visible side window</option>
-            <option value="focused">Focus ChatGPT</option>
-          </select>
-        </div>
-        <div id="automationTargetStatus" class="target-status"></div>
-        <div class="section-heading compact-heading">
-          <h2>Model</h2>
-          <label class="switch-label">
-            <input id="modelSelectionEnabled" type="checkbox">
-            Enabled
-          </label>
-        </div>
-        <div class="field-row">
-          <label for="modelLabel">Model label</label>
-          <input id="modelLabel" type="text" list="modelSuggestions" autocomplete="off">
-          <datalist id="modelSuggestions">
-            <option value="Auto"></option>
-            <option value="Instant"></option>
-            <option value="Thinking"></option>
-            <option value="Pro"></option>
-            <option value="o3"></option>
-          </datalist>
-        </div>
-        <label class="switch-label inline-check">
-          <input id="modelRequireExact" type="checkbox">
-          Require exact match
-        </label>
-        <div class="button-row">
-          <button id="saveAutomationButton" type="button">Save Routing</button>
-        </div>
-      </section>
+      <details class="advanced-panel">
+        <summary>Routing, automation, and debug</summary>
+        <div class="advanced-grid">
+          <section class="panel-section compact-section">
+            <div class="section-heading">
+              <h2>Workspace routing</h2>
+              <label class="switch-label">
+                <input id="projectRoutingEnabled" type="checkbox">
+                Project
+              </label>
+            </div>
+            <div class="field-row">
+              <label for="projectName">Project name</label>
+              <input id="projectName" type="text" autocomplete="off">
+            </div>
+            <label class="switch-label inline-check">
+              <input id="projectCreateIfMissing" type="checkbox">
+              Create if missing
+            </label>
+            <div class="field-row">
+              <label for="automationVisibilityMode">Automation</label>
+              <select id="automationVisibilityMode">
+                <option value="hidden">Hidden internal</option>
+                <option value="single-tab">One background tab</option>
+                <option value="sidecar">Visible side window</option>
+                <option value="focused">Focus workspace</option>
+              </select>
+            </div>
+            <div id="automationTargetStatus" class="target-status"></div>
+            <div class="advanced-model-options">
+              <label class="switch-label inline-check hidden">
+                <input id="modelSelectionEnabled" type="checkbox">
+                Enable model selection
+              </label>
+              <label class="switch-label inline-check">
+                <input id="modelRequireExact" type="checkbox">
+                Require exact model match
+              </label>
+            </div>
+            <button id="saveAutomationButton" type="button">Save settings</button>
+          </section>
 
-      <section class="panel-section">
-        <div class="section-heading">
-          <h2>Local Repair</h2>
-          <label class="switch-label">
-            <input id="repairEnabled" type="checkbox">
-            Enabled
-          </label>
-        </div>
-        <div class="field-row">
-          <label for="repairModel">Model</label>
-          <input id="repairModel" type="text" autocomplete="off">
-        </div>
-        <div class="field-row">
-          <label for="repairUrl">Ollama URL</label>
-          <input id="repairUrl" type="url" autocomplete="off">
-        </div>
-        <div class="button-row">
-          <button id="saveRepairButton" type="button">Save</button>
-          <button id="permissionRepairButton" type="button">Allow Localhost</button>
-        </div>
-        <div id="repairSuggestions" class="repair-suggestions"></div>
-      </section>
+          <section class="panel-section compact-section">
+            <div class="section-heading">
+              <h2>Local repair</h2>
+              <label class="switch-label">
+                <input id="repairEnabled" type="checkbox">
+                Enabled
+              </label>
+            </div>
+            <div class="field-row">
+              <label for="repairModel">Model</label>
+              <input id="repairModel" type="text" autocomplete="off">
+            </div>
+            <div class="field-row">
+              <label for="repairUrl">Ollama URL</label>
+              <input id="repairUrl" type="url" autocomplete="off">
+            </div>
+            <button id="saveRepairButton" type="button">Save repair</button>
+            <div id="repairSuggestions" class="repair-suggestions"></div>
+          </section>
 
-      <section class="panel-section">
-        <h2>Events</h2>
-        <ol id="eventLog" class="event-log"></ol>
-      </section>
+          <section class="panel-section compact-section debug-section">
+            <div class="section-heading">
+              <h2>Debug</h2>
+              <button id="debugDumpButton" type="button">Dump debug</button>
+            </div>
+            <dl class="metadata-grid debug-metadata">
+              <div>
+                <dt>Profile</dt>
+                <dd id="profileLabel">-</dd>
+              </div>
+              <div>
+                <dt>Source</dt>
+                <dd id="sourceLabel">-</dd>
+              </div>
+            </dl>
+            <select id="profileSelect" class="hidden" aria-hidden="true"></select>
+            <label class="field-stack hidden" for="followupText">
+              Legacy follow-up
+              <textarea id="followupText" rows="2"></textarea>
+            </label>
+            <button id="followupButton" class="hidden" type="button" disabled>Send follow-up</button>
+            <div id="selectedBlock" class="text-block hidden">
+              <div class="block-label">Selection</div>
+              <pre id="selectedText"></pre>
+            </div>
+            <div id="responseParking" class="hidden">
+              <div id="responseText" class="response-content"></div>
+            </div>
+            <h2>Events</h2>
+            <ol id="eventLog" class="event-log"></ol>
+          </section>
+        </div>
+      </details>
     </main>
 
     <script type="module" src="sidepanel.js"></script>
