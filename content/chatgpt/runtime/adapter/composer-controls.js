@@ -54,9 +54,9 @@
       },
 
       async attachFiles(attachments, requestId, run) {
-        const imageAttachments = attachments.filter((attachment) => attachment?.kind === "image" && attachment.dataUrl);
+        const fileAttachments = attachments.filter((attachment) => attachment?.dataUrl);
 
-        if (!imageAttachments.length) {
+        if (!fileAttachments.length) {
           return;
         }
 
@@ -64,12 +64,14 @@
           () => this.findFileInput(),
           6000,
           run,
-          "Timed out waiting for a ChatGPT file input for screenshot attachment."
+          "Timed out waiting for a ChatGPT file input for attachment upload."
         );
         const transfer = new DataTransfer();
 
-        for (const attachment of imageAttachments) {
-          const file = await dataUrlToFile(attachment.dataUrl, attachment.name || "screenshot.png", attachment.mimeType || "image/png");
+        for (const attachment of fileAttachments) {
+          const fallbackName = attachment.kind === "image" ? "screenshot.png" : "attachment";
+          const fallbackType = attachment.kind === "image" ? "image/png" : "application/octet-stream";
+          const file = await dataUrlToFile(attachment.dataUrl, attachment.name || fallbackName, attachment.mimeType || fallbackType);
           transfer.items.add(file);
         }
 
@@ -82,7 +84,7 @@
         }));
 
         emitState(requestId, REQUEST_STATES.CHATGPT_TAB_READY, {
-          detail: `Attached ${imageAttachments.length} image file(s).`
+          detail: `Attached ${fileAttachments.length} file(s).`
         });
 
         await sleep(900);
