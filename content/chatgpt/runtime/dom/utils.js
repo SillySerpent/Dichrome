@@ -3,18 +3,70 @@
   const runtime = relay.runtime = relay.runtime || {};
 
   function clickElement(element) {
-    element.focus?.();
-    element.dispatchEvent(new MouseEvent("mousedown", {
+    if (!element) {
+      return;
+    }
+
+    element.scrollIntoView?.({
+      block: "center",
+      inline: "center"
+    });
+    element.focus?.({ preventScroll: true });
+
+    dispatchPointerMouseEvent(element, "pointerover");
+    dispatchPointerMouseEvent(element, "pointerenter");
+    dispatchMouseEvent(element, "mouseover");
+    dispatchMouseEvent(element, "mouseenter");
+    dispatchPointerMouseEvent(element, "pointerdown", { buttons: 1 });
+    dispatchMouseEvent(element, "mousedown", { buttons: 1 });
+    dispatchPointerMouseEvent(element, "pointerup");
+    dispatchMouseEvent(element, "mouseup");
+
+    // Pointer events open current ChatGPT/Radix controls; click must happen once.
+    // Dispatching a synthetic click and then calling click() can submit the same
+    // composer payload twice before React disables the send button.
+    if (typeof element.click === "function") {
+      element.click();
+    } else {
+      dispatchMouseEvent(element, "click");
+    }
+  }
+
+  function dispatchPointerMouseEvent(element, type, overrides = {}) {
+    const rect = element.getBoundingClientRect?.() || { left: 0, top: 0, width: 0, height: 0 };
+    const eventInit = {
       bubbles: true,
       cancelable: true,
-      view: window
-    }));
-    element.dispatchEvent(new MouseEvent("mouseup", {
+      composed: true,
+      view: window,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      clientX: Math.round(rect.left + rect.width / 2),
+      clientY: Math.round(rect.top + rect.height / 2),
+      ...overrides
+    };
+
+    try {
+      const EventCtor = window.PointerEvent || MouseEvent;
+      element.dispatchEvent(new EventCtor(type, eventInit));
+    } catch (_error) {
+      dispatchMouseEvent(element, type.replace(/^pointer/, "mouse"), overrides);
+    }
+  }
+
+  function dispatchMouseEvent(element, type, overrides = {}) {
+    const rect = element.getBoundingClientRect?.() || { left: 0, top: 0, width: 0, height: 0 };
+
+    element.dispatchEvent(new MouseEvent(type, {
       bubbles: true,
       cancelable: true,
-      view: window
+      composed: true,
+      view: window,
+      clientX: Math.round(rect.left + rect.width / 2),
+      clientY: Math.round(rect.top + rect.height / 2),
+      ...overrides
     }));
-    element.click();
   }
 
   function dispatchInputEvents(element, text = "") {
