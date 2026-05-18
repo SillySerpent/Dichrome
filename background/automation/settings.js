@@ -22,7 +22,7 @@ export function getDefaultAutomationSettings(extensionName) {
   return {
     project: {
       enabled: true,
-      name: sanitizeText(extensionName, MAX_PROJECT_NAME_LENGTH) || "ChatGPT Page Relay Prototype",
+      name: sanitizeText(extensionName, MAX_PROJECT_NAME_LENGTH) || "Dichrome",
       createIfMissing: true
     },
     conversation: {
