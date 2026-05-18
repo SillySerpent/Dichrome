@@ -257,20 +257,36 @@
 
   function scoreModelPickerCandidate(element) {
     const label = normalizeComparableText(getElementLabel(element));
+    const metadata = normalizeComparableText([
+      element.getAttribute?.("aria-label"),
+      element.getAttribute?.("data-testid"),
+      element.getAttribute?.("title"),
+      element.getAttribute?.("aria-haspopup"),
+      element.getAttribute?.("role")
+    ].filter(Boolean).join(" "));
+    const combined = `${label} ${metadata}`.trim();
 
-    if (!label || /send|stop|attach|upload|sidebar|project|new chat/.test(label)) {
+    if (!combined || /send|stop|attach|upload|sidebar|project|new chat|voice|microphone/.test(combined)) {
       return 0;
     }
 
     const rect = element.getBoundingClientRect();
     let score = 0;
 
-    if (/model|change model|select model/.test(label)) {
+    if (/model|change model|select model/.test(combined)) {
       score += 100;
     }
 
-    if (/\bgpt\b|gpt-|gpt\s|auto|instant|thinking|pro|o3|o4/.test(label)) {
+    if (/\bgpt\b|gpt-|gpt\s|auto|instant|thinking|reason|reasoning|extended|standard|fast|pro|o3|o4|deep research/.test(label)) {
       score += 60;
+    }
+
+    if (/menu|listbox|dialog|true/.test(metadata) && score > 0) {
+      score += 20;
+    }
+
+    if (element.closest("form") && /\b(auto|instant|thinking|reasoning|extended|standard|fast|pro)\b/.test(label)) {
+      score += 25;
     }
 
     if (rect.top >= 0 && rect.top < 180) {
@@ -284,31 +300,206 @@
     return score;
   }
 
-  function scoreModelOptionCandidate(element, modelLabel) {
-    if (element.tagName === "DIV" && element.querySelector('button, [role="option"], [role="menuitem"]')) {
-      return 0;
-    }
-
+  function scoreModelOptionCandidate(element, modelLabel, options = {}) {
     const label = normalizeComparableText(getElementLabel(element));
     const target = normalizeComparableText(modelLabel);
 
-    if (!label || !target) {
+    if (!label || !target || isLikelyModelOptionContainer(element, label, target)) {
+      return 0;
+    }
+
+    if (isModelOptionNavigationNoise(element, label)) {
+      return 0;
+    }
+
+    const selectedNoise = /selected|current|recommended|default|unavailable|upgrade|coming soon|new|beta/g;
+    const simplifiedLabel = label.replace(selectedNoise, "").replace(/\s+/g, " ").trim();
+    const targets = options.requireExact ? [target] : expandModelTargets(target);
+    let score = 0;
+
+    for (const candidateTarget of targets) {
+      const candidateScore = scoreModelLabelText(label, simplifiedLabel, candidateTarget);
+
+      if (candidateScore > score) {
+        score = candidateScore;
+      }
+    }
+
+    if (!score) {
+      return 0;
+    }
+
+    if (isDirectlyActionableModelElement(element)) {
+      score += 35;
+    }
+
+    if (element.getAttribute?.("aria-checked") === "true" || element.getAttribute?.("aria-selected") === "true" || element.getAttribute?.("data-state") === "checked") {
+      score += 12;
+    }
+
+    const rect = element.getBoundingClientRect?.();
+
+    if (rect && rect.width > 32 && rect.height > 18) {
+      score += 8;
+    }
+
+    return score;
+  }
+
+  function scoreModelLabelText(label, simplifiedLabel, target) {
+    if (!target) {
       return 0;
     }
 
     if (label === target) {
-      return 120;
+      return 190;
     }
 
-    if (label.startsWith(target)) {
+    if (simplifiedLabel === target) {
+      return 180;
+    }
+
+    if (label.startsWith(target) || simplifiedLabel.startsWith(target)) {
+      return 155;
+    }
+
+    if (containsStandalonePhrase(label, target) || containsStandalonePhrase(simplifiedLabel, target)) {
+      return 145;
+    }
+
+    if (label.includes(target) || simplifiedLabel.includes(target)) {
       return 100;
     }
 
-    if (label.includes(target)) {
-      return 80;
+    return 0;
+  }
+
+  function expandModelTargets(target) {
+    const aliases = new Set([target]);
+
+    if (target === "instant" || target === "fast") {
+      aliases.add("instant");
+      aliases.add("fast");
+      aliases.add("fast answers");
+      aliases.add("quick answers");
     }
 
-    return 0;
+    if (target === "thinking" || target === "reasoning" || target === "think") {
+      aliases.add("thinking");
+      aliases.add("reasoning");
+      aliases.add("reason");
+      aliases.add("thinks before answering");
+    }
+
+    if (target === "auto") {
+      aliases.add("auto");
+      aliases.add("automatic");
+      aliases.add("best available");
+    }
+
+    if (target === "extended") {
+      aliases.add("extended");
+      aliases.add("extended thinking");
+      aliases.add("deep thinking");
+    }
+
+    if (target === "pro") {
+      aliases.add("pro");
+    }
+
+    return Array.from(aliases).filter(Boolean);
+  }
+
+  function isModelOptionNavigationNoise(element, label) {
+    const metadata = normalizeComparableText([
+      element.getAttribute?.("aria-label"),
+      element.getAttribute?.("data-testid"),
+      element.getAttribute?.("title"),
+      element.getAttribute?.("href")
+    ].filter(Boolean).join(" "));
+    const combined = `${label} ${metadata}`.trim();
+
+    return /open conversation options|conversation options|history-item|open project options|project options|show chats|hide chats|search chats|recents|new project|share|profile menu|download apps|copy message|edit message|sidebar/.test(combined);
+  }
+
+  function isLikelyModelOptionContainer(element, label, target) {
+    const descendantActionCount = queryAllWithin(element, 'button, a, li, [role="option"], [role="menuitem"], [role="menuitemradio"], [role="radio"], [aria-checked], [aria-selected], [cmdk-item], [data-radix-collection-item]')
+      .filter((candidate) => candidate !== element && isVisible(candidate) && !isDisabled(candidate))
+      .length;
+
+    if (descendantActionCount > 0) {
+      const labelIsLarge = label.length > target.length + 32;
+      const keywordHits = countModelKeywordHits(label);
+
+      if (!isDirectlyActionableModelElement(element) || keywordHits >= 2 || labelIsLarge) {
+        return true;
+      }
+    }
+
+    const role = element.getAttribute?.("role") || "";
+    const keywordHits = countModelKeywordHits(label);
+    const targetIsOnlyModelKeyword = countModelKeywordHits(target) <= 1;
+
+    if ((role === "dialog" || role === "menu" || role === "listbox" || role === "presentation") && keywordHits >= 2 && targetIsOnlyModelKeyword) {
+      return true;
+    }
+
+    return !isDirectlyActionableModelElement(element)
+      && keywordHits >= 3
+      && label.length > target.length + 24;
+  }
+
+  function isDirectlyActionableModelElement(element) {
+    if (!element) {
+      return false;
+    }
+
+    const role = element.getAttribute?.("role") || "";
+
+    return element.tagName === "BUTTON"
+      || element.tagName === "A"
+      || element.tagName === "LI"
+      || role === "option"
+      || role === "menuitem"
+      || role === "menuitemradio"
+      || role === "radio"
+      || element.hasAttribute?.("aria-checked")
+      || element.hasAttribute?.("aria-selected")
+      || element.hasAttribute?.("cmdk-item")
+      || element.hasAttribute?.("data-radix-collection-item");
+  }
+
+  function containsStandalonePhrase(value, phrase) {
+    if (!value || !phrase) {
+      return false;
+    }
+
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+
+    return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(value);
+  }
+
+  function countModelKeywordHits(value) {
+    const keywords = [
+      "auto",
+      "automatic",
+      "instant",
+      "thinking",
+      "reason",
+      "reasoning",
+      "extended",
+      "standard",
+      "fast",
+      "fast answers",
+      "quick answers",
+      "pro",
+      "o3",
+      "o4",
+      "gpt",
+      "deep research"
+    ];
+
+    return keywords.reduce((count, keyword) => count + (containsStandalonePhrase(value, keyword) ? 1 : 0), 0);
   }
 
   function textMatchesName(value, name) {
