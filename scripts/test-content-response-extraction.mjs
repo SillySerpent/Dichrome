@@ -67,11 +67,21 @@ const latest = extraction.selectLatestAssistantResponseFromConversationData(data
 assert.equal(latest.messageId, "new-message");
 assert.equal(latest.text, "New\n\nanswer");
 assert.equal(latest.html, "");
+assert.equal(extraction.selectLatestAssistantResponseFromConversationData(data, {
+  excludedMessageIds: ["new-message"]
+}).messageId, "old-message");
+assert.equal(extraction.selectLatestAssistantResponseFromConversationData(data, {
+  afterMs: Date.now() + 60_000
+}), null);
 assert.equal(extraction.shouldPreferBackendResponse("Long backend answer text", "short", "explain term"), true);
 assert.equal(extraction.shouldPreferBackendResponse("", "dom", "explain"), false);
 assert.equal(extraction.isLowConfidenceDomResponse("term", "define selected word"), true);
 assert.equal(extraction.isLowConfidenceDomResponse("This is a full explanation.", "define selected word"), false);
 assert.equal(extraction.isFinishedBackendStatus("finished_successfully"), true);
 assert.equal(extraction.isFinishedBackendStatus("streaming"), false);
+assert.equal(extraction.isTransientAssistantStatusText("Thinking"), true);
+assert.equal(extraction.isTransientAssistantStatusText("Thought for a couple of seconds"), true);
+assert.equal(extraction.isLowConfidenceDomResponse("Thinking", "Can you see this?"), true);
+assert.equal(extraction.isTransientAssistantStatusText("Thinking through the tradeoffs, this answer is complete."), false);
 
 console.log("Content response extraction tests passed.");
