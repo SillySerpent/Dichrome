@@ -13,6 +13,7 @@
     done: false,
     conversationKey: null,
     messageId: null,
+    startedAt: 0,
     lastPublishedText: "",
     lastPublishedAt: 0
   };
@@ -136,6 +137,7 @@
     streamState.done = false;
     streamState.conversationKey = null;
     streamState.messageId = null;
+    streamState.startedAt = Date.now();
     streamState.lastPublishedText = "";
     streamState.lastPublishedAt = 0;
   }
@@ -220,19 +222,14 @@
   }
 
   function processConversationPayload(payload, streamDone) {
-    const selected = selectBestAssistantPayload(payload);
     const patch = extractStreamingPatch(payload);
+    const selected = selectBestAssistantPayload(payload, {
+      afterMs: streamState.startedAt ? streamState.startedAt - 500 : 0,
+      targetMessageId: patch?.messageId || streamState.messageId || null
+    });
 
-    if (selected?.conversationKey || payload?.conversation_id || payload?.conversationId) {
-      streamState.conversationKey = selected?.conversationKey || payload?.conversation_id || payload?.conversationId;
-    }
-
-    if (selected?.messageId) {
-      streamState.messageId = selected.messageId;
-    }
-
-    if (selected?.status) {
-      streamState.status = selected.status;
+    if (payload?.conversation_id || payload?.conversationId) {
+      streamState.conversationKey = payload.conversation_id || payload.conversationId;
     }
 
     if (patch?.status) {
@@ -247,9 +244,23 @@
       streamState.conversationKey = patch.conversationKey;
     }
 
+    const selectedEligible = isSelectedPayloadEligible(selected);
+
+    if (selectedEligible && selected.conversationKey) {
+      streamState.conversationKey = selected.conversationKey;
+    }
+
+    if (selectedEligible && selected.messageId) {
+      streamState.messageId = selected.messageId;
+    }
+
+    if (selectedEligible && selected.status) {
+      streamState.status = selected.status;
+    }
+
     let changed = false;
 
-    if (selected?.text && getComparableText(selected.text).length >= getComparableText(streamState.text).length) {
+    if (selectedEligible && selected.text && getComparableText(selected.text).length >= getComparableText(streamState.text).length) {
       streamState.text = normalizeText(selected.text);
       changed = true;
     }
@@ -265,7 +276,7 @@
       changed = true;
     }
 
-    if (streamDone || selected?.done || patch?.done) {
+    if (streamDone || (selectedEligible && selected.done) || patch?.done) {
       streamState.done = true;
       streamState.status = streamState.status || "finished_successfully";
     }
@@ -332,7 +343,7 @@
     return patches[patches.length - 1];
   }
 
-  function selectBestAssistantPayload(payload) {
+  function selectBestAssistantPayload(payload, { afterMs = 0, targetMessageId = null } = {}) {
     const candidates = [];
 
     visit(payload, (value) => {
@@ -359,16 +370,71 @@
         status: String(message.status || message?.metadata?.finish_details?.type || value.status || ""),
         done: /finish|complete|success|stop/i.test(String(message.status || value.status || "")),
         messageId: message.id || value.id || null,
-        conversationKey: value.conversation_id || payload?.conversation_id || null
+        conversationKey: value.conversation_id || payload?.conversation_id || null,
+        timeMs: getMessageTimeMs(message, value)
       });
     });
 
-    if (!candidates.length) {
+    const eligible = candidates.filter((candidate) => {
+      if (afterMs && candidate.timeMs && candidate.timeMs < afterMs) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (!eligible.length) {
       return null;
     }
 
-    candidates.sort((a, b) => getComparableText(a.text).length - getComparableText(b.text).length);
-    return candidates[candidates.length - 1];
+    eligible.sort((a, b) => {
+      const aTargetMatch = targetMessageId && a.messageId === targetMessageId ? 1 : 0;
+      const bTargetMatch = targetMessageId && b.messageId === targetMessageId ? 1 : 0;
+
+      if (aTargetMatch !== bTargetMatch) {
+        return aTargetMatch - bTargetMatch;
+      }
+
+      if (a.timeMs !== b.timeMs) {
+        return a.timeMs - b.timeMs;
+      }
+
+      return getComparableText(a.text).length - getComparableText(b.text).length;
+    });
+    return eligible[eligible.length - 1];
+  }
+
+  function isSelectedPayloadEligible(selected) {
+    if (!selected) {
+      return false;
+    }
+
+    if (streamState.messageId && selected.messageId && selected.messageId !== streamState.messageId) {
+      return false;
+    }
+
+    if (streamState.startedAt && selected.timeMs && selected.timeMs < streamState.startedAt - 500) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function getMessageTimeMs(message, value) {
+    const raw = message?.update_time
+      || message?.create_time
+      || value?.update_time
+      || value?.create_time
+      || value?.message?.update_time
+      || value?.message?.create_time
+      || 0;
+    const numeric = Number(raw) || 0;
+
+    if (!numeric) {
+      return 0;
+    }
+
+    return numeric > 100000000000 ? numeric : numeric * 1000;
   }
 
   function extractMessageText(message) {
