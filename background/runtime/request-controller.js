@@ -27,14 +27,27 @@ export function createRequestController({
     }
 
     const sourceTab = await queryBestSourceTab();
-    const manualText = normalizeText(message.text);
-    const selectedText = profile.inputKind === "selection" ? manualText : "";
+    const attachments = normalizeIncomingAttachments(message.attachments);
+    const selectedText = normalizeText(message.selectedText || "");
+    const manualText = buildComposerPrompt({
+      text: message.text,
+      selectedText,
+      attachments
+    });
 
     return startRequest({
-      profileId,
+      profileId: "custom_text",
       sourceTab,
       manualText,
-      selectedText
+      selectedText,
+      attachments,
+      conversationMode: "new",
+      chatOptionsOverride: {
+        conversation: {
+          mode: "new",
+          startNewChat: message.forceNewChat !== false
+        }
+      }
     });
   }
 
@@ -45,7 +58,7 @@ export function createRequestController({
       throw new Error("No source tab is available for screenshot capture.");
     }
 
-    const screenshot = await captureVisibleTabScreenshot(sourceTab.windowId);
+    const screenshot = await captureVisibleTabScreenshot(sourceTab.windowId, sourceTab);
 
     return startRequest({
       profileId: "visible_screenshot",
@@ -55,6 +68,19 @@ export function createRequestController({
     });
   }
 
+
+  async function captureScreenshotAttachment() {
+    const sourceTab = await queryBestSourceTab();
+
+    if (!sourceTab?.windowId) {
+      throw new Error("No source tab is available for screenshot capture.");
+    }
+
+    return {
+      attachment: await captureVisibleTabScreenshot(sourceTab.windowId, sourceTab)
+    };
+  }
+
   async function startFollowupRequest(message) {
     const existing = await getRequest(message.requestId);
 
@@ -62,20 +88,28 @@ export function createRequestController({
       throw new Error("Request not found.");
     }
 
-    const manualText = normalizeText(message.text);
+    const attachments = normalizeIncomingAttachments(message.attachments);
+    const selectedText = normalizeText(message.selectedText || "");
+    const manualText = buildComposerPrompt({
+      text: message.text,
+      selectedText,
+      attachments
+    });
 
     if (!manualText) {
       throw new Error("Follow-up prompt is empty.");
     }
 
     if (!existing.chatConversationUrl && !existing.chatTabId) {
-      throw new Error("The previous request does not have a saved ChatGPT conversation for follow-up.");
+      throw new Error("The active conversation has no saved ChatGPT conversation target. Start a new chat instead.");
     }
 
     return startRequest({
       profileId: "custom_text",
       sourceTab: existing.source,
+      selectedText,
       manualText,
+      attachments,
       parentRequestId: existing.id,
       conversationMode: "followup",
       expectedConversationUrl: existing.chatConversationUrl || null,
@@ -89,9 +123,6 @@ export function createRequestController({
           mode: "continue",
           startNewChat: false,
           expectedConversationUrl: existing.chatConversationUrl || null
-        },
-        model: {
-          enabled: false
         }
       }
     });
@@ -173,9 +204,67 @@ export function createRequestController({
   return Object.freeze({
     startManualRequest,
     startScreenshotRequest,
+    captureScreenshotAttachment,
     startFollowupRequest,
     retryRequest,
     cancelRequest,
     openChatGptTabForRequest
   });
 }
+
+function buildComposerPrompt({ text, selectedText, attachments }) {
+  const manualText = normalizeComposerText(text);
+  const contextText = normalizeComposerText(selectedText);
+  const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+
+  if (!contextText) {
+    if (manualText) {
+      return manualText;
+    }
+
+    return hasAttachments ? "Please analyze the attached file(s)." : "";
+  }
+
+  const instruction = manualText || "Answer based on the selected webpage text.";
+
+  return [
+    instruction,
+    "",
+    "Selected webpage text:",
+    contextText
+  ].join("\n");
+}
+
+
+function normalizeComposerText(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
+function normalizeIncomingAttachments(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((attachment) => attachment && typeof attachment === "object" && typeof attachment.dataUrl === "string" && attachment.dataUrl.startsWith("data:"))
+    .map((attachment) => ({
+      id: String(attachment.id || createAttachmentId()),
+      kind: attachment.kind === "image" ? "image" : "file",
+      name: String(attachment.name || "attachment").slice(0, 160),
+      mimeType: String(attachment.mimeType || "application/octet-stream").slice(0, 120),
+      sizeBytes: Number.isFinite(Number(attachment.sizeBytes)) ? Number(attachment.sizeBytes) : null,
+      dataUrl: attachment.dataUrl
+    }));
+}
+
+function createAttachmentId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `attachment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
