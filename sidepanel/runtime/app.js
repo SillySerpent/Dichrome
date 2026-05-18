@@ -19,6 +19,10 @@ import {
   isStreamingState
 } from "./state.js";
 
+const MAX_CONTEXT_PREVIEW_LENGTH = 700;
+const MAX_FILE_ATTACHMENT_BYTES = 32 * 1024 * 1024;
+const SELECTION_REFRESH_DELAY_MS = 180;
+
 let profiles = [];
 let panelState = {
   activeRequestId: null,
@@ -26,6 +30,13 @@ let panelState = {
 };
 
 let outgoingRequestPending = null;
+let composerSendInFlight = false;
+let forceNewConversationDraft = false;
+let pendingAttachments = [];
+let selectedContext = null;
+let dismissedSelectionKey = "";
+let selectionRefreshTimer = null;
+let composerReadingMode = true;
 
 const responseView = createResponseView({
   responseText: dom.responseText
@@ -56,35 +67,134 @@ async function initialize() {
     loadRepairSettings(),
     loadAutomationSettings()
   ]);
+  await maybeRefreshSelectedContext({ force: true });
   render();
 }
 
 function bindEvents() {
   dom.refreshButton.addEventListener("click", () => {
     void runPanelAction(async () => {
-      await loadPanelState();
+      await Promise.all([
+        loadPanelState(),
+        maybeRefreshSelectedContext({ force: true })
+      ]);
       render();
     });
   });
 
-  dom.sendManualButton.addEventListener("click", () => {
-    void runPanelAction(sendManualRequest);
+  dom.newChatButton.addEventListener("click", () => {
+    startNewConversationDraft();
   });
 
-  dom.screenshotButton.addEventListener("click", () => {
-    void runPanelAction(sendScreenshotRequest);
+  dom.sendManualButton.addEventListener("click", () => {
+    void runPanelAction(sendComposerRequest);
   });
+
+  dom.manualText.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      void runPanelAction(sendComposerRequest);
+    }
+  });
+
+  dom.manualText.addEventListener("input", () => {
+    markComposerInterest();
+    scheduleSelectedContextRefresh();
+    updateComposerSendState();
+  });
+
+  dom.manualText.addEventListener("focus", () => {
+    markComposerInterest();
+    scheduleSelectedContextRefresh({ force: true });
+  });
+
+  dom.manualText.addEventListener("keydown", () => {
+    markComposerInterest();
+  });
+
+  dom.screenshotButton?.addEventListener("click", () => {
+    void runPanelAction(attachVisibleScreenshot);
+  });
+
+  dom.composerScreenshotButton.addEventListener("click", () => {
+    void runPanelAction(attachVisibleScreenshot);
+  });
+
+  dom.attachFileButton?.addEventListener("click", () => {
+    dom.attachmentInput.click();
+  });
+
+  dom.composerAttachButton.addEventListener("click", () => {
+    dom.attachmentInput.click();
+  });
+
+  dom.attachmentInput.addEventListener("change", () => {
+    void runPanelAction(async () => {
+      await attachFilesFromInput(dom.attachmentInput.files);
+      dom.attachmentInput.value = "";
+    });
+  });
+
+  dom.attachmentsTray.addEventListener("click", (event) => {
+    const button = event.target?.closest?.("[data-remove-attachment]");
+
+    if (!button) {
+      return;
+    }
+
+    removeAttachment(button.dataset.removeAttachment);
+  });
+
+  dom.clearSelectedContextButton.addEventListener("click", () => {
+    dismissedSelectionKey = selectedContext ? createSelectionKey(selectedContext.text) : dismissedSelectionKey;
+    selectedContext = null;
+    renderSelectedContext();
+    updateComposerSendState();
+  });
+
+  dom.quickActions.addEventListener("click", (event) => {
+    const button = event.target?.closest?.("button[data-action]");
+
+    if (!button) {
+      return;
+    }
+
+    applyQuickAction(button.dataset.action);
+  });
+
+  dom.composerDropZone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    markComposerInterest();
+    dom.composerDropZone.classList.add("drag-over");
+  });
+
+  dom.composerDropZone.addEventListener("dragleave", () => {
+    dom.composerDropZone.classList.remove("drag-over");
+  });
+
+  dom.composerDropZone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    markComposerInterest();
+    dom.composerDropZone.classList.remove("drag-over");
+    void runPanelAction(() => attachFilesFromInput(event.dataTransfer?.files));
+  });
+
+  for (const eventName of ["focusin", "pointerdown", "pointerenter"]) {
+    dom.composerPanel.addEventListener(eventName, markComposerInterest);
+  }
+
+  for (const eventName of ["focusin", "pointerdown", "pointerenter", "wheel", "scroll"]) {
+    dom.chatMessages.addEventListener(eventName, markReaderInterest, {
+      passive: eventName === "wheel" || eventName === "scroll"
+    });
+  }
 
   dom.retryButton.addEventListener("click", () => {
     void runPanelAction(() => retryActiveRequest(false));
   });
 
   dom.followupButton.addEventListener("click", () => {
-    void runPanelAction(sendFollowupRequest);
-  });
-
-  dom.retryRepairButton.addEventListener("click", () => {
-    void runPanelAction(() => retryActiveRequest(true));
+    void runPanelAction(sendComposerRequest);
   });
 
   dom.debugDumpButton.addEventListener("click", () => {
@@ -116,11 +226,31 @@ function bindEvents() {
   });
 
   dom.saveAutomationButton.addEventListener("click", () => {
-    void runPanelAction(saveAutomationSettings);
+    void runPanelAction(() => saveAutomationSettings());
   });
 
-  dom.permissionRepairButton.addEventListener("click", () => {
-    void runPanelAction(requestRepairPermission);
+  dom.modelLabel.addEventListener("input", () => {
+    syncModelSelectionEnabledFromLabel();
+    void saveAutomationSettings({ silent: true });
+  });
+
+  dom.modelLabel.addEventListener("change", () => {
+    syncModelSelectionEnabledFromLabel();
+    void saveAutomationSettings({ silent: true });
+  });
+
+  dom.modelRequireExact.addEventListener("change", () => {
+    void saveAutomationSettings({ silent: true });
+  });
+
+  window.addEventListener("focus", () => {
+    scheduleSelectedContextRefresh({ force: true });
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      scheduleSelectedContextRefresh({ force: true });
+    }
   });
 
   responseView.bindInteractions();
@@ -130,8 +260,8 @@ async function loadProfiles() {
   const response = await sendMessage(PANEL_MESSAGES.GET_PROFILES);
   profiles = response.profiles || [];
 
-  const manualProfiles = profiles.filter((profile) => profile.inputKind === "manual_text" || profile.inputKind === "selection");
-  dom.profileSelect.replaceChildren(...manualProfiles.map((profile) => {
+  const customProfile = profiles.find((profile) => profile.id === "custom_text") || profiles[0];
+  dom.profileSelect.replaceChildren(...profiles.map((profile) => {
     const option = document.createElement("option");
     option.value = profile.id;
     option.textContent = profile.label;
@@ -139,8 +269,8 @@ async function loadProfiles() {
     return option;
   }));
 
-  if (!dom.profileSelect.value && manualProfiles[0]) {
-    dom.profileSelect.value = manualProfiles[0].id;
+  if (customProfile) {
+    dom.profileSelect.value = customProfile.id;
   }
 }
 
@@ -163,41 +293,338 @@ async function loadAutomationSettings() {
   const settings = response.settings || {};
 
   dom.projectRoutingEnabled.checked = Boolean(settings.project?.enabled);
-  dom.projectName.value = settings.project?.name || "ChatGPT Page Relay Prototype";
+  dom.projectName.value = settings.project?.name || "Dichrome";
   dom.projectCreateIfMissing.checked = settings.project?.createIfMissing !== false;
-  dom.startNewChat.checked = settings.conversation?.startNewChat !== false;
+  if (dom.startNewChat) {
+    dom.startNewChat.checked = false;
+  }
   dom.automationVisibilityMode.value = normalizeVisibilityMode(settings.visibility?.mode);
   dom.modelSelectionEnabled.checked = Boolean(settings.model?.enabled);
-  dom.modelLabel.value = settings.model?.label || "";
+  setModelLabelValue(settings.model?.label || "");
   dom.modelRequireExact.checked = Boolean(settings.model?.requireExact);
   renderAutomationTargetStatus(settings.automationSession || null);
 }
 
-async function sendManualRequest() {
-  const text = dom.manualText.value.trim();
+function setModelLabelValue(label) {
+  const normalized = String(label || "").trim();
 
-  if (!text) {
-    setTransientStatus("Text prompt is empty.");
+  if (normalized && !Array.from(dom.modelLabel.options).some((option) => option.value === normalized)) {
+    const option = document.createElement("option");
+    option.value = normalized;
+    option.textContent = normalized;
+    dom.modelLabel.appendChild(option);
+  }
+
+  dom.modelLabel.value = normalized;
+}
+
+async function sendComposerRequest() {
+  if (composerSendInFlight) {
+    setTransientStatus("Message is already being sent.");
     return;
   }
 
-  markOutgoingRequestPending("Sending text prompt...");
-  await sendMessage(PANEL_MESSAGES.RUN_MANUAL_REQUEST, {
-    profileId: dom.profileSelect.value || "custom_text",
-    text
-  });
-  dom.manualText.value = "";
-  await loadPanelState();
-  render();
+  composerSendInFlight = true;
+  updateComposerSendState();
+
+  try {
+    await maybeRefreshSelectedContext({ force: true });
+
+    const text = dom.manualText.value.trim();
+    const selectedText = selectedContext?.text || "";
+    const attachments = pendingAttachments.map((attachment) => ({ ...attachment }));
+
+    if (!text && !selectedText && !attachments.length) {
+      setTransientStatus("Message is empty.");
+      return;
+    }
+
+    const activeRequest = getActiveRequest();
+    const canContinue = canContinueActiveConversation(activeRequest);
+
+    if (isRunningRequest(activeRequest)) {
+      setTransientStatus("Wait for the current response or cancel it first.");
+      return;
+    }
+
+    await saveAutomationSettings({ silent: true });
+    markOutgoingRequestPending(canContinue ? "Sending message..." : "Starting new conversation...");
+
+    if (canContinue) {
+      await sendMessage(PANEL_MESSAGES.RUN_FOLLOWUP_REQUEST, {
+        requestId: activeRequest.id,
+        text,
+        selectedText,
+        attachments
+      });
+    } else {
+      await sendMessage(PANEL_MESSAGES.RUN_MANUAL_REQUEST, {
+        profileId: "custom_text",
+        text,
+        selectedText,
+        attachments,
+        forceNewChat: true
+      });
+    }
+
+    clearComposerAfterSend();
+    await loadPanelState();
+    render();
+  } finally {
+    composerSendInFlight = false;
+    updateComposerSendState();
+  }
 }
 
-async function sendScreenshotRequest() {
-  markOutgoingRequestPending("Capturing visible screenshot...");
-  await sendMessage(PANEL_MESSAGES.RUN_SCREENSHOT_REQUEST, {
-    prompt: dom.manualText.value.trim()
-  });
-  await loadPanelState();
+function canContinueActiveConversation(request) {
+  if (forceNewConversationDraft || !request || isRunningRequest(request)) {
+    return false;
+  }
+
+  return Boolean(request.chatConversationUrl || request.chatConversationKey || request.chatTabId);
+}
+
+function clearComposerAfterSend() {
+  dom.manualText.value = "";
+  pendingAttachments = [];
+  selectedContext = null;
+  forceNewConversationDraft = false;
+  renderAttachments();
+  renderSelectedContext();
+  updateComposerSendState();
+}
+
+function startNewConversationDraft() {
+  composerReadingMode = false;
+  forceNewConversationDraft = true;
+  pendingAttachments = [];
+  selectedContext = null;
+  dismissedSelectionKey = "";
+  dom.manualText.value = "";
+  responseAnimation.stop();
+  responseView.resetAutoScroll();
+  responseView.setHtml("", { forceScroll: true });
+  renderAttachments();
+  renderSelectedContext();
   render();
+  dom.manualText.focus();
+  setTransientStatus("New conversation ready. The next send will start separately.");
+}
+
+async function attachVisibleScreenshot() {
+  await ensureScreenshotCapturePermission();
+  const response = await sendMessage(PANEL_MESSAGES.CAPTURE_SCREENSHOT_ATTACHMENT);
+  const screenshot = response.attachment;
+
+  if (!screenshot) {
+    throw new Error("Screenshot capture returned no attachment.");
+  }
+
+  addAttachment({
+    ...screenshot,
+    previewUrl: screenshot.dataUrl
+  });
+  setTransientStatus("Screenshot attached. Review it, add text if needed, then press Send.");
+}
+
+async function attachFilesFromInput(fileList) {
+  const files = Array.from(fileList || []);
+
+  if (!files.length) {
+    return;
+  }
+
+  for (const file of files) {
+    if (file.size > MAX_FILE_ATTACHMENT_BYTES) {
+      throw new Error(`${file.name} is too large for the side-panel attachment buffer.`);
+    }
+
+    const dataUrl = await readFileAsDataUrl(file);
+    addAttachment({
+      id: createLocalId(),
+      kind: file.type.startsWith("image/") ? "image" : "file",
+      name: file.name || "attachment",
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      dataUrl,
+      previewUrl: file.type.startsWith("image/") ? dataUrl : ""
+    });
+  }
+
+  setTransientStatus(`${files.length} file${files.length === 1 ? "" : "s"} attached.`);
+}
+
+function addAttachment(attachment) {
+  markComposerInterest();
+  pendingAttachments = [
+    ...pendingAttachments,
+    {
+      id: attachment.id || createLocalId(),
+      kind: attachment.kind || (String(attachment.mimeType || "").startsWith("image/") ? "image" : "file"),
+      name: attachment.name || "attachment",
+      mimeType: attachment.mimeType || "application/octet-stream",
+      sizeBytes: attachment.sizeBytes || null,
+      dataUrl: attachment.dataUrl,
+      previewUrl: attachment.previewUrl || (String(attachment.mimeType || "").startsWith("image/") ? attachment.dataUrl : "")
+    }
+  ];
+  renderAttachments();
+  updateComposerSendState();
+}
+
+function removeAttachment(attachmentId) {
+  markComposerInterest();
+  pendingAttachments = pendingAttachments.filter((attachment) => attachment.id !== attachmentId);
+  renderAttachments();
+  updateComposerSendState();
+}
+
+function renderAttachments() {
+  dom.attachmentsTray.replaceChildren();
+  dom.attachmentsTray.classList.toggle("hidden", pendingAttachments.length === 0);
+
+  for (const attachment of pendingAttachments) {
+    const chip = document.createElement("div");
+    chip.className = "attachment-chip";
+
+    if (attachment.previewUrl) {
+      const image = document.createElement("img");
+      image.width = 34;
+      image.height = 30;
+      image.decoding = "sync";
+      image.loading = "eager";
+      image.src = attachment.previewUrl;
+      image.alt = "";
+      chip.append(image);
+    } else {
+      const icon = document.createElement("span");
+      icon.className = "file-icon";
+      icon.textContent = "File";
+      chip.append(icon);
+    }
+
+    const body = document.createElement("div");
+    body.className = "attachment-body";
+    const name = document.createElement("strong");
+    name.textContent = attachment.name;
+    const meta = document.createElement("span");
+    meta.textContent = [attachment.mimeType, formatBytes(attachment.sizeBytes)].filter(Boolean).join(" · ");
+    body.append(name, meta);
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "tiny-button";
+    remove.textContent = "Remove";
+    remove.dataset.removeAttachment = attachment.id;
+
+    chip.append(body, remove);
+    dom.attachmentsTray.append(chip);
+  }
+}
+
+async function ensureScreenshotCapturePermission() {
+  if (!chrome.permissions?.request) {
+    return;
+  }
+
+  const granted = await chrome.permissions.request({
+    origins: ["<all_urls>"]
+  });
+
+  if (!granted) {
+    throw new Error("Visible screenshot capture needs All Sites access. Grant the permission prompt, then retry.");
+  }
+}
+
+function scheduleSelectedContextRefresh({ force = false } = {}) {
+  window.clearTimeout(selectionRefreshTimer);
+  selectionRefreshTimer = window.setTimeout(() => {
+    void maybeRefreshSelectedContext({ force });
+  }, SELECTION_REFRESH_DELAY_MS);
+}
+
+async function maybeRefreshSelectedContext({ force = false } = {}) {
+  if (!force && selectedContext) {
+    return;
+  }
+
+  const selection = await getActiveTabSelection().catch(() => null);
+  const text = normalizeSelectionText(selection?.text || "");
+
+  if (!text) {
+    return;
+  }
+
+  const key = createSelectionKey(text);
+
+  if (key === dismissedSelectionKey) {
+    return;
+  }
+
+  selectedContext = {
+    id: key,
+    text,
+    sourceTitle: selection?.title || "",
+    sourceUrl: selection?.url || ""
+  };
+  renderSelectedContext();
+  updateComposerSendState();
+}
+
+async function getActiveTabSelection() {
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true
+  });
+
+  if (!tab?.id || /^chrome:|^edge:|^brave:|^chrome-extension:/i.test(tab.url || "")) {
+    return null;
+  }
+
+  const [result] = await chrome.scripting.executeScript({
+    target: {
+      tabId: tab.id
+    },
+    func: () => ({
+      text: String(globalThis.getSelection?.() || ""),
+      title: document.title || "",
+      url: location.href
+    })
+  });
+
+  return result?.result || null;
+}
+
+function renderSelectedContext() {
+  const hasContext = Boolean(selectedContext?.text);
+  dom.selectedContextCard.classList.toggle("hidden", !hasContext);
+
+  if (!hasContext) {
+    dom.selectedContextPreview.textContent = "";
+    return;
+  }
+
+  const prefix = selectedContext.sourceTitle ? `${selectedContext.sourceTitle}\n` : "";
+  dom.selectedContextPreview.textContent = `${prefix}${truncateText(selectedContext.text, MAX_CONTEXT_PREVIEW_LENGTH)}`;
+}
+
+function applyQuickAction(action) {
+  if (!selectedContext?.text) {
+    return;
+  }
+
+  const prompts = {
+    explain: "Explain the selected text in plain language.",
+    summarize: "Summarize the selected text compactly and include the key caveats.",
+    improve: "Improve the selected text while preserving the original meaning.",
+    rewrite: "Rewrite the selected text clearly and naturally.",
+    define: "Define the selected word or phrase and explain the likely meaning in context."
+  };
+
+  dom.manualText.value = prompts[action] || prompts.explain;
+  markComposerInterest();
+  dom.manualText.focus();
+  updateComposerSendState();
 }
 
 async function retryActiveRequest(useRepairHints) {
@@ -207,33 +634,11 @@ async function retryActiveRequest(useRepairHints) {
     return;
   }
 
+  await saveAutomationSettings({ silent: true });
   await sendMessage(PANEL_MESSAGES.RETRY_REQUEST, {
     requestId: request.id,
     useRepairHints
   });
-  await loadPanelState();
-  render();
-}
-
-async function sendFollowupRequest() {
-  const request = getActiveRequest();
-  const text = dom.followupText.value.trim();
-
-  if (!request) {
-    return;
-  }
-
-  if (!text) {
-    setTransientStatus("Follow-up prompt is empty.");
-    return;
-  }
-
-  markOutgoingRequestPending("Sending follow-up...");
-  await sendMessage(PANEL_MESSAGES.RUN_FOLLOWUP_REQUEST, {
-    requestId: request.id,
-    text
-  });
-  dom.followupText.value = "";
   await loadPanelState();
   render();
 }
@@ -260,44 +665,61 @@ async function dumpDebugState() {
     requestId: request?.id || null
   });
 
-  console.log("[ChatGPT Relay] Side panel debug dump", response.dump);
+  console.log("[Dichrome] Side panel debug dump", response.dump);
   setTransientStatus("Debug dump written to console.");
 }
 
-async function saveAutomationSettings() {
+async function saveAutomationSettings({ silent = false } = {}) {
   const response = await sendMessage(PANEL_MESSAGES.SET_CHATGPT_AUTOMATION_SETTINGS, {
-    settings: {
-      project: {
-        enabled: dom.projectRoutingEnabled.checked,
-        name: dom.projectName.value,
-        createIfMissing: dom.projectCreateIfMissing.checked
-      },
-      conversation: {
-        startNewChat: dom.startNewChat.checked
-      },
-      visibility: {
-        schemaVersion: VISIBILITY_SETTINGS_VERSION,
-        mode: normalizeVisibilityMode(dom.automationVisibilityMode.value)
-      },
-      model: {
-        enabled: dom.modelSelectionEnabled.checked,
-        label: dom.modelLabel.value,
-        requireExact: dom.modelRequireExact.checked
-      }
-    }
+    settings: collectAutomationSettingsFromForm()
   });
   const settings = response.settings;
 
   dom.projectRoutingEnabled.checked = Boolean(settings.project.enabled);
   dom.projectName.value = settings.project.name;
   dom.projectCreateIfMissing.checked = Boolean(settings.project.createIfMissing);
-  dom.startNewChat.checked = Boolean(settings.conversation.startNewChat);
+  if (dom.startNewChat) {
+    dom.startNewChat.checked = false;
+  }
   dom.automationVisibilityMode.value = normalizeVisibilityMode(settings.visibility.mode);
   dom.modelSelectionEnabled.checked = Boolean(settings.model.enabled);
-  dom.modelLabel.value = settings.model.label;
+  setModelLabelValue(settings.model.label);
   dom.modelRequireExact.checked = Boolean(settings.model.requireExact);
   renderAutomationTargetStatus(settings.automationSession || null);
-  setTransientStatus("ChatGPT routing settings saved.");
+
+  if (!silent) {
+    setTransientStatus("Settings saved.");
+  }
+}
+
+function collectAutomationSettingsFromForm() {
+  const modelLabel = dom.modelLabel.value.trim();
+
+  return {
+    project: {
+      enabled: dom.projectRoutingEnabled.checked,
+      name: dom.projectName.value,
+      createIfMissing: dom.projectCreateIfMissing.checked
+    },
+    conversation: {
+      // Conversation creation is now controlled per message by the sidebar's
+      // active conversation state. Model/effort changes must never mutate this.
+      startNewChat: false
+    },
+    visibility: {
+      schemaVersion: VISIBILITY_SETTINGS_VERSION,
+      mode: normalizeVisibilityMode(dom.automationVisibilityMode.value)
+    },
+    model: {
+      enabled: Boolean(dom.modelSelectionEnabled.checked || modelLabel),
+      label: modelLabel,
+      requireExact: dom.modelRequireExact.checked
+    }
+  };
+}
+
+function syncModelSelectionEnabledFromLabel() {
+  dom.modelSelectionEnabled.checked = Boolean(dom.modelLabel.value.trim());
 }
 
 async function refreshAutomationTargetStatus() {
@@ -308,15 +730,8 @@ async function refreshAutomationTargetStatus() {
   }
 }
 
-async function requestRepairPermission() {
-  const granted = await chrome.permissions.request({
-    origins: ["http://localhost:11434/*"]
-  });
-  setTransientStatus(granted ? "Localhost permission granted." : "Localhost permission was not granted.");
-}
-
 function render() {
-  const request = getActiveRequest();
+  const request = forceNewConversationDraft ? null : getActiveRequest();
 
   if (outgoingRequestPending && request && request.id !== outgoingRequestPending.previousRequestId) {
     outgoingRequestPending = null;
@@ -328,17 +743,22 @@ function render() {
 
   if (showOutgoingPending) {
     renderPendingOutgoingState(request);
+    updateComposerSendState();
     return;
   }
 
+  const isRunning = isRunningRequest(request);
   dom.statusLine.textContent = request
     ? `${request.profileLabel} - ${formatState(request.state)}`
-    : "Idle";
-  dom.stateBadge.textContent = request ? request.state : "IDLE";
+    : forceNewConversationDraft
+      ? "New chat draft"
+      : "Ready";
   dom.profileLabel.textContent = request?.profileLabel || "-";
   dom.sourceLabel.textContent = request?.source?.title || request?.source?.url || "-";
   dom.selectedText.textContent = request?.selectedText || "";
   dom.selectedBlock.classList.toggle("hidden", !request?.selectedText);
+
+  renderChatThread(request);
   renderResponse(request);
 
   if (request?.error) {
@@ -350,19 +770,163 @@ function render() {
   }
 
   const hasRequest = Boolean(request);
-  const isRunning = isRunningRequest(request);
-  const hasRepairHints = Boolean(request?.repairSuggestions?.hints?.length);
 
   dom.retryButton.disabled = !hasRequest;
-  dom.followupButton.disabled = !hasRequest || isRunning || (!request?.chatConversationUrl && !request?.chatTabId);
-  dom.retryRepairButton.disabled = !hasRepairHints;
+  dom.followupButton.disabled = true;
   dom.openChatGptButton.disabled = !hasRequest;
   dom.cancelButton.disabled = !isRunning;
 
   renderRepairSuggestions(request);
   renderEvents(request);
+  updateComposerSendState();
 }
 
+function renderChatThread(activeRequest) {
+  dom.chatMessages.replaceChildren();
+
+  if (!activeRequest) {
+    moveResponseTextToParking();
+    const empty = document.createElement("div");
+    empty.className = "empty-chat";
+    const title = document.createElement("strong");
+    title.textContent = forceNewConversationDraft ? "New conversation" : "Start a chat";
+    const body = document.createElement("span");
+    body.textContent = forceNewConversationDraft
+      ? "Your next message will start separately. Mode changes only affect the next send."
+      : "Type below, attach context, or select webpage text. Follow-ups continue this conversation until you press New.";
+    empty.append(title, body);
+    dom.chatMessages.append(empty);
+    return;
+  }
+
+  const thread = getRequestThread(activeRequest);
+
+  for (const request of thread) {
+    dom.chatMessages.append(createUserMessageCard(request));
+    dom.chatMessages.append(createAssistantMessageCard(request, request.id === activeRequest.id));
+  }
+
+  dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+}
+
+function createUserMessageCard(request) {
+  const card = document.createElement("article");
+  card.className = "message-card user-message";
+
+  const meta = document.createElement("div");
+  meta.className = "message-meta";
+  meta.textContent = "You";
+
+  const body = document.createElement("div");
+  body.className = "message-body";
+  body.textContent = request.manualText || request.prompt || "Sent attachment/context.";
+
+  card.append(meta, body);
+
+  if (request.selectedText) {
+    const context = document.createElement("div");
+    context.className = "sent-context";
+    context.textContent = `Selected text: ${truncateText(request.selectedText, 420)}`;
+    card.append(context);
+  }
+
+  if (request.attachments?.length) {
+    const list = document.createElement("div");
+    list.className = "sent-attachments";
+
+    for (const attachment of request.attachments) {
+      const chip = document.createElement("span");
+      chip.textContent = attachment.name || attachment.kind || "attachment";
+      list.append(chip);
+    }
+
+    card.append(list);
+  }
+
+  return card;
+}
+
+function createAssistantMessageCard(request, isActive) {
+  const card = document.createElement("article");
+  card.className = "message-card assistant-message";
+
+  const meta = document.createElement("div");
+  meta.className = "message-meta";
+  meta.textContent = request.state === "ERROR_STATE" ? "Assistant - error" : "Assistant";
+
+  const body = document.createElement("div");
+  body.className = "message-body assistant-body";
+
+  if (isActive) {
+    body.append(dom.responseText);
+  } else {
+    const content = document.createElement("div");
+    content.className = "response-content";
+    const text = normalizeResponseText(request.responseText || "");
+    content.innerHTML = text ? renderMarkdownToHtml(text) : normalizeResponseHtml(request.responseHtml || "");
+    body.append(content);
+  }
+
+  card.append(meta, body);
+  return card;
+}
+
+function getRequestThread(activeRequest) {
+  const byId = new Map(panelState.requests.map((request) => [request.id, request]));
+  const thread = [];
+  let cursor = activeRequest;
+  let guard = 0;
+
+  while (cursor && guard < 20) {
+    thread.unshift(cursor);
+    cursor = cursor.parentRequestId ? byId.get(cursor.parentRequestId) : null;
+    guard += 1;
+  }
+
+  return thread;
+}
+
+function moveResponseTextToParking() {
+  if (dom.responseText.parentElement !== dom.responseParking) {
+    dom.responseParking.append(dom.responseText);
+  }
+}
+
+function updateComposerSendState() {
+  const request = getActiveRequest();
+  const hasContent = Boolean(dom.manualText.value.trim() || selectedContext?.text || pendingAttachments.length);
+  dom.sendManualButton.disabled = !hasContent
+    || composerSendInFlight
+    || Boolean(outgoingRequestPending)
+    || isRunningRequest(request);
+  updateComposerCollapseState();
+}
+
+function markComposerInterest() {
+  composerReadingMode = false;
+  updateComposerCollapseState();
+}
+
+function markReaderInterest() {
+  composerReadingMode = true;
+  updateComposerCollapseState();
+}
+
+function updateComposerCollapseState() {
+  const activeElement = document.activeElement;
+  const request = getActiveRequest();
+  const hasComposerFocus = Boolean(activeElement && dom.composerPanel.contains(activeElement));
+  const composerIsEmpty = !dom.manualText.value.trim() && !selectedContext?.text && pendingAttachments.length === 0;
+  const shouldCollapse = composerReadingMode
+    && composerIsEmpty
+    && !hasComposerFocus
+    && !composerSendInFlight
+    && !outgoingRequestPending
+    && !isRunningRequest(request)
+    && !request?.error;
+
+  dom.composerPanel.classList.toggle("is-collapsed", shouldCollapse);
+}
 
 function markOutgoingRequestPending(label) {
   const current = getActiveRequest();
@@ -375,12 +939,10 @@ function markOutgoingRequestPending(label) {
   responseView.resetAutoScroll();
   responseView.setHtml("", { forceScroll: true });
   dom.statusLine.textContent = label;
-  dom.stateBadge.textContent = "QUEUED";
 }
 
 function renderPendingOutgoingState(request) {
   dom.statusLine.textContent = outgoingRequestPending?.label || "Preparing request...";
-  dom.stateBadge.textContent = "QUEUED";
   dom.profileLabel.textContent = "-";
   dom.sourceLabel.textContent = request?.source?.title || request?.source?.url || "-";
   dom.selectedText.textContent = "";
@@ -392,7 +954,6 @@ function renderPendingOutgoingState(request) {
   dom.errorBlock.classList.add("hidden");
   dom.retryButton.disabled = true;
   dom.followupButton.disabled = true;
-  dom.retryRepairButton.disabled = true;
   dom.openChatGptButton.disabled = true;
   dom.cancelButton.disabled = true;
   dom.repairSuggestions.replaceChildren();
@@ -478,8 +1039,10 @@ function setTransientStatus(text) {
   const previous = dom.statusLine.textContent;
   dom.statusLine.textContent = text;
   window.setTimeout(() => {
-    dom.statusLine.textContent = previous;
-  }, 2400);
+    if (dom.statusLine.textContent === text) {
+      dom.statusLine.textContent = previous;
+    }
+  }, 2800);
 }
 
 function formatState(state) {
@@ -527,4 +1090,60 @@ function formatTime(value) {
     minute: "2-digit",
     second: "2-digit"
   });
+}
+
+function truncateText(text, maxLength) {
+  const normalized = String(text || "").trim();
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function normalizeSelectionText(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
+function createSelectionKey(text) {
+  return normalizeSelectionText(text).slice(0, 1000);
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error(`Failed to read ${file.name}.`));
+    reader.readAsDataURL(file);
+  });
+}
+
+function createLocalId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function formatBytes(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number) || number <= 0) {
+    return "";
+  }
+
+  if (number < 1024) {
+    return `${number} B`;
+  }
+
+  if (number < 1024 * 1024) {
+    return `${Math.round(number / 1024)} KB`;
+  }
+
+  return `${(number / (1024 * 1024)).toFixed(1)} MB`;
 }
