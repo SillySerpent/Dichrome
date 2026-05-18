@@ -68,18 +68,9 @@ export function createResponseView({ responseText }) {
         continue;
       }
 
-      const wrapper = document.createElement("div");
-      wrapper.className = "response-copy-wrapper code-copy-wrapper";
-      const toolbar = document.createElement("div");
-      toolbar.className = "response-copy-toolbar";
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "response-copy-button";
-      button.textContent = "Copy";
-      button.dataset.copyKind = "code";
-      toolbar.append(button);
+      const wrapper = createCopyWrapper("code", "Copy code block");
       pre.replaceWith(wrapper);
-      wrapper.append(toolbar, pre);
+      wrapper.append(pre);
     }
   }
 
@@ -89,19 +80,28 @@ export function createResponseView({ responseText }) {
         continue;
       }
 
-      const wrapper = document.createElement("div");
-      wrapper.className = "response-copy-wrapper math-copy-wrapper";
-      const toolbar = document.createElement("div");
-      toolbar.className = "response-copy-toolbar";
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "response-copy-button";
-      button.textContent = "Copy";
-      button.dataset.copyKind = "math";
-      toolbar.append(button);
+      const wrapper = createCopyWrapper("math", "Copy math source");
       math.replaceWith(wrapper);
-      wrapper.append(toolbar, math);
+      wrapper.append(math);
     }
+  }
+
+  function createCopyWrapper(kind, label) {
+    const wrapper = document.createElement("div");
+    wrapper.className = `response-copy-wrapper ${kind}-copy-wrapper`;
+    const toolbar = document.createElement("div");
+    toolbar.className = "response-copy-toolbar";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "response-copy-button";
+    button.textContent = "Copy";
+    button.dataset.copyKind = kind;
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    toolbar.append(button);
+    wrapper.append(toolbar);
+
+    return wrapper;
   }
 
   async function copyResponseBlock(button) {
