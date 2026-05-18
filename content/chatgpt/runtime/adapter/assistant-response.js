@@ -12,6 +12,7 @@
     getElementLabel,
     isAllowedChatGptUrl,
     isInsideUserAuthoredMessage,
+    isTransientAssistantStatusText,
     isVisible,
     normalizeAssistantMessageElement,
     normalizeText,
@@ -39,10 +40,26 @@
           .sort(compareDocumentOrder);
       },
 
+      createAssistantMessageBaseline(messages = this.findAssistantMessages()) {
+        const elements = Array.isArray(messages)
+          ? messages.filter(Boolean)
+          : Array.from(messages?.elements || []).filter(Boolean);
+        const messageIds = elements.map((message) => this.getAssistantMessageId(message)).filter(Boolean);
+        const identities = elements.map((message) => this.getAssistantMessageIdentity(message)).filter(Boolean);
+        const textFingerprints = elements.map((message) => this.getAssistantMessageTextFingerprint(message)).filter(Boolean);
+
+        return {
+          elements,
+          messageIds,
+          identities,
+          textFingerprints
+        };
+      },
+
       findNewestAssistantMessageAfter(previousMessages, fallbackMessage) {
-        const previousSet = new Set(previousMessages || []);
+        const baseline = this.normalizeAssistantMessageBaseline(previousMessages);
         const messages = this.findAssistantMessages();
-        const newMessages = messages.filter((message) => !previousSet.has(message));
+        const newMessages = messages.filter((message) => !this.isAssistantMessageInBaseline(message, baseline));
 
         if (newMessages.length) {
           return newMessages[newMessages.length - 1];
@@ -56,10 +73,14 @@
       },
 
       findNewestTextBearingAssistantMessageAfter(previousMessages, fallbackMessage) {
-        const previousSet = new Set(previousMessages || []);
+        const baseline = this.normalizeAssistantMessageBaseline(previousMessages);
         const messages = this.findAssistantMessages();
-        const candidates = messages.filter((message) => !previousSet.has(message) || message === fallbackMessage);
-        const textBearing = candidates.filter((message) => normalizeText(extractReadableTextFromElement(findBestAssistantContentElement(message))).length > 0);
+        const candidates = messages.filter((message) => message === fallbackMessage || !this.isAssistantMessageInBaseline(message, baseline));
+        const textBearing = candidates.filter((message) => {
+          const text = normalizeText(extractReadableTextFromElement(findBestAssistantContentElement(message)));
+
+          return text.length > 0 && !isTransientAssistantStatusText(text);
+        });
 
         return textBearing[textBearing.length - 1] || null;
       },
@@ -68,37 +89,31 @@
         const source = findBestAssistantContentElement(messageElement);
         const text = extractReadableTextFromElement(source);
 
-        if (text) {
-          return text;
+        if (!text || isTransientAssistantStatusText(text)) {
+          return "";
         }
 
-        const fallback = this.findNewestTextBearingAssistantMessageAfter([], null);
-
-        if (fallback && fallback !== messageElement) {
-          return extractReadableTextFromElement(findBestAssistantContentElement(fallback));
-        }
-
-        return "";
+        return text;
       },
 
       extractAssistantHtml(messageElement) {
         const source = findBestAssistantContentElement(messageElement);
+        const text = extractReadableTextFromElement(source);
+
+        if (isTransientAssistantStatusText(text)) {
+          return "";
+        }
+
         const html = extractReadableHtmlFromElement(source);
 
         if (normalizeText(html)) {
           return html;
         }
 
-        const fallback = this.findNewestTextBearingAssistantMessageAfter([], null);
-
-        if (fallback && fallback !== messageElement) {
-          return extractReadableHtmlFromElement(findBestAssistantContentElement(fallback));
-        }
-
         return "";
       },
 
-      async fetchLatestConversationAssistantResponse({ afterMs = 0 } = {}) {
+      async fetchLatestConversationAssistantResponse({ afterMs = 0, excludedMessageIds = [] } = {}) {
         const conversationKey = extractConversationKey(location.href);
 
         if (!conversationKey || !isAllowedChatGptUrl(new URL(location.href))) {
@@ -135,7 +150,8 @@
 
           const data = await response.json();
           const selected = selectLatestAssistantResponseFromConversationData(data, {
-            afterMs
+            afterMs,
+            excludedMessageIds
           });
 
           return selected ? {
@@ -145,6 +161,82 @@
         }
 
         throw new Error(`Conversation API returned ${errors.join("; ") || "no usable response"}.`);
+      },
+
+      normalizeAssistantMessageBaseline(previousMessages) {
+        if (previousMessages?.elements || previousMessages?.identities || previousMessages?.textFingerprints || previousMessages?.messageIds) {
+          return {
+            elements: new Set(Array.from(previousMessages.elements || []).filter(Boolean)),
+            messageIds: new Set(Array.from(previousMessages.messageIds || []).filter(Boolean).map(String)),
+            identities: new Set(Array.from(previousMessages.identities || []).filter(Boolean)),
+            textFingerprints: new Set(Array.from(previousMessages.textFingerprints || []).filter(Boolean))
+          };
+        }
+
+        const baseline = this.createAssistantMessageBaseline(Array.isArray(previousMessages) ? previousMessages : []);
+
+        return {
+          elements: new Set(baseline.elements),
+          messageIds: new Set(baseline.messageIds.map(String)),
+          identities: new Set(baseline.identities),
+          textFingerprints: new Set(baseline.textFingerprints)
+        };
+      },
+
+      isAssistantMessageInBaseline(message, baseline) {
+        if (!message) {
+          return false;
+        }
+
+        if (baseline.elements.has(message)) {
+          return true;
+        }
+
+        const messageId = this.getAssistantMessageId(message);
+
+        if (messageId && baseline.messageIds.has(String(messageId))) {
+          return true;
+        }
+
+        const identity = this.getAssistantMessageIdentity(message);
+
+        if (identity && baseline.identities.has(identity)) {
+          return true;
+        }
+
+        const textFingerprint = this.getAssistantMessageTextFingerprint(message);
+
+        return Boolean(textFingerprint && baseline.textFingerprints.has(textFingerprint));
+      },
+
+      getAssistantMessageId(message) {
+        if (!message) {
+          return "";
+        }
+
+        return message.getAttribute?.("data-message-id")
+          || message.querySelector?.("[data-message-id]")?.getAttribute("data-message-id")
+          || "";
+      },
+
+      getAssistantMessageIdentity(message) {
+        const messageId = this.getAssistantMessageId(message);
+
+        if (messageId) {
+          return `message:${messageId}`;
+        }
+
+        return "";
+      },
+
+      getAssistantMessageTextFingerprint(message) {
+        const text = normalizeText(extractReadableTextFromElement(findBestAssistantContentElement(message))).replace(/\s+/g, " ");
+
+        if (!text || isTransientAssistantStatusText(text)) {
+          return "";
+        }
+
+        return `text:${text.length}:${text.slice(0, 2048)}`;
       },
 
       findErrorText() {
