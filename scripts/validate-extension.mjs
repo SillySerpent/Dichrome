@@ -69,6 +69,11 @@ const requiredFiles = [
   "scripts/test-settings.mjs",
   "scripts/test-content-runtime-url.mjs",
   "scripts/test-content-response-extraction.mjs",
+  "scripts/test-dom-utils-click.mjs",
+  "scripts/test-model-scoring.mjs",
+  "scripts/test-main-world-capture.mjs",
+  "scripts/test-response-animation.mjs",
+  "scripts/test-sidepanel-layout-css.mjs",
   "scripts/test-contracts.mjs",
   "scripts/test-response-formatting.mjs",
   "sidepanel/sidepanel.html",
@@ -91,6 +96,11 @@ const moduleScriptFiles = [
   "scripts/test-settings.mjs",
   "scripts/test-content-runtime-url.mjs",
   "scripts/test-content-response-extraction.mjs",
+  "scripts/test-dom-utils-click.mjs",
+  "scripts/test-model-scoring.mjs",
+  "scripts/test-main-world-capture.mjs",
+  "scripts/test-response-animation.mjs",
+  "scripts/test-sidepanel-layout-css.mjs",
   "scripts/test-offscreen-frame-policy.mjs",
   "scripts/test-offscreen-target.mjs",
   "scripts/test-automation-session.mjs",
@@ -112,6 +122,8 @@ async function validateManifest() {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 
   assert(manifest.manifest_version === 3, "manifest_version must be 3.");
+  assert(manifest.name === "Dichrome", "manifest name must match the extension brand.");
+  assert(manifest.action?.default_title === "Open Dichrome", "action title must match the extension brand.");
   assert(Number(manifest.minimum_chrome_version) >= 116, "minimum_chrome_version must be 116 or newer for sidePanel.open.");
   assert(manifest.background?.service_worker === "background/service-worker.js", "background service worker path is wrong.");
   assert(manifest.background?.type === "module", "background service worker must be an ES module.");
@@ -146,9 +158,20 @@ async function validateManifest() {
   }
 
   const hostPermissions = new Set(manifest.host_permissions || []);
+  const optionalHostPermissions = manifest.optional_host_permissions || [];
+  const redundantOptionalHostPermissions = optionalHostPermissions.filter((optionalHostPermission) => {
+    return Array.from(hostPermissions).some((hostPermission) => {
+      return hostPermission === optionalHostPermission || hostPermission === "<all_urls>";
+    });
+  });
 
   assert(hostPermissions.has("https://chatgpt.com/*"), "Missing chatgpt.com host permission.");
   assert(hostPermissions.has("https://chat.openai.com/*"), "Missing chat.openai.com host permission.");
+  assert(optionalHostPermissions.includes("<all_urls>"), "Visible screenshot capture must declare optional <all_urls> host access.");
+  assert(
+    redundantOptionalHostPermissions.length === 0,
+    `Optional host permissions must not duplicate required host access: ${redundantOptionalHostPermissions.join(", ")}`
+  );
   assert(
     manifest.content_security_policy?.extension_pages?.includes("frame-src https://chatgpt.com https://chat.openai.com"),
     "Extension CSP must allow ChatGPT offscreen iframe probe hosts."
