@@ -2,7 +2,8 @@
   const relay = globalThis.ChatGptRelay = globalThis.ChatGptRelay || {};
   const runtime = relay.runtime = relay.runtime || {};
 
-  function selectLatestAssistantResponseFromConversationData(data, { afterMs = 0 } = {}) {
+  function selectLatestAssistantResponseFromConversationData(data, { afterMs = 0, excludedMessageIds = [] } = {}) {
+    const excludedIds = new Set((excludedMessageIds || []).filter(Boolean).map(String));
     const nodes = Object.values(data?.mapping || {})
       .map((node) => ({
         node,
@@ -28,8 +29,25 @@
       return null;
     }
 
-    const afterCandidates = nodes.filter((candidate) => !afterMs || !candidate.timeMs || candidate.timeMs >= afterMs);
-    const candidates = afterCandidates.length ? afterCandidates : nodes;
+    const eligibleNodes = nodes.filter((candidate) => {
+      if (candidate.messageId && excludedIds.has(String(candidate.messageId))) {
+        return false;
+      }
+
+      return !isTransientAssistantStatusText(candidate.text);
+    });
+
+    if (!eligibleNodes.length) {
+      return null;
+    }
+
+    const candidates = afterMs
+      ? eligibleNodes.filter((candidate) => !candidate.timeMs || candidate.timeMs >= afterMs)
+      : eligibleNodes;
+
+    if (!candidates.length) {
+      return null;
+    }
 
     candidates.sort((a, b) => {
       if (a.timeMs !== b.timeMs) {
@@ -127,11 +145,45 @@
       return true;
     }
 
+    if (isTransientAssistantStatusText(normalized)) {
+      return true;
+    }
+
     const prompt = normalizeComparableText(promptText);
     const looksLikeDefinitionOrExplanation = /define|explain|selected word|selected phrase|plain language|multiple meanings|surrounding wording|summari[sz]e|analy[sz]e|describe/.test(prompt);
     const isSingleToken = /^[\w.-]{1,24}$/.test(normalized);
 
     return looksLikeDefinitionOrExplanation && isSingleToken;
+  }
+
+  function isTransientAssistantStatusText(value) {
+    const normalized = normalizeText(value).replace(/[ \t]+/g, " ");
+
+    if (!normalized || normalized.length > 96 || normalized.includes("\n\n")) {
+      return false;
+    }
+
+    const comparable = normalized
+      .toLowerCase()
+      .replace(/[.!?…]+$/g, "")
+      .trim();
+
+    if ([
+      "thinking",
+      "reasoning",
+      "working",
+      "generating",
+      "processing",
+      "analyzing",
+      "analysing",
+      "reading",
+      "searching"
+    ].includes(comparable)) {
+      return true;
+    }
+
+    return /^thought for\b/.test(comparable)
+      || /^(thinking|reasoning|working|generating|processing|analy[sz]ing|reading|searching)\s+(for|about)\b/.test(comparable);
   }
 
   function isFinishedBackendStatus(status) {
@@ -165,6 +217,7 @@
     shouldPreferBackendResponse,
     isLowConfidenceDomResponse,
     isFinishedBackendStatus,
+    isTransientAssistantStatusText,
     emptyCanonicalHtmlFallback
   });
 })();
