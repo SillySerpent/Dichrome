@@ -8,10 +8,48 @@ import {
 assert.equal(renderMarkdownToHtml("Hello\n\nWorld"), "<p>Hello</p><p>World</p>");
 assert.equal(renderMarkdownToHtml("# Title\nBody"), "<h1>Title</h1><p>Body</p>");
 assert.match(renderMarkdownToHtml("- one\n- two"), /^<ul><li>one<\/li><li>two<\/li><\/ul>$/);
+assert.match(renderMarkdownToHtml("- one\n  wrapped detail\n- two"), /^<ul><li>one<br>wrapped detail<\/li><li>two<\/li><\/ul>$/);
+assert.match(renderMarkdownToHtml("1. one\n   wrapped detail\n2. two"), /^<ol><li>one<br>wrapped detail<\/li><li>two<\/li><\/ol>$/);
 assert.match(renderMarkdownToHtml("```js\nconst x = 1;\n```"), /<pre><code class="language-js">const x = 1;<\/code><\/pre>/);
+{
+  const html = renderMarkdownToHtml([
+    '```text id="c69h1q"',
+    "3+4=7,",
+    "```",
+    "",
+    "Final result:",
+    "",
+    '```text id="c69h1r"',
+    "[3, 7, 13]",
+    "```"
+  ].join("\n"));
+
+  assert.equal((html.match(/<pre>/g) || []).length, 2);
+  assert.doesNotMatch(html, /text id=/i);
+  assert.match(html, /<p class="response-label"><strong>Final result:<\/strong><\/p>/);
+  assert.match(html, /<code class="language-text">3\+4=7,/);
+  assert.match(html, /<code class="language-text">\[3, 7, 13\]/);
+}
+assert.match(renderMarkdownToHtml("~~~python\nprint('ok')\n~~~"), /language-python/);
 assert.match(renderMarkdownToHtml("| A | B |\n|---|---|\n| 1 | 2 |"), /<table>/);
+assert.match(renderMarkdownToHtml("A\tB\n1\t2"), /<table><thead><tr><th>A<\/th><th>B<\/th><\/tr><\/thead><tbody><tr><td>1<\/td><td>2<\/td><\/tr><\/tbody><\/table>/);
 assert.match(renderMarkdownToHtml("[ok](https://example.test)"), /href="https:\/\/example.test"/);
 assert.doesNotMatch(renderMarkdownToHtml("[bad](javascript:alert(1))"), /<a /);
+assert.match(renderMarkdownToHtml("This has ~~removed~~ text."), /<del>removed<\/del>/);
+assert.match(renderMarkdownToHtml("[x] Done\n[ ] Pending"), /class="task-list"/);
+assert.match(renderMarkdownToHtml("[x] Done\n[ ] Pending"), /task-marker-checked/);
+
+const writing = renderMarkdownToHtml([
+  ':::writing{variant="email" id="48291" subject="Assignment Submission Issue"}',
+  "Hello Toby,",
+  "",
+  "Could you please reopen the Dropbox submission folder?",
+  ":::"
+].join("\n"));
+assert.match(writing, /class="writing-block writing-block-email"/);
+assert.match(writing, /Assignment Submission Issue/);
+assert.match(writing, /Hello Toby/);
+assert.doesNotMatch(writing, /:::writing|48291/);
 
 const math = renderMarkdownToHtml("$$\\frac{a_1}{\\sqrt{b^2}} + \\alpha$$");
 assert.match(math, /class="math math-display"/);
@@ -30,6 +68,22 @@ const bracketDisplayMath = renderMarkdownToHtml("\\[\\text{speed} = 9.8\\,\\math
 assert.match(bracketDisplayMath, /class="math math-display"/);
 assert.match(bracketDisplayMath, /speed/);
 assert.match(bracketDisplayMath, /m/);
+
+const matrixMath = renderMarkdownToHtml("$$\\begin{bmatrix} 1 & 2 \\\\ 3 & 4 \\end{bmatrix}$$");
+assert.match(matrixMath, /math-bmatrix/);
+assert.match(matrixMath, /math-row/);
+assert.doesNotMatch(matrixMath, /beginbmatrix|endbmatrix/);
+
+const casesMath = renderMarkdownToHtml("$$\\begin{cases} x^2, & x \\ge 0 \\\\ -x, & x < 0 \\end{cases}$$");
+assert.match(casesMath, /math-cases/);
+assert.match(casesMath, /≥/);
+assert.doesNotMatch(casesMath, /begincases|endcases/);
+
+const symbolMath = renderMarkdownToHtml("Use \\(A \\land B \\Rightarrow \\bar{x} \\in S\\).");
+assert.match(symbolMath, /∧/);
+assert.match(symbolMath, /⇒/);
+assert.match(symbolMath, /math-overline/);
+assert.match(symbolMath, /∈/);
 
 const fallbackMath = renderMarkdownToHtml("$$\\frac{a}$$");
 assert.match(fallbackMath, /math-fallback/);
