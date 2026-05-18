@@ -17,11 +17,16 @@
     getLatestNetworkCapturedAssistantResponse,
     isFinishedBackendStatus,
     isLowConfidenceDomResponse,
+    isTransientAssistantStatusText,
     normalizeText,
     shouldPreferBackendResponse,
     waitForMutationOrDelay
   }) {
-    async function observeAssistantResponse({ requestId, visibilityMode, adapter, messageElement, previousMessages = [], promptText = "", run }) {
+    const DOM_COMPLETION_STABILITY_MS = Math.max(STREAM_STABILITY_MS, 4200);
+
+    async function observeAssistantResponse({ requestId, visibilityMode, adapter, messageElement, previousMessages = [], responseAfterMs = 0, promptText = "", run }) {
+      const previousAssistantBaseline = adapter.createAssistantMessageBaseline(previousMessages);
+      const responseStartedAfterMs = responseAfterMs || Date.now() - 1000;
       let trackedMessage = messageElement;
       let latestText = "";
       let latestHtml = "";
@@ -30,6 +35,7 @@
       let lastEmitAt = 0;
       let lastBackendPollAt = 0;
       let lastBackendError = "";
+      let transientStatusSeenAt = 0;
       const startedAt = Date.now();
       let observerWake;
       const observer = new MutationObserver(() => {
@@ -56,7 +62,7 @@
             }
           }, run, "response-observation");
 
-          const newestMessage = adapter.findNewestAssistantMessageAfter(previousMessages, trackedMessage);
+          const newestMessage = adapter.findNewestAssistantMessageAfter(previousAssistantBaseline, trackedMessage);
 
           if (newestMessage) {
             trackedMessage = newestMessage;
@@ -73,21 +79,35 @@
           let responseSource = "dom";
           let backendStatus = "";
 
+          if (isTransientAssistantStatusText(nextText)) {
+            transientStatusSeenAt = Date.now();
+            nextText = "";
+            nextHtml = "";
+            responseSource = "dom-transient-status";
+          }
+
           if (!nextText || isLowConfidenceDomResponse(nextText, promptText)) {
-            const textBearingMessage = adapter.findNewestTextBearingAssistantMessageAfter(previousMessages, trackedMessage);
+            const textBearingMessage = adapter.findNewestTextBearingAssistantMessageAfter(previousAssistantBaseline, trackedMessage);
 
             if (textBearingMessage && textBearingMessage !== trackedMessage) {
               trackedMessage = textBearingMessage;
               nextText = normalizeText(adapter.extractAssistantText(trackedMessage));
               nextHtml = adapter.extractAssistantHtml(trackedMessage);
+
+              if (isTransientAssistantStatusText(nextText)) {
+                transientStatusSeenAt = Date.now();
+                nextText = "";
+                nextHtml = "";
+                responseSource = "dom-transient-status";
+              }
             }
           }
 
           const capturedResponse = getLatestNetworkCapturedAssistantResponse(requestId, {
-            afterMs: startedAt - 1000
+            afterMs: responseStartedAfterMs
           });
 
-          if (capturedResponse?.text && shouldPreferBackendResponse(capturedResponse.text, nextText, promptText)) {
+          if (capturedResponse?.text && !isTransientAssistantStatusText(capturedResponse.text) && shouldPreferBackendResponse(capturedResponse.text, nextText, promptText)) {
             nextText = capturedResponse.text;
             nextHtml = capturedResponse.html || emptyCanonicalHtmlFallback(capturedResponse.text);
             responseSource = "network-stream";
@@ -110,10 +130,11 @@
 
             try {
               const backendResponse = await adapter.fetchLatestConversationAssistantResponse({
-                afterMs: startedAt - 10000
+                afterMs: responseStartedAfterMs,
+                excludedMessageIds: previousAssistantBaseline.messageIds
               });
 
-              if (backendResponse?.text && shouldPreferBackendResponse(backendResponse.text, nextText, promptText)) {
+              if (backendResponse?.text && !isTransientAssistantStatusText(backendResponse.text) && shouldPreferBackendResponse(backendResponse.text, nextText, promptText)) {
                 nextText = backendResponse.text;
                 nextHtml = backendResponse.html || emptyCanonicalHtmlFallback(backendResponse.text);
                 responseSource = "backend-api";
@@ -158,11 +179,14 @@
             }
           }
 
-          const stable = Boolean(latestText) && Date.now() - lastTextChangeAt >= STREAM_STABILITY_MS;
+          const backendFinished = (responseSource === "backend-api" || responseSource === "network-stream") && isFinishedBackendStatus(backendStatus);
+          const stabilityWindowMs = backendFinished ? STREAM_STABILITY_MS : DOM_COMPLETION_STABILITY_MS;
+          const stable = Boolean(latestText) && Date.now() - lastTextChangeAt >= stabilityWindowMs;
           const hasStopped = !adapter.findStopButton();
           const sendReady = Boolean(adapter.findSendButton());
           const composerReady = adapter.isComposerIdle();
           const minimumResponseAgeMet = firstTextAt && Date.now() - firstTextAt >= 900;
+          const transientStatusRecentlySeen = Boolean(transientStatusSeenAt && Date.now() - transientStatusSeenAt < DOM_COMPLETION_STABILITY_MS);
 
           // In ChatGPT's current UI, an empty composer often shows dictation/voice
           // controls instead of a visible send button. Requiring sendReady made
@@ -173,9 +197,8 @@
           const lowConfidenceCompletion = isLowConfidenceDomResponse(latestText, promptText)
             && responseSource !== "backend-api"
             && responseSource !== "network-stream";
-          const backendFinished = (responseSource === "backend-api" || responseSource === "network-stream") && isFinishedBackendStatus(backendStatus);
 
-          if (stable && hasStopped && (sendReady || composerReady || backendFinished) && minimumResponseAgeMet && !lowConfidenceCompletion) {
+          if (stable && hasStopped && (sendReady || composerReady || backendFinished) && minimumResponseAgeMet && !transientStatusRecentlySeen && !lowConfidenceCompletion) {
             emitState(requestId, REQUEST_STATES.RESPONSE_COMPLETE, {
               text: latestText,
               html: latestHtml,
