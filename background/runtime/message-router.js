@@ -20,6 +20,9 @@ export function createRuntimeMessageRouter(handlers) {
         case PANEL_MESSAGES.RUN_SCREENSHOT_REQUEST:
           return handlers.startScreenshotRequest(message);
 
+        case PANEL_MESSAGES.CAPTURE_SCREENSHOT_ATTACHMENT:
+          return handlers.captureScreenshotAttachment(message);
+
         case PANEL_MESSAGES.RUN_FOLLOWUP_REQUEST:
           return handlers.startFollowupRequest(message);
 
