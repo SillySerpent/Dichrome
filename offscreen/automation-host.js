@@ -24,7 +24,7 @@ frame.addEventListener("load", () => {
 frame.addEventListener("error", () => {
   frameFailed = true;
   frameLoaded = false;
-  failureReason = "ChatGPT iframe failed to load in the offscreen host.";
+  failureReason = "Assistant iframe failed to load in the offscreen host.";
   lastFailedAt = new Date().toISOString();
 });
 
@@ -99,7 +99,7 @@ function getFailureReason() {
   }
 
   if (!frameLoaded) {
-    return "Waiting for ChatGPT iframe load in the offscreen host.";
+    return "Waiting for assistant iframe load in the offscreen host.";
   }
 
   return null;
