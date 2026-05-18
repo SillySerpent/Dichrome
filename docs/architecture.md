@@ -148,7 +148,7 @@ Model selection is also stored in local extension storage:
 }
 ```
 
-The content script looks for the visible model picker and selects a matching visible option. Model availability is account and plan dependent, so failures are warnings by default. If `requireExact` is enabled, selection failure stops the request before prompt insertion.
+The side panel treats a non-empty model label as an enabled model-selection request and silently persists the current routing/model form immediately before each send, follow-up, screenshot request, or retry. The content script then looks for the visible model or composer-mode picker and selects a matching visible option. Detection covers header model controls plus composer-level controls such as `Instant`, `Thinking`, and `Extended`, while avoiding whole popover/menu containers that merely contain several model names. Model availability is account and plan dependent, so failures are warnings by default. If `requireExact` is enabled, selection failure stops the request before prompt insertion. Follow-up requests keep the saved model setting active while forcing conversation continuation.
 
 ## DOM Adapter Strategy
 
@@ -162,7 +162,7 @@ The ChatGPT adapter looks for:
 - Assistant response: explicit `data-message-author-role="assistant"` containers first, then bounded conversation-area fallbacks.
 - File input: `input[type=file]` accepting image files for screenshot attachment attempts.
 - Fresh hidden project chats: prefer ChatGPT's visible `New chat` control when available, but fall back to direct navigation from `/g/<project>/c/<conversation>` to `/g/<project>/project` when the control is hidden or responsive-layout dependent.
-- Screenshot capture: the local/unpacked prototype uses `<all_urls>` host access so `chrome.tabs.captureVisibleTab` works from the side panel without relying on a transient `activeTab` grant.
+- Screenshot capture: the local/unpacked prototype requests optional `<all_urls>` host access from the side panel so `chrome.tabs.captureVisibleTab` does not depend on a transient `activeTab` grant for normal web pages.
 
 Response tracking is deliberately scoped. The script selects the newest assistant message after the send action and extracts content only from that message container. It does not stream arbitrary page text. Plain text is the canonical response payload; final HTML rendering, sanitization, markdown-ish formatting, and local math rendering are centralized in `shared/response-formatting.js` and applied by the side panel.
 
