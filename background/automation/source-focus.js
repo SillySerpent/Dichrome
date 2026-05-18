@@ -80,7 +80,7 @@ export async function restoreSourceFocus(sourceFocus, automationWindowId) {
   await focusSourceTarget(sourceFocus);
 }
 
-export async function captureVisibleTabScreenshot(windowId) {
+export async function captureVisibleTabScreenshot(windowId, sourceTab = null) {
   let dataUrl;
 
   try {
@@ -88,7 +88,10 @@ export async function captureVisibleTabScreenshot(windowId) {
       format: "png"
     });
   } catch (error) {
-    throw new Error(`Visible screenshot capture failed. Chrome usually requires a recent extension gesture for page capture. ${serializeError(error)}`);
+    const sourceUrl = sourceTab?.url || sourceTab?.pendingUrl || "";
+    const target = sourceUrl ? ` for ${sourceUrl}` : "";
+
+    throw new Error(`Visible screenshot capture failed${target}. Grant the extension All Sites access when prompted, reload the unpacked extension if the manifest just changed, then retry. Chrome may still require opening the panel from the extension toolbar for browser-internal pages such as chrome://newtab. ${serializeError(error)}`);
   }
 
   const sizeBytes = Math.ceil((dataUrl.length * 3) / 4);
