@@ -86,6 +86,7 @@
       });
 
       const previousMessages = adapter.findAssistantMessages();
+      const previousAssistantBaseline = adapter.createAssistantMessageBaseline(previousMessages);
       resetNetworkCaptureForRequest(request.id);
       const sendButton = await waitFor(
         () => adapter.findSendButton(),
@@ -94,10 +95,19 @@
         "Timed out waiting for an enabled send button."
       );
 
-      clickElement(sendButton);
+      const promptSentAt = Date.now();
+      // The send control is a plain composer submit action; activate it with one
+      // click only so a prompt cannot be submitted twice before the UI rerenders.
+      if (typeof sendButton.click === "function") {
+        sendButton.click();
+      } else {
+        clickElement(sendButton);
+      }
       emitDebug(request.id, "send-clicked", {
         sendButton: describeElementForDebug(sendButton),
-        previousAssistantMessages: previousMessages.length
+        previousAssistantMessages: previousMessages.length,
+        previousAssistantMessageIds: previousAssistantBaseline.messageIds.length,
+        previousAssistantTextFingerprints: previousAssistantBaseline.textFingerprints.length
       });
       emitState(request.id, REQUEST_STATES.PROMPT_SENT, {
         detail: "Prompt sent through ChatGPT UI."
@@ -107,15 +117,39 @@
         detail: "Waiting for the newest assistant message."
       });
 
+      let firstEmptyAssistantMessageAt = 0;
       const assistantMessage = await waitFor(
-        () => adapter.findNewestAssistantMessageAfter(previousMessages),
+        () => {
+          const textBearingMessage = adapter.findNewestTextBearingAssistantMessageAfter(previousAssistantBaseline);
+
+          if (textBearingMessage) {
+            return textBearingMessage;
+          }
+
+          const emptyMessage = adapter.findNewestAssistantMessageAfter(previousAssistantBaseline);
+
+          if (emptyMessage) {
+            firstEmptyAssistantMessageAt = firstEmptyAssistantMessageAt || Date.now();
+
+            // ChatGPT often mounts an empty assistant container before streaming
+            // actual text. Prefer a text-bearing node when it appears quickly;
+            // otherwise fall back to the empty container so the observer can keep
+            // polling the DOM/network/backend API instead of failing early.
+            if (Date.now() - firstEmptyAssistantMessageAt >= 3500) {
+              return emptyMessage;
+            }
+          }
+
+          return null;
+        },
         WAIT_TIMEOUTS.assistantMs,
         run,
         "Timed out waiting for a new assistant response."
       );
       emitDebug(request.id, "assistant-message-found", {
         message: describeElementForDebug(assistantMessage),
-        textLength: normalizeText(adapter.extractAssistantText(assistantMessage)).length
+        textLength: normalizeText(adapter.extractAssistantText(assistantMessage)).length,
+        waitedForTextBearingMessage: Boolean(firstEmptyAssistantMessageAt)
       });
       await assertExpectedVisiblePage(request, run, "assistant-message-found");
 
@@ -124,7 +158,8 @@
         visibilityMode: getAutomationVisibilityMode(request),
         adapter,
         messageElement: assistantMessage,
-        previousMessages,
+        previousMessages: previousAssistantBaseline,
+        responseAfterMs: promptSentAt - 500,
         promptText: request.prompt,
         run
       });
