@@ -120,6 +120,7 @@ const runtimeMessageRouter = createRuntimeMessageRouter({
   }),
   startManualRequest: requestController.startManualRequest,
   startScreenshotRequest: requestController.startScreenshotRequest,
+  captureScreenshotAttachment: requestController.captureScreenshotAttachment,
   startFollowupRequest: requestController.startFollowupRequest,
   retryRequest: requestController.retryRequest,
   cancelRequest: requestController.cancelRequest,
@@ -433,10 +434,16 @@ function getFreshHiddenConversationUrl(automationSettings) {
 
   try {
     const url = new URL(href);
-    const projectMatch = url.pathname.match(/^\/g\/(g-p-[^/]+)\/c\//i);
 
-    if (projectMatch) {
-      return `${url.origin}/g/${projectMatch[1]}/project`;
+    // Hidden-mode model changes can leave ChatGPT's client-side router with a
+    // stale /c/... conversation mounted even when the visible URL later looks
+    // project-scoped. For every non-follow-up request, force the hidden frame
+    // through the global fresh composer first; the normal project routing step
+    // inside the content adapter will then move it back into the configured
+    // project. This is slower than reusing /project in place, but prevents a
+    // model switch from continuing the previous conversation.
+    if (automationSettings?.project?.enabled) {
+      return `${url.origin}/`;
     }
 
     if (/\/c\//i.test(url.pathname)) {
