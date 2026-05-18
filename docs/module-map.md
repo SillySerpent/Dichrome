@@ -5,7 +5,7 @@ This repository is intentionally build-free. Browser-loaded files must stay as p
 ## Shared
 
 - `shared/contracts.js` owns wire-level constants: request states, terminal/streaming helpers, visibility modes, automation target types, runtime message names, ChatGPT content script order, storage keys, ChatGPT hosts, offscreen frame port name, and response-rendering allowlists.
-- `shared/response-formatting.js` owns response text normalization, markdown-ish rendering, HTML sanitization, structured ChatGPT reference stripping, and deterministic local math rendering.
+- `shared/response-formatting.js` owns response text normalization, markdown-ish rendering, ChatGPT writing-block rendering, HTML sanitization, structured ChatGPT reference stripping, and deterministic local math rendering.
 
 Future cross-surface constants and formatting rules belong here first. Do not duplicate message strings or state strings in background, content, side panel, or tests.
 
@@ -101,7 +101,7 @@ Keep side-panel DOM ids stable unless the HTML/CSS are changed in the same pass.
 - `scripts/validate-extension.mjs` validates required files, manifest shape, content script order, PNG signatures, and JavaScript syntax.
 - `scripts/test.mjs` is the test aggregator.
 - `scripts/test-contracts.mjs` guards shared constants and manifest content script order.
-- `scripts/test-response-formatting.mjs` guards response rendering, sanitizer behavior, and math fallback behavior.
+- `scripts/test-response-formatting.mjs` guards response rendering, sanitizer behavior, structured writing/task-list/table cases, and math fallback behavior.
 - `scripts/test-content-runtime-url.mjs` guards ChatGPT URL allow/reject logic.
 - Other `scripts/test-*.mjs` files cover settings, request records, automation session storage, offscreen frame policy, and offscreen target behavior.
 
