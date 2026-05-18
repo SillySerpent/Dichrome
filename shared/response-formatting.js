@@ -5,6 +5,7 @@ import {
 
 const INLINE_PLACEHOLDER_PREFIX = "\uE000";
 const INLINE_PLACEHOLDER_SUFFIX = "\uE001";
+const WRITING_BLOCK_PLACEHOLDER_PREFIX = "@@WRITING_BLOCK_";
 
 const LATEX_COMMANDS = Object.freeze({
   alpha: "α",
@@ -44,6 +45,22 @@ const LATEX_COMMANDS = Object.freeze({
   rightarrow: "→",
   to: "→",
   leftarrow: "←",
+  Rightarrow: "⇒",
+  Leftrightarrow: "⇔",
+  mid: "|",
+  land: "∧",
+  lor: "∨",
+  neg: "¬",
+  in: "∈",
+  notin: "∉",
+  subset: "⊂",
+  subseteq: "⊆",
+  cup: "∪",
+  cap: "∩",
+  setminus: "\\",
+  dots: "…",
+  ldots: "…",
+  cdots: "⋯",
   sum: "∑",
   prod: "∏",
   int: "∫",
@@ -72,19 +89,21 @@ export function renderMarkdownToHtml(markdown) {
     return "";
   }
 
-  const codeBlocks = [];
-  const protectedSource = source.replace(/```([\w.+-]*)\n([\s\S]*?)```/g, (_match, lang, code) => {
-    const index = codeBlocks.length;
-    const language = String(lang || "").trim().replace(/[^\w.+-]/g, "");
-    codeBlocks.push(`<pre><code${language ? ` class="language-${escapeHtml(language)}"` : ""}>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`);
-    return `\n\n@@CODE_BLOCK_${index}@@\n\n`;
-  });
+  const writingProtected = protectStructuredWritingBlocks(source);
+  const {
+    protectedSource,
+    codeBlocks
+  } = protectFencedCodeBlocks(writingProtected.protectedSource);
+  const state = {
+    codeBlocks,
+    writingBlocks: writingProtected.writingBlocks
+  };
 
-  return protectedSource
+  return stripChatGptMarkdownArtifacts(protectedSource)
     .split(/\n{2,}/)
     .map((block) => block.trim())
     .filter(Boolean)
-    .map((block) => renderMarkdownBlock(block, codeBlocks))
+    .map((block) => renderMarkdownBlock(block, state))
     .join("");
 }
 
@@ -171,11 +190,17 @@ export function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-function renderMarkdownBlock(block, codeBlocks) {
+function renderMarkdownBlock(block, state) {
   const codeMatch = block.match(/^@@CODE_BLOCK_(\d+)@@$/);
 
   if (codeMatch) {
-    return codeBlocks[Number(codeMatch[1])] || "";
+    return state.codeBlocks[Number(codeMatch[1])] || "";
+  }
+
+  const writingMatch = block.match(new RegExp(`^${escapeRegExp(WRITING_BLOCK_PLACEHOLDER_PREFIX)}(\\d+)@@$`));
+
+  if (writingMatch) {
+    return renderWritingBlock(state.writingBlocks[Number(writingMatch[1])]);
   }
 
   const displayMath = matchDisplayMathBlock(block);
@@ -190,17 +215,35 @@ function renderMarkdownBlock(block, codeBlocks) {
     return renderMarkdownTable(lines);
   }
 
+  if (looksLikeTabDelimitedTable(lines)) {
+    return renderDelimitedTable(lines, "\t");
+  }
+
   if (lines.every((line) => /^>\s?/.test(line))) {
     const quote = lines.map((line) => line.replace(/^>\s?/, "")).join("\n");
     return `<blockquote>${renderInlineMarkdown(quote).replace(/\n/g, "<br>")}</blockquote>`;
   }
 
-  if (lines.every((line) => /^[-*+]\s+/.test(line))) {
-    return `<ul>${lines.map((line) => `<li>${renderInlineMarkdown(line.replace(/^[-*+]\s+/, ""))}</li>`).join("")}</ul>`;
+  const standaloneTaskList = parseTaskListBlock(lines);
+
+  if (standaloneTaskList) {
+    return renderListBlock("ul", standaloneTaskList, {
+      taskList: true
+    });
   }
 
-  if (lines.every((line) => /^\d+[.)]\s+/.test(line))) {
-    return `<ol>${lines.map((line) => `<li>${renderInlineMarkdown(line.replace(/^\d+[.)]\s+/, ""))}</li>`).join("")}</ol>`;
+  const unorderedList = parseListBlock(lines, /^[-*+]\s+(.*)$/);
+
+  if (unorderedList) {
+    return renderListBlock("ul", unorderedList, {
+      taskList: unorderedList.every((item) => isTaskListItemText(item[0]))
+    });
+  }
+
+  const orderedList = parseListBlock(lines, /^\d+[.)]\s+(.*)$/);
+
+  if (orderedList) {
+    return renderListBlock("ol", orderedList);
   }
 
   const firstLineHeading = lines[0]?.match(/^(#{1,6})\s+(.+)$/);
@@ -210,7 +253,7 @@ function renderMarkdownBlock(block, codeBlocks) {
     const headingHtml = `<h${level}>${renderInlineMarkdown(firstLineHeading[2])}</h${level}>`;
     const rest = lines.slice(1).join("\n").trim();
 
-    return rest ? `${headingHtml}${renderMarkdownBlock(rest, codeBlocks)}` : headingHtml;
+    return rest ? `${headingHtml}${renderMarkdownBlock(rest, state)}` : headingHtml;
   }
 
   const heading = block.match(/^(#{1,6})\s+(.+)$/);
@@ -224,7 +267,290 @@ function renderMarkdownBlock(block, codeBlocks) {
     return "<hr>";
   }
 
+  if (lines.length === 1 && looksLikeStandaloneLabel(block)) {
+    return `<p class="response-label"><strong>${renderInlineMarkdown(block)}</strong></p>`;
+  }
+
   return `<p>${renderInlineMarkdown(block).replace(/\n/g, "<br>")}</p>`;
+}
+
+function protectFencedCodeBlocks(source) {
+  const lines = String(source || "").split("\n");
+  const output = [];
+  const codeBlocks = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const openingFence = matchOpeningFence(lines[index]);
+
+    if (!openingFence) {
+      output.push(lines[index]);
+      index += 1;
+      continue;
+    }
+
+    const codeLines = [];
+    index += 1;
+
+    while (index < lines.length && !matchesClosingFence(lines[index], openingFence.fence)) {
+      codeLines.push(lines[index]);
+      index += 1;
+    }
+
+    if (index < lines.length) {
+      index += 1;
+    }
+
+    const codeBlockIndex = codeBlocks.length;
+    const language = extractFenceLanguage(openingFence.info);
+    const code = codeLines.join("\n").replace(/\n$/, "");
+
+    codeBlocks.push(`<pre><code${language ? ` class="language-${escapeHtml(language)}"` : ""}>${escapeHtml(code)}</code></pre>`);
+    output.push("", `@@CODE_BLOCK_${codeBlockIndex}@@`, "");
+  }
+
+  return {
+    protectedSource: output.join("\n"),
+    codeBlocks
+  };
+}
+
+function protectStructuredWritingBlocks(source) {
+  const lines = String(source || "").split("\n");
+  const output = [];
+  const writingBlocks = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const codeFence = matchOpeningFence(lines[index]);
+
+    if (codeFence) {
+      output.push(lines[index]);
+      index += 1;
+
+      while (index < lines.length) {
+        output.push(lines[index]);
+
+        if (matchesClosingFence(lines[index], codeFence.fence)) {
+          index += 1;
+          break;
+        }
+
+        index += 1;
+      }
+
+      continue;
+    }
+
+    const writingOpening = matchWritingBlockOpening(lines[index]);
+
+    if (!writingOpening) {
+      output.push(lines[index]);
+      index += 1;
+      continue;
+    }
+
+    const startIndex = index;
+    const bodyLines = [];
+    index += 1;
+
+    while (index < lines.length && !matchesWritingBlockClosing(lines[index])) {
+      bodyLines.push(lines[index]);
+      index += 1;
+    }
+
+    if (index >= lines.length) {
+      output.push(...lines.slice(startIndex));
+      break;
+    }
+
+    index += 1;
+    const writingBlockIndex = writingBlocks.length;
+    writingBlocks.push({
+      attributes: parseWritingBlockAttributes(writingOpening.attributes),
+      body: bodyLines.join("\n").trim()
+    });
+    output.push("", `${WRITING_BLOCK_PLACEHOLDER_PREFIX}${writingBlockIndex}@@`, "");
+  }
+
+  return {
+    protectedSource: output.join("\n"),
+    writingBlocks
+  };
+}
+
+function matchWritingBlockOpening(line) {
+  const match = String(line || "").match(/^[ \t]{0,3}:::\s*writing(?:\{([^}]*)\})?\s*$/i);
+
+  return match ? {
+    attributes: match[1] || ""
+  } : null;
+}
+
+function matchesWritingBlockClosing(line) {
+  return /^[ \t]{0,3}:::\s*$/.test(String(line || ""));
+}
+
+function parseWritingBlockAttributes(value) {
+  const attributes = {};
+  const source = String(value || "");
+  const pattern = /([A-Za-z][\w:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s}]+))/g;
+  let match = pattern.exec(source);
+
+  while (match) {
+    attributes[match[1]] = match[2] ?? match[3] ?? match[4] ?? "";
+    match = pattern.exec(source);
+  }
+
+  return attributes;
+}
+
+function renderWritingBlock(block) {
+  if (!block) {
+    return "";
+  }
+
+  const variant = String(block.attributes?.variant || "").trim();
+  const subject = String(block.attributes?.subject || "").trim();
+  const label = getWritingVariantLabel(variant);
+  const variantClass = variant ? ` writing-block-${sanitizeClassName(variant)}` : "";
+  const subjectHtml = subject ? `<span>${escapeHtml(subject)}</span>` : "";
+  const metaHtml = label || subjectHtml
+    ? `<div class="writing-block-meta">${label ? `<strong>${escapeHtml(label)}</strong>` : ""}${subjectHtml}</div>`
+    : "";
+  const bodyHtml = renderMarkdownToHtml(block.body || "");
+
+  return `<div class="writing-block${variantClass}">${metaHtml}<div class="writing-block-body">${bodyHtml}</div></div>`;
+}
+
+function getWritingVariantLabel(value) {
+  const variant = String(value || "").toLowerCase();
+
+  if (variant === "email") {
+    return "Email";
+  }
+
+  if (variant === "chat_message") {
+    return "Chat message";
+  }
+
+  if (variant === "social_post") {
+    return "Social post";
+  }
+
+  return variant ? variant.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "";
+}
+
+function sanitizeClassName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "generic";
+}
+
+function matchOpeningFence(line) {
+  const match = String(line || "").match(/^[ \t]{0,3}(```|~~~)(.*)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    fence: match[1],
+    info: match[2] || ""
+  };
+}
+
+function matchesClosingFence(line, fence) {
+  return new RegExp(`^[ \\t]{0,3}${escapeRegExp(fence)}[ \\t]*$`).test(String(line || ""));
+}
+
+function extractFenceLanguage(info) {
+  const match = String(info || "").trim().match(/^([A-Za-z0-9_+.-]+)/);
+
+  return match ? match[1].replace(/[^\w.+-]/g, "") : "";
+}
+
+function stripChatGptMarkdownArtifacts(value) {
+  return String(value || "")
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+
+      if (/^(?:```|~~~)$/.test(trimmed)) {
+        return false;
+      }
+
+      return !/^text\s+id\s*=\s*(?:"[^"]*"|'[^']*'|[A-Za-z0-9_-]+)\s*$/i.test(trimmed);
+    })
+    .join("\n");
+}
+
+function looksLikeStandaloneLabel(value) {
+  const text = String(value || "").trim();
+
+  return text.length >= 3
+    && text.length <= 96
+    && /:\s*$/.test(text)
+    && !/[{}()[\]|`<>]/.test(text)
+    && !/^https?:\/\//i.test(text);
+}
+
+function parseListBlock(lines, markerPattern) {
+  const items = [];
+  let current = null;
+
+  for (const line of lines) {
+    const trimmed = String(line || "").trimEnd();
+    const markerMatch = trimmed.match(markerPattern);
+
+    if (markerMatch) {
+      current = [markerMatch[1].trim()];
+      items.push(current);
+      continue;
+    }
+
+    if (!trimmed.trim()) {
+      continue;
+    }
+
+    if (!current || !/^\s{2,}\S/.test(line)) {
+      return null;
+    }
+
+    current.push(trimmed.trim());
+  }
+
+  return items.length ? items : null;
+}
+
+function parseTaskListBlock(lines) {
+  const items = [];
+
+  for (const line of lines) {
+    const match = String(line || "").trimEnd().match(/^\[(x|X| )\]\s+(.+)$/);
+
+    if (!match) {
+      return null;
+    }
+
+    items.push([`[${match[1]}] ${match[2].trim()}`]);
+  }
+
+  return items.length ? items : null;
+}
+
+function renderListBlock(tag, items, options = {}) {
+  const listClass = options.taskList ? ' class="task-list"' : "";
+
+  return `<${tag}${listClass}>${items.map((item) => {
+    const text = item
+      .filter(Boolean)
+      .map((line, index) => options.taskList && index === 0 ? renderTaskListItem(line) : renderInlineMarkdown(line))
+      .join("<br>");
+
+    return `<li>${text}</li>`;
+  }).join("")}</${tag}>`;
 }
 
 function renderInlineMarkdown(value) {
@@ -240,6 +566,7 @@ function renderInlineMarkdown(value) {
   html = html.replace(/\\\(([\s\S]*?)\\\)/g, (_match, expression) => renderInlineMath(expression));
   html = html.replace(/\$([^$\n]+)\$/g, (_match, expression) => renderInlineMath(expression));
   html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  html = html.replace(/~~([^~]+)~~/g, "<del>$1</del>");
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/__([^_]+)__/g, "<strong>$1</strong>");
   html = html.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
@@ -247,6 +574,24 @@ function renderInlineMarkdown(value) {
   html = restoreInlinePlaceholders(html, "CODESPAN", codeSpans);
 
   return html;
+}
+
+function isTaskListItemText(value) {
+  return /^\[(?:x|X| )\]\s+\S/.test(String(value || ""));
+}
+
+function renderTaskListItem(value) {
+  const match = String(value || "").match(/^\[(x|X| )\]\s+([\s\S]+)$/);
+
+  if (!match) {
+    return renderInlineMarkdown(value);
+  }
+
+  const checked = match[1].toLowerCase() === "x";
+  const marker = checked ? "✓" : "";
+  const stateClass = checked ? " task-marker-checked" : "";
+
+  return `<span class="task-marker${stateClass}">${marker}</span><span class="task-text">${renderInlineMarkdown(match[2])}</span>`;
 }
 
 function matchDisplayMathBlock(block) {
@@ -274,6 +619,27 @@ function renderMarkdownTable(lines) {
   const rows = lines.slice(2).map(parseRow).filter((row) => row.length);
 
   return `<table><thead><tr>${header.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+}
+
+function looksLikeTabDelimitedTable(lines) {
+  if (lines.length < 2 || !lines.every((line) => line.includes("\t"))) {
+    return false;
+  }
+
+  const widths = lines.map((line) => line.split("\t").length);
+  const firstWidth = widths[0];
+
+  return firstWidth >= 2 && widths.every((width) => width === firstWidth);
+}
+
+function renderDelimitedTable(lines, delimiter) {
+  const rows = lines
+    .map((line) => String(line || "").split(delimiter).map((cell) => cell.trim()))
+    .filter((row) => row.some(Boolean));
+  const header = rows[0] || [];
+  const bodyRows = rows.slice(1);
+
+  return `<table><thead><tr>${header.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${bodyRows.map((row) => `<tr>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
 
 function normalizeMarkdownText(value) {
@@ -439,6 +805,41 @@ function renderLatexFragment(text, index, terminator) {
         continue;
       }
 
+      if (command.name === "bar" || command.name === "overline") {
+        const argument = readRequiredLatexArgument(text, command.index);
+
+        if (!argument) {
+          return {
+            ok: false,
+            html,
+            index: cursor
+          };
+        }
+
+        html += `<span class="math-overline">${argument.html}</span>`;
+        ok = ok && argument.ok;
+        cursor = argument.index;
+        continue;
+      }
+
+      if (command.name === "begin") {
+        const environment = readLatexEnvironment(text, command.index);
+
+        if (!environment) {
+          return {
+            ok: false,
+            html,
+            index: cursor
+          };
+        }
+
+        const renderedEnvironment = renderLatexEnvironment(environment.name, environment.body);
+        html += renderedEnvironment.html;
+        ok = ok && renderedEnvironment.ok;
+        cursor = environment.index;
+        continue;
+      }
+
       if (command.name === "text" || command.name === "mathrm") {
         const argument = readRequiredLatexArgument(text, command.index, { plainText: true });
 
@@ -498,6 +899,86 @@ function readRequiredLatexArgument(text, index, options = {}) {
   }
 
   return renderLatexFragment(text, cursor + 1, "}");
+}
+
+function readLatexEnvironment(text, index) {
+  const nameGroupStart = skipLatexWhitespace(text, index);
+  const nameGroup = readRawLatexGroup(text, nameGroupStart);
+
+  if (!nameGroup) {
+    return null;
+  }
+
+  const name = nameGroup.value.trim();
+  const endToken = `\\end{${name}}`;
+  const endIndex = text.indexOf(endToken, nameGroup.index);
+
+  if (!name || endIndex === -1) {
+    return null;
+  }
+
+  return {
+    name,
+    body: text.slice(nameGroup.index, endIndex).trim(),
+    index: endIndex + endToken.length
+  };
+}
+
+function renderLatexEnvironment(name, body) {
+  const normalizedName = String(name || "").trim();
+
+  if (["matrix", "bmatrix", "pmatrix"].includes(normalizedName)) {
+    const rows = parseLatexEnvironmentRows(body);
+    const renderedRows = rows.map((row) => row.map(renderLatexCell));
+    const ok = renderedRows.length > 0 && renderedRows.every((row) => row.length > 0 && row.every((cell) => cell.ok));
+    const left = normalizedName === "pmatrix" ? "(" : normalizedName === "bmatrix" ? "[" : "";
+    const right = normalizedName === "pmatrix" ? ")" : normalizedName === "bmatrix" ? "]" : "";
+    const bodyHtml = renderMathRows(renderedRows, "math-matrix");
+
+    return {
+      ok,
+      html: `<span class="math-environment math-${sanitizeClassName(normalizedName)}">${left ? `<span class="math-bracket">${escapeHtml(left)}</span>` : ""}${bodyHtml}${right ? `<span class="math-bracket">${escapeHtml(right)}</span>` : ""}</span>`
+    };
+  }
+
+  if (normalizedName === "cases") {
+    const rows = parseLatexEnvironmentRows(body);
+    const renderedRows = rows.map((row) => row.map(renderLatexCell));
+    const ok = renderedRows.length > 0 && renderedRows.every((row) => row.length > 0 && row.every((cell) => cell.ok));
+
+    return {
+      ok,
+      html: `<span class="math-environment math-cases"><span class="math-bracket">{</span>${renderMathRows(renderedRows, "math-cases-body")}</span>`
+    };
+  }
+
+  return {
+    ok: false,
+    html: escapeHtml(`\\begin{${normalizedName}}${body}\\end{${normalizedName}}`)
+  };
+}
+
+function parseLatexEnvironmentRows(body) {
+  return String(body || "")
+    .split(/\\\\(?:\[[^\]]*\])?/)
+    .map((row) => row.trim())
+    .filter(Boolean)
+    .map((row) => row.split(/\s*&\s*/).map((cell) => cell.trim()));
+}
+
+function renderLatexCell(value) {
+  const source = String(value || "").trim();
+  const rendered = renderLatexFragment(source, 0, null);
+  const ok = Boolean(source) && rendered.ok && rendered.index === source.length;
+
+  return {
+    ok,
+    html: ok ? rendered.html : escapeHtml(source)
+  };
+}
+
+function renderMathRows(rows, className) {
+  return `<span class="${className}">${rows.map((row) => `<span class="math-row">${row.map((cell) => `<span class="math-cell">${cell.html}</span>`).join("")}</span>`).join("")}</span>`;
 }
 
 function readLatexAtom(text, index) {
@@ -606,6 +1087,10 @@ function tryParseJson(value) {
   } catch (_error) {
     return null;
   }
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function sanitizeResponseHtmlString(html) {
