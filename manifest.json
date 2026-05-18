@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT Page Relay Prototype",
-  "description": "Experimental local relay from selected webpage text into an open ChatGPT tab.",
+  "name": "Dichrome",
+  "description": "Local side panel for routing webpage context into a private assistant workspace.",
   "version": "0.1.0",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -16,13 +16,12 @@
     "tabs",
     "windows"
   ],
-  "optional_host_permissions": [
-    "http://localhost:11434/*"
-  ],
   "host_permissions": [
-    "<all_urls>",
     "https://chatgpt.com/*",
     "https://chat.openai.com/*"
+  ],
+  "optional_host_permissions": [
+    "<all_urls>"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://chatgpt.com https://chat.openai.com;"
@@ -71,7 +70,7 @@
     "default_path": "sidepanel/sidepanel.html"
   },
   "action": {
-    "default_title": "Open ChatGPT relay panel",
+    "default_title": "Open Dichrome",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
