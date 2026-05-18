@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# macOS
+.DS_Store
+
+# Runtime outputs
+logs/
+!logs/.gitkeep
+run/
+!run/.gitkeep
+data/*.db
+data/*.db-shm
+data/*.db-wal
+reports/
+
+# Local env / models
+.env
+models/*.json
+!models/.gitkeep
