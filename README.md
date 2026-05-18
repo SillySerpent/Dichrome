@@ -1,6 +1,6 @@
-# ChatGPT Page Relay Prototype
+# Dichrome
 
-Experimental local Chrome/Chromium extension for routing selected webpage text into an already-open ChatGPT tab, then reflecting the assistant response in an extension side panel.
+Experimental local Chrome/Chromium extension for routing selected webpage text into an already-open assistant workspace, then reflecting the assistant response in an extension side panel.
 
 This is intentionally UI-driven. It does not use the OpenAI API, does not require a hosted backend, and is not structured as a public product. The prototype exists to test whether a personal, non-API browser workflow can be made reliable enough for local use.
 
@@ -87,7 +87,7 @@ The ChatGPT adapter avoids whole-page scraping for response extraction. It looks
 
 The content runtime is layered under `content/chatgpt/runtime/`: `adapter/` owns ChatGPT DOM heuristics, `response/` owns response extraction and observation, `network/` owns main-world response capture, `offscreen/` owns the hidden iframe bridge, `page/` owns visibility checks, `debug/` owns content-side dumps and event payloads, and `runner/` owns the request lifecycle. `runtime/app.js` composes those modules and registers Chrome message listeners.
 
-The side panel stores plain text as the canonical response payload and renders final HTML through `shared/response-formatting.js`. The renderer preserves basic generated formatting such as paragraphs, lists, tables, blockquotes, inline code, code blocks, and common local math expressions while removing scripts, forms, buttons, iframes, event attributes, and unsafe links. If a math expression cannot be parsed confidently, it is shown as escaped source in a styled fallback instead of malformed HTML.
+The side panel stores plain text as the canonical response payload and renders final HTML through `shared/response-formatting.js`. The renderer preserves common generated formatting such as paragraphs, lists, task lists, tables, ChatGPT writing blocks, blockquotes, inline code, code blocks, strikethrough, and common local math expressions while removing scripts, forms, buttons, iframes, event attributes, and unsafe links. If a math expression cannot be parsed confidently, it is shown as escaped source in a styled fallback instead of malformed HTML.
 
 ## Automation Target Mode
 
@@ -121,9 +121,9 @@ The project picker avoids sidebar overflow/menu controls and clicks the left sid
 
 ## Model Selection
 
-Model selection is optional and disabled by default. Enter the visible ChatGPT model label from your account, such as `Auto`, `Thinking`, `Pro`, or another label shown in your model picker. Available labels vary by plan and current ChatGPT rollout.
+Model selection is optional until a model label is entered. Enter or choose the visible ChatGPT model/mode label from your account, such as `Auto`, `Instant`, `Thinking`, `Extended`, `Pro`, or another label shown in your picker. Choosing a label automatically enables model selection, and the side panel saves the current routing/model form before each send, follow-up, screenshot request, or retry so the next request uses the visible selector value.
 
-When `Require exact match` is off, model selection failures are logged and the request continues with the current ChatGPT model. When it is on, a model-selection failure stops the request before the prompt is sent.
+When a model label is requested, model-selection failure stops the request before the prompt is sent. This avoids accidentally sending with whatever model ChatGPT last had selected. With `Require exact match` off, the selector may use known aliases such as `Fast answers` for `Instant`; with it on, it only accepts the requested label text as a standalone match.
 
 ## Local DOM Repair
 
@@ -137,7 +137,7 @@ The model must return strict JSON with `hints`. The extension validates target n
 
 ## Screenshot Status
 
-The side panel includes an experimental visible-screenshot request. It uses `chrome.tabs.captureVisibleTab`, so Chrome requires host access to the visible page or a valid `activeTab` grant. In side-panel workflows, `activeTab` grants can be unreliable, so this local/unpacked prototype declares `<all_urls>` host access to make screenshot capture deterministic for normal web pages. It captures the visible viewport, not a stitched full-page screenshot. Full-page screenshot support would need a separate scroll-and-stitch flow.
+The side panel includes an experimental visible-screenshot request. It uses `chrome.tabs.captureVisibleTab`, so Chrome requires host access to the visible page or a valid `activeTab` grant. In side-panel workflows, `activeTab` grants can be unreliable, so this local/unpacked prototype requests optional `<all_urls>` host access the first time you use visible screenshot capture. It captures the visible viewport, not a stitched full-page screenshot. Full-page screenshot support would need a separate scroll-and-stitch flow.
 
 ## Known Constraints
 
@@ -146,5 +146,5 @@ The side panel includes an experimental visible-screenshot request. It uses `chr
 - Login screens, account gates, and modal dialogs require manual handling in the ChatGPT tab.
 - Multiple simultaneous requests are isolated by request id, but a single ChatGPT tab can only run one automation at a time.
 - Attachment upload through the ChatGPT web UI is best effort and depends on the page exposing a file input compatible with scripted `FileList` assignment.
-- Host permissions remain limited to ChatGPT plus optional local Ollama, but background automation modes require Chrome's high-privilege `debugger` permission for the ChatGPT tab.
+- Screenshot capture requests optional `<all_urls>` host access for deterministic visible-page screenshots, and local repair can reach the configured Ollama-compatible endpoint when enabled. Background automation modes require Chrome's high-privilege `debugger` permission for the ChatGPT tab.
 - Fully hidden automation depends on Chrome offscreen iframe capability, the local session-scoped frame-policy override, ChatGPT account/session behavior in an embedded frame, and successful content-script execution inside the ChatGPT iframe. If any of those are blocked, the supported fallback is one inactive reusable browser tab.
