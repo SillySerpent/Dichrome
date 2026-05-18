@@ -117,6 +117,7 @@
     shouldPreferBackendResponse,
     isLowConfidenceDomResponse,
     isFinishedBackendStatus,
+    isTransientAssistantStatusText,
     emptyCanonicalHtmlFallback
   } = RESPONSE_EXTRACTION;
   const {
@@ -325,15 +326,20 @@
     clickElement,
     elementMatchesText,
     emitState,
+    getElementLabel,
     isDisabled,
     isVisible,
+    normalizeComparableText,
     normalizeModelOptions,
+    normalizeText,
     queryAllSafe,
     queryAllWithin,
+    uniqueElements,
     scoreModelOptionCandidate,
     scoreModelPickerCandidate,
     sleep,
-    waitFor
+    waitFor,
+    waitForOptional
   }));
   Object.assign(ChatGptDomAdapter.prototype, createComposerControlMethods({
     REQUEST_STATES,
@@ -361,6 +367,7 @@
     getElementLabel,
     isAllowedChatGptUrl,
     isInsideUserAuthoredMessage,
+    isTransientAssistantStatusText,
     isVisible,
     normalizeAssistantMessageElement,
     normalizeText,
@@ -413,6 +420,7 @@
       getLatestNetworkCapturedAssistantResponse,
       isFinishedBackendStatus,
       isLowConfidenceDomResponse,
+      isTransientAssistantStatusText,
       normalizeText,
       shouldPreferBackendResponse,
       waitForMutationOrDelay
