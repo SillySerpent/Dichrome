@@ -60,10 +60,11 @@ Run `npm run check` and `npm test` before manual testing. Load the unpacked exte
 
 ## Model Selection
 
-1. Enable model selection with a visible model label for the account.
-2. Run a request and confirm `MODEL_SELECTED` appears before prompt insertion.
-3. Enable `Require exact match` with an unavailable model label.
-4. Confirm the request fails before sending.
+1. Choose a visible model or mode label for the account, such as `Instant`, `Thinking`, or `Extended` when that label is shown in ChatGPT. Confirm the Enabled checkbox turns on automatically.
+2. Run a request without pressing Save Routing first and confirm `MODEL_SELECTED` appears before prompt insertion.
+3. Send a follow-up and confirm `MODEL_SELECTED` appears before the follow-up prompt insertion.
+4. Enable `Require exact match` with an unavailable model label.
+5. Confirm the request fails before sending.
 
 ## Screenshot Request
 
@@ -91,6 +92,15 @@ Run `npm run check` and `npm test` before manual testing. Load the unpacked exte
    - `$$\frac{a_1}{\sqrt{b^2}} + \alpha$$`
    - `\(x_i^2\)`
    - `\text{units}` or `\mathrm{kg}`
-2. Confirm display math and inline math render visibly in the side panel.
+   - `\begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}`
+   - `\begin{cases} x^2, & x \ge 0 \\ -x, & x < 0 \end{cases}`
+2. Confirm display math, inline math, matrices, and cases render visibly in the side panel without raw `begin...end` text.
 3. Ask for a malformed expression such as `$$\frac{a}$$`.
 4. Confirm it renders as escaped source in a styled math fallback instead of broken HTML.
+
+## Response Formatting
+
+1. Ask ChatGPT for a mixed-format response containing a table, task list, strikethrough, fenced code block, and `:::writing{variant="email"}` block.
+2. Confirm writing directives do not appear as raw fence text in the side panel.
+3. Confirm code and display-math copy buttons are hidden until their block is hovered or keyboard-focused.
+4. Select and copy a larger section of the rendered response, then confirm copied text does not include the side panel's copy-button labels.
