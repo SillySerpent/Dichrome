@@ -22,6 +22,7 @@ import {
 const MAX_CONTEXT_PREVIEW_LENGTH = 700;
 const MAX_FILE_ATTACHMENT_BYTES = 32 * 1024 * 1024;
 const SELECTION_REFRESH_DELAY_MS = 180;
+const CHAT_THREAD_AUTOSCROLL_BOTTOM_THRESHOLD_PX = 64;
 
 let profiles = [];
 let panelState = {
@@ -37,6 +38,10 @@ let selectedContext = null;
 let dismissedSelectionKey = "";
 let selectionRefreshTimer = null;
 let composerReadingMode = true;
+const chatThreadScrollState = {
+  autoScroll: true,
+  lastProgrammaticScrollAt: 0
+};
 
 const responseView = createResponseView({
   responseText: dom.responseText
@@ -188,6 +193,18 @@ function bindEvents() {
       passive: eventName === "wheel" || eventName === "scroll"
     });
   }
+
+  dom.chatMessages.addEventListener("scroll", () => {
+    const now = Date.now();
+
+    if (now - chatThreadScrollState.lastProgrammaticScrollAt < 180) {
+      return;
+    }
+
+    chatThreadScrollState.autoScroll = isChatThreadScrolledNearBottom();
+  }, {
+    passive: true
+  });
 
   dom.retryButton.addEventListener("click", () => {
     void runPanelAction(() => retryActiveRequest(false));
@@ -396,6 +413,7 @@ function clearComposerAfterSend() {
 
 function startNewConversationDraft() {
   composerReadingMode = false;
+  chatThreadScrollState.autoScroll = true;
   forceNewConversationDraft = true;
   pendingAttachments = [];
   selectedContext = null;
@@ -782,6 +800,8 @@ function render() {
 }
 
 function renderChatThread(activeRequest) {
+  const previousScrollTop = dom.chatMessages.scrollTop;
+  const shouldStickToBottom = chatThreadScrollState.autoScroll || isChatThreadScrolledNearBottom();
   dom.chatMessages.replaceChildren();
 
   if (!activeRequest) {
@@ -796,6 +816,7 @@ function renderChatThread(activeRequest) {
       : "Type below, attach context, or select webpage text. Follow-ups continue this conversation until you press New.";
     empty.append(title, body);
     dom.chatMessages.append(empty);
+    restoreChatThreadScroll(previousScrollTop, shouldStickToBottom);
     return;
   }
 
@@ -806,7 +827,7 @@ function renderChatThread(activeRequest) {
     dom.chatMessages.append(createAssistantMessageCard(request, request.id === activeRequest.id));
   }
 
-  dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+  restoreChatThreadScroll(previousScrollTop, shouldStickToBottom);
 }
 
 function createUserMessageCard(request) {
@@ -864,6 +885,7 @@ function createAssistantMessageCard(request, isActive) {
     content.className = "response-content";
     const text = normalizeResponseText(request.responseText || "");
     content.innerHTML = text ? renderMarkdownToHtml(text) : normalizeResponseHtml(request.responseHtml || "");
+    responseView.enhanceContainer(content);
     body.append(content);
   }
 
@@ -930,6 +952,7 @@ function updateComposerCollapseState() {
 
 function markOutgoingRequestPending(label) {
   const current = getActiveRequest();
+  chatThreadScrollState.autoScroll = true;
   outgoingRequestPending = {
     label,
     previousRequestId: current?.id || null,
@@ -939,6 +962,23 @@ function markOutgoingRequestPending(label) {
   responseView.resetAutoScroll();
   responseView.setHtml("", { forceScroll: true });
   dom.statusLine.textContent = label;
+}
+
+function isChatThreadScrolledNearBottom() {
+  const distanceFromBottom = dom.chatMessages.scrollHeight - dom.chatMessages.clientHeight - dom.chatMessages.scrollTop;
+
+  return distanceFromBottom <= CHAT_THREAD_AUTOSCROLL_BOTTOM_THRESHOLD_PX;
+}
+
+function restoreChatThreadScroll(previousScrollTop, shouldStickToBottom) {
+  if (shouldStickToBottom) {
+    chatThreadScrollState.lastProgrammaticScrollAt = Date.now();
+    dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+    return;
+  }
+
+  const maxScrollTop = Math.max(0, dom.chatMessages.scrollHeight - dom.chatMessages.clientHeight);
+  dom.chatMessages.scrollTop = Math.min(previousScrollTop, maxScrollTop);
 }
 
 function renderPendingOutgoingState(request) {

@@ -9,12 +9,14 @@ export function createResponseView({ responseText }) {
   };
 
   function bindInteractions() {
-    responseText.addEventListener("click", (event) => {
+    document.addEventListener("click", (event) => {
       const button = event.target?.closest?.(".response-copy-button");
 
-      if (button) {
-        void copyResponseBlock(button);
+      if (!button || !button.closest(".response-content")) {
+        return;
       }
+
+      void copyResponseBlock(button);
     });
 
     responseText.addEventListener("scroll", () => {
@@ -34,7 +36,7 @@ export function createResponseView({ responseText }) {
     const shouldScroll = Boolean(options.forceScroll) || scrollState.autoScroll || isScrolledNearBottom();
     const previousScrollTop = responseText.scrollTop;
     responseText.innerHTML = sanitizeResponseHtml(html || "");
-    enhanceBlocks();
+    enhanceContainer(responseText);
 
     if (shouldScroll) {
       scrollToBottom();
@@ -57,13 +59,17 @@ export function createResponseView({ responseText }) {
     responseText.scrollTop = responseText.scrollHeight;
   }
 
-  function enhanceBlocks() {
-    enhanceCopyableCodeBlocks();
-    enhanceCopyableMathBlocks();
+  function enhanceContainer(container) {
+    if (!container) {
+      return;
+    }
+
+    enhanceCopyableCodeBlocks(container);
+    enhanceCopyableMathBlocks(container);
   }
 
-  function enhanceCopyableCodeBlocks() {
-    for (const pre of Array.from(responseText.querySelectorAll("pre"))) {
+  function enhanceCopyableCodeBlocks(container) {
+    for (const pre of Array.from(container.querySelectorAll("pre"))) {
       if (pre.closest(".response-copy-wrapper")) {
         continue;
       }
@@ -74,8 +80,8 @@ export function createResponseView({ responseText }) {
     }
   }
 
-  function enhanceCopyableMathBlocks() {
-    for (const math of Array.from(responseText.querySelectorAll(".math-display"))) {
+  function enhanceCopyableMathBlocks(container) {
+    for (const math of Array.from(container.querySelectorAll(".math-display"))) {
       if (math.closest(".response-copy-wrapper")) {
         continue;
       }
@@ -148,6 +154,7 @@ export function createResponseView({ responseText }) {
 
   return Object.freeze({
     bindInteractions,
+    enhanceContainer,
     setHtml,
     resetAutoScroll
   });

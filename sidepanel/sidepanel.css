@@ -313,7 +313,11 @@ h2 {
   padding: 8px;
   background: var(--surface);
   box-shadow: var(--shadow);
-  transition: padding 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  transition:
+    gap 220ms cubic-bezier(0.2, 0, 0, 1),
+    padding 220ms cubic-bezier(0.2, 0, 0, 1),
+    border-color 220ms ease,
+    box-shadow 220ms ease;
 }
 
 .composer-label {
@@ -331,7 +335,11 @@ h2 {
   border-radius: 14px;
   padding: 8px 9px;
   background: #ffffff;
-  transition: padding 140ms ease, border-color 140ms ease;
+  transition:
+    gap 220ms cubic-bezier(0.2, 0, 0, 1),
+    padding 220ms cubic-bezier(0.2, 0, 0, 1),
+    border-color 220ms ease,
+    border-radius 220ms ease;
 }
 
 .composer-box.drag-over {
@@ -351,7 +359,11 @@ textarea {
   padding: 2px;
   color: var(--text);
   background: transparent;
-  transition: min-height 140ms ease, max-height 140ms ease, padding 140ms ease;
+  transition:
+    min-height 220ms cubic-bezier(0.2, 0, 0, 1),
+    max-height 220ms cubic-bezier(0.2, 0, 0, 1),
+    padding 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 160ms ease;
 }
 
 .composer-actions,
@@ -382,7 +394,12 @@ textarea {
   flex-wrap: nowrap;
   gap: 6px;
   min-width: 0;
-  max-width: 100%;
+  max-width: 190px;
+  overflow: hidden;
+  transition:
+    max-width 200ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 160ms ease,
+    transform 200ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .composer-right-actions {
@@ -416,10 +433,16 @@ textarea {
   align-items: center;
   gap: 0;
   min-width: 0;
+  max-width: 140px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
+  overflow: hidden;
+  transition:
+    max-width 200ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 160ms ease,
+    transform 200ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .composer-model-control select {
@@ -473,11 +496,26 @@ textarea {
 
 .composer-panel.is-collapsed .composer-left-actions,
 .composer-panel.is-collapsed .composer-model-control,
-.composer-panel.is-collapsed .attachments-tray,
+.composer-panel.is-collapsed .attachments-tray {
+  max-width: 0;
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+}
+
 .composer-panel.is-collapsed .request-actions,
 .composer-panel.is-collapsed .context-card,
 .composer-panel.is-collapsed .error-block {
-  display: none !important;
+  max-height: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-width: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
 }
 
 .composer-panel.is-collapsed .composer-actions {
@@ -500,8 +538,15 @@ textarea {
   gap: 8px;
   min-width: 0;
   max-width: 100%;
+  max-height: 96px;
   min-height: 32px;
   overflow: hidden;
+  transition:
+    max-height 220ms cubic-bezier(0.2, 0, 0, 1),
+    min-height 220ms cubic-bezier(0.2, 0, 0, 1),
+    padding 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .request-actions button {
@@ -529,10 +574,16 @@ textarea {
 .context-card {
   display: grid;
   gap: 8px;
+  max-height: 220px;
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 8px;
   background: var(--surface-strong);
+  transition:
+    max-height 220ms cubic-bezier(0.2, 0, 0, 1),
+    padding 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .context-header {
@@ -583,6 +634,10 @@ textarea {
   overflow-x: hidden;
   overflow-y: auto;
   padding: 0 0 2px;
+  transition:
+    max-height 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .attachment-chip {
@@ -796,6 +851,7 @@ pre {
 }
 
 .error-block {
+  max-height: 180px;
   border: 1px solid rgba(160, 44, 44, 0.3);
   border-radius: 10px;
   padding: 8px;
@@ -803,6 +859,11 @@ pre {
   background: #fff4f4;
   font-size: 12px;
   line-height: 1.45;
+  transition:
+    max-height 220ms cubic-bezier(0.2, 0, 0, 1),
+    padding 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .response-content {
@@ -852,6 +913,7 @@ pre {
   max-width: 100%;
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   border: 1px solid #c8d0c5;
   border-radius: 8px;
   padding: 10px;
@@ -953,9 +1015,14 @@ pre {
 .response-content h4,
 .response-content h5,
 .response-content h6 {
+  overflow: visible;
   margin: 12px 0 6px;
   line-height: 1.25;
   color: var(--text);
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .response-content h1 { font-size: 18px; }
@@ -1002,6 +1069,7 @@ pre {
 .response-content .writing-block-meta {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
   color: var(--muted);
@@ -1015,9 +1083,9 @@ pre {
 }
 
 .response-content .writing-block-meta span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .response-content .writing-block-body > :last-child {
@@ -1080,7 +1148,7 @@ pre {
   position: absolute;
   z-index: 2;
   top: 6px;
-  right: 6px;
+  right: 18px;
   display: flex;
   justify-content: flex-end;
   gap: 4px;
@@ -1117,7 +1185,7 @@ pre {
 }
 
 .response-content .response-copy-wrapper pre {
-  padding-right: 64px;
+  padding-right: 78px;
 }
 
 .response-content .math {

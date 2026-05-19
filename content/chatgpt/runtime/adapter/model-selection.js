@@ -309,7 +309,7 @@
     ].filter(Boolean).join(" "));
     const combined = `${label} ${metadata}`.trim();
 
-    if (!combined || /send|stop|attach|upload|sidebar|project|new chat|voice|dictation|microphone|share|profile|conversation options|history-item/.test(combined)) {
+    if (!combined || /send|stop|attach|upload|sidebar|project|new chat|voice|dictation|microphone|share|profile|conversation options|history-item|recent|recents|chat history|search chats/.test(combined)) {
       return 0;
     }
 

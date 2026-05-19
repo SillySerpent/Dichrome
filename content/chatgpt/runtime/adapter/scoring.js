@@ -266,7 +266,7 @@
     ].filter(Boolean).join(" "));
     const combined = `${label} ${metadata}`.trim();
 
-    if (!combined || /send|stop|attach|upload|sidebar|project|new chat|voice|microphone/.test(combined)) {
+    if (!combined || /send|stop|attach|upload|sidebar|project|new chat|voice|microphone|recent|recents|chat history|search chats/.test(combined)) {
       return 0;
     }
 
@@ -279,6 +279,10 @@
 
     if (/\bgpt\b|gpt-|gpt\s|auto|instant|thinking|reason|reasoning|extended|standard|fast|pro|o3|o4|deep research/.test(label)) {
       score += 60;
+    }
+
+    if (!score) {
+      return 0;
     }
 
     if (/menu|listbox|dialog|true/.test(metadata) && score > 0) {

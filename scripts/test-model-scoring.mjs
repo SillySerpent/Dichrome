@@ -47,6 +47,21 @@ assert(scoring.scoreModelPickerCandidate(createElement({
   form: true,
   top: 720
 })) > 0);
+assert.equal(scoring.scoreModelPickerCandidate(createElement({
+  label: "Recents",
+  attributes: {
+    "aria-haspopup": "menu"
+  },
+  top: 132
+})), 0);
+assert.equal(scoring.scoreModelPickerCandidate(createElement({
+  label: "",
+  attributes: {
+    "aria-label": "Open project options for gpt reply extension",
+    "aria-haspopup": "menu"
+  },
+  top: 353
+})), 0);
 assert(scoring.scoreModelPickerCandidate(createElement({
   label: "Start voice mode",
   attributes: {
