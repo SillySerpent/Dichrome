@@ -7,10 +7,12 @@
     DomAdapterError,
     clickElement,
     emitState,
+    extractProjectPathSegment,
     findAncestorContainingProjectSubmit,
     findVisible,
     getElementLabel,
     isDisabled,
+    isOffscreenAutomationFrame,
     isVisible,
     isProjectNameInputCandidate,
     isProjectNavigationTarget,
@@ -40,7 +42,12 @@
           return;
         }
 
-        await this.ensureSidebarOpen();
+        if (project.segment) {
+          await this.ensureProjectContextBySegment(project, requestId, run);
+          return;
+        }
+
+        await this.ensureSidebarOpen(run);
 
         if (this.hasProjectContext(project.name)) {
           emitState(requestId, REQUEST_STATES.PROJECT_READY, {
@@ -51,7 +58,7 @@
 
         const existingProject = await waitForOptional(
           () => this.findProjectNavigationItem(project.name),
-          3500,
+          15000,
           run
         );
 
@@ -74,6 +81,42 @@
         }
 
         await this.createProject(project.name, requestId, run);
+      },
+
+      async ensureProjectContextBySegment(project, requestId, run) {
+        const currentSegment = extractProjectPathSegment(location.pathname);
+
+        if (currentSegment === project.segment) {
+          await waitFor(
+            () => this.findComposer(),
+            18000,
+            run,
+            `Timed out waiting for configured ChatGPT project composer: ${project.name}`
+          );
+          emitState(requestId, REQUEST_STATES.PROJECT_READY, {
+            detail: `Already routed to project: ${project.name}`
+          });
+          return;
+        }
+
+        const targetUrl = project.url || `${location.origin}/g/${project.segment}/project`;
+
+        if (isOffscreenAutomationFrame()) {
+          throw new DomAdapterError("Hidden project routing was not prepared before the automation run. Retry after the background worker refreshes the hidden project composer.", this.collectSnapshot());
+        }
+
+        location.assign(targetUrl);
+
+        await waitFor(
+          () => extractProjectPathSegment(location.pathname) === project.segment && this.findComposer(),
+          18000,
+          run,
+          `Timed out waiting for configured ChatGPT project: ${project.name}`
+        );
+
+        emitState(requestId, REQUEST_STATES.PROJECT_READY, {
+          detail: `Routed to configured project: ${project.name}`
+        });
       },
 
       async createProject(projectName, requestId, run) {
@@ -134,8 +177,8 @@
         });
       },
 
-      async ensureSidebarOpen() {
-        if (this.findSidebar()) {
+      async ensureSidebarOpen(run) {
+        if (this.findSidebar({ requireExpanded: true })) {
           return;
         }
 
@@ -148,17 +191,33 @@
 
         if (toggle) {
           clickElement(toggle);
-          await sleep(350);
+          await waitForOptional(() => this.findSidebar({ requireExpanded: true }), 3500, run);
         }
       },
 
-      findSidebar() {
-        return findVisible(queryAllSafe('aside, nav[aria-label*="sidebar" i], [data-testid*="sidebar" i], [aria-label*="chat history" i]')
+      findSidebar(options = {}) {
+        const candidates = queryAllSafe('aside, nav[aria-label*="sidebar" i], [data-testid*="sidebar" i], [aria-label*="chat history" i]')
           .filter((element) => {
+            if (!isVisible(element)) {
+              return false;
+            }
+
             const text = getElementLabel(element).toLowerCase();
 
-            return /project|chat|history/.test(text);
-          }));
+            return /project|chat|history|recent|recents|search chats/.test(text);
+          });
+        const expanded = candidates.find((element) => {
+          const text = getElementLabel(element).toLowerCase();
+          const rect = element.getBoundingClientRect?.() || { width: 0 };
+
+          return rect.width >= 120 && /projects|new project|search chats|chat history/.test(text);
+        });
+
+        if (options.requireExpanded) {
+          return expanded || null;
+        }
+
+        return expanded || candidates[0] || null;
       },
 
       hasProjectContext(projectName) {
@@ -201,7 +260,7 @@
         }
 
         const root = this.findSidebar() || document.body;
-        const candidates = queryAllWithin(root, 'a[href], [role="link"], [role="treeitem"], [aria-current], button')
+        const candidates = queryAllWithin(root, 'a[href], [role="link"], [role="button"], [role="treeitem"], [aria-current], button')
           .filter((element) => isProjectNavigationTarget(element, projectName))
           .map((element) => ({
             element,
@@ -379,10 +438,25 @@
       return element;
     }
 
+    const projectHomeControl = queryAllWithin(element, 'a[href], button, [role="button"], [role="link"], [role="treeitem"]')
+      .find((candidate) => {
+        if (candidate === element || !isVisible(candidate) || isProjectOverflowControl(candidate)) {
+          return false;
+        }
+
+        const label = [
+          candidate.getAttribute?.("aria-label"),
+          candidate.getAttribute?.("title"),
+          candidate.innerText,
+          candidate.textContent
+        ].filter(Boolean).join(" ").toLowerCase();
+
+        return /open project home|project home/.test(label);
+      });
     const nestedLink = queryAllWithin(element, 'a[href], [role="link"], [role="treeitem"]')
       .find((candidate) => candidate !== element && isVisible(candidate) && !isProjectOverflowControl(candidate));
 
-    return nestedLink || element;
+    return projectHomeControl || nestedLink || element;
   }
 
   runtime.adapterProjectRouting = Object.freeze({
