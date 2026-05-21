@@ -60,6 +60,8 @@ const requiredFiles = [
   "docs/hidden-internal-invariants.md",
   "docs/manual-smoke-tests.md",
   "docs/module-map.md",
+  "docs/chrome-web-store-submission.md",
+  "docs/privacy-policy.md",
   "offscreen/automation-host.html",
   "offscreen/automation-host.js",
   "icons/icon-16.png",
@@ -92,6 +94,7 @@ const requiredFiles = [
   "scripts/test-sidepanel-layout-css.mjs",
   "scripts/test-contracts.mjs",
   "scripts/test-response-formatting.mjs",
+  "scripts/package-extension.mjs",
   "sidepanel/sidepanel.html",
   "sidepanel/sidepanel.css",
   "sidepanel/sidepanel.js",
@@ -107,10 +110,18 @@ const requiredFiles = [
   "shared/response-formatting.js"
 ];
 const javascriptFiles = requiredFiles.filter((file) => file.endsWith(".js"));
+const extensionRuntimeRoots = [
+  "background",
+  "content",
+  "offscreen",
+  "shared",
+  "sidepanel"
+];
 const moduleScriptFiles = [
   ...javascriptFiles,
   "scripts/validate-extension.mjs",
   "scripts/generate-icons.mjs",
+  "scripts/package-extension.mjs",
   "scripts/test-settings.mjs",
   "scripts/test-content-runtime-url.mjs",
   "scripts/test-content-response-extraction.mjs",
@@ -141,6 +152,8 @@ await validateManifest();
 await validateFilesExist();
 await validateRepositoryHygiene();
 await validateLayeredContentRuntime();
+await validateStoreReviewReadiness();
+await validateNoRemoteCodeExecution();
 await validatePngFiles();
 validateJavaScriptSyntax();
 
@@ -152,6 +165,8 @@ async function validateManifest() {
 
   assert(manifest.manifest_version === 3, "manifest_version must be 3.");
   assert(manifest.name === "Dichrome", "manifest name must match the extension brand.");
+  assert(typeof manifest.description === "string" && manifest.description.trim(), "manifest description is required.");
+  assert(manifest.description.length <= 132, "manifest description must be no more than 132 characters.");
   assert(manifest.action?.default_title === "Open Dichrome", "action title must match the extension brand.");
   assert(Number(manifest.minimum_chrome_version) >= 116, "minimum_chrome_version must be 116 or newer for sidePanel.open.");
   assert(manifest.background?.service_worker === "background/service-worker.js", "background service worker path is wrong.");
@@ -196,7 +211,8 @@ async function validateManifest() {
 
   assert(hostPermissions.has("https://chatgpt.com/*"), "Missing chatgpt.com host permission.");
   assert(hostPermissions.has("https://chat.openai.com/*"), "Missing chat.openai.com host permission.");
-  assert(optionalHostPermissions.includes("<all_urls>"), "Visible screenshot capture must declare optional <all_urls> host access.");
+  assert(!hostPermissions.has("<all_urls>"), "Required <all_urls> host access is too broad for Dichrome's store package.");
+  assert(!optionalHostPermissions.includes("<all_urls>"), "Optional <all_urls> host access is too broad for Dichrome's store package.");
   assert(
     redundantOptionalHostPermissions.length === 0,
     `Optional host permissions must not duplicate required host access: ${redundantOptionalHostPermissions.join(", ")}`
@@ -239,6 +255,46 @@ async function validateLayeredContentRuntime() {
   );
 }
 
+async function validateStoreReviewReadiness() {
+  const manifest = JSON.parse(await readFile(join(root, "manifest.json"), "utf8"));
+  const optionalHostPermissions = manifest.optional_host_permissions || [];
+
+  assert(
+    optionalHostPermissions.length === 0,
+    `Store package must not request optional host permissions unless a review note is added for them: ${optionalHostPermissions.join(", ")}`
+  );
+
+  assert(
+    !/experimental|prototype|unpacked/i.test(manifest.description),
+    "Manifest description must be store-facing and must not describe the extension as an experimental unpacked prototype."
+  );
+
+  const submissionNotes = await readFile(join(root, "docs/chrome-web-store-submission.md"), "utf8");
+  const privacyPolicy = await readFile(join(root, "docs/privacy-policy.md"), "utf8");
+
+  for (const requiredPhrase of ["Permission Justifications", "Remote Code Statement", "Reviewer Test Instructions"]) {
+    assert(submissionNotes.includes(requiredPhrase), `Chrome Web Store notes must include: ${requiredPhrase}`);
+  }
+
+  for (const requiredPhrase of ["Data handled by the extension", "Data sharing", "Storage and retention"]) {
+    assert(privacyPolicy.includes(requiredPhrase), `Privacy policy draft must include: ${requiredPhrase}`);
+  }
+}
+
+async function validateNoRemoteCodeExecution() {
+  const runtimeFiles = await listFiles(extensionRuntimeRoots);
+  const javascriptRuntimeFiles = runtimeFiles.filter((file) => file.endsWith(".js"));
+
+  for (const file of javascriptRuntimeFiles) {
+    const source = await readFile(join(root, file), "utf8");
+
+    assert(!/\beval\s*\(/.test(source), `${file} must not use eval().`);
+    assert(!/\bnew\s+Function\s*\(/.test(source), `${file} must not use new Function().`);
+    assert(!/\bimportScripts\s*\(/.test(source), `${file} must not load script code dynamically with importScripts().`);
+    assert(!/chrome\.permissions\.request\s*\(/.test(source), `${file} must not request runtime host permissions in the store package.`);
+  }
+}
+
 async function validatePngFiles() {
   for (const file of ["icons/icon-16.png", "icons/icon-32.png", "icons/icon-48.png", "icons/icon-128.png"]) {
     const bytes = await readFile(join(root, file));
@@ -258,6 +314,31 @@ function validateJavaScriptSyntax() {
       throw new Error(`Syntax check failed for ${file}\n${result.stderr || result.stdout}`);
     }
   }
+}
+
+async function listFiles(entries) {
+  const files = [];
+
+  for (const entry of entries) {
+    const dirEntries = await readdir(join(root, entry), {
+      withFileTypes: true
+    });
+
+    for (const dirEntry of dirEntries) {
+      const relativePath = `${entry}/${dirEntry.name}`;
+
+      if (dirEntry.isDirectory()) {
+        files.push(...await listFiles([relativePath]));
+        continue;
+      }
+
+      if (dirEntry.isFile()) {
+        files.push(relativePath);
+      }
+    }
+  }
+
+  return files;
 }
 
 function assert(condition, message) {

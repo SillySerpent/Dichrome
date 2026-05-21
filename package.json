@@ -6,6 +6,7 @@
   "scripts": {
     "check": "node scripts/validate-extension.mjs",
     "icons": "node scripts/generate-icons.mjs",
+    "package": "node scripts/package-extension.mjs",
     "test": "node scripts/test.mjs"
   }
 }
