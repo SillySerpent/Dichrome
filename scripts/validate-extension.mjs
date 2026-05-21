@@ -6,17 +6,22 @@ import { CHATGPT_CONTENT_SCRIPT_FILES } from "../shared/contracts.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const requiredFiles = [
+  ".gitignore",
   "manifest.json",
   "background/service-worker.js",
   "background/constants.js",
   "background/runtime/app.js",
+  "background/runtime/conversation-run-options.js",
   "background/runtime/context-menu.js",
+  "background/runtime/fresh-conversation-url.js",
   "background/runtime/message-router.js",
+  "background/runtime/project-history-controller.js",
   "background/runtime/request-controller.js",
   "background/runtime/settings-repository.js",
   "background/debug/debug-dump-collector.js",
   "background/automation/offscreen-target.js",
   "background/automation/offscreen-frame-policy.js",
+  "background/automation/project-target.js",
   "background/automation/source-focus.js",
   "background/automation/session.js",
   "background/automation/settings.js",
@@ -42,6 +47,7 @@ const requiredFiles = [
   "content/chatgpt/runtime/adapter/composer-controls.js",
   "content/chatgpt/runtime/adapter/assistant-response.js",
   "content/chatgpt/runtime/response/extraction.js",
+  "content/chatgpt/runtime/history/project-history.js",
   "content/chatgpt/runtime/network/capture-client.js",
   "content/chatgpt/runtime/offscreen/bridge.js",
   "content/chatgpt/runtime/page/visibility.js",
@@ -69,10 +75,20 @@ const requiredFiles = [
   "scripts/test-settings.mjs",
   "scripts/test-content-runtime-url.mjs",
   "scripts/test-content-response-extraction.mjs",
+  "scripts/test-project-history-filtering.mjs",
+  "scripts/test-project-history-controller.mjs",
+  "scripts/test-project-target.mjs",
+  "scripts/test-conversation-run-options.mjs",
+  "scripts/test-conversation-adapter.mjs",
+  "scripts/test-project-routing-adapter.mjs",
+  "scripts/test-fresh-conversation-url.mjs",
+  "scripts/test-request-controller-conversation-routing.mjs",
+  "scripts/test-request-controller-cancel.mjs",
   "scripts/test-dom-utils-click.mjs",
   "scripts/test-model-scoring.mjs",
   "scripts/test-main-world-capture.mjs",
   "scripts/test-response-animation.mjs",
+  "scripts/test-conversation-thread.mjs",
   "scripts/test-sidepanel-layout-css.mjs",
   "scripts/test-contracts.mjs",
   "scripts/test-response-formatting.mjs",
@@ -81,7 +97,9 @@ const requiredFiles = [
   "sidepanel/sidepanel.js",
   "sidepanel/runtime/app.js",
   "sidepanel/runtime/client.js",
+  "sidepanel/runtime/conversation-thread.js",
   "sidepanel/runtime/dom.js",
+  "sidepanel/runtime/project-history-state.js",
   "sidepanel/runtime/response-animation.js",
   "sidepanel/runtime/response-view.js",
   "sidepanel/runtime/state.js",
@@ -96,10 +114,20 @@ const moduleScriptFiles = [
   "scripts/test-settings.mjs",
   "scripts/test-content-runtime-url.mjs",
   "scripts/test-content-response-extraction.mjs",
+  "scripts/test-project-history-filtering.mjs",
+  "scripts/test-project-history-controller.mjs",
+  "scripts/test-project-target.mjs",
+  "scripts/test-conversation-run-options.mjs",
+  "scripts/test-conversation-adapter.mjs",
+  "scripts/test-project-routing-adapter.mjs",
+  "scripts/test-fresh-conversation-url.mjs",
+  "scripts/test-request-controller-conversation-routing.mjs",
+  "scripts/test-request-controller-cancel.mjs",
   "scripts/test-dom-utils-click.mjs",
   "scripts/test-model-scoring.mjs",
   "scripts/test-main-world-capture.mjs",
   "scripts/test-response-animation.mjs",
+  "scripts/test-conversation-thread.mjs",
   "scripts/test-sidepanel-layout-css.mjs",
   "scripts/test-offscreen-frame-policy.mjs",
   "scripts/test-offscreen-target.mjs",
@@ -111,6 +139,7 @@ const moduleScriptFiles = [
 
 await validateManifest();
 await validateFilesExist();
+await validateRepositoryHygiene();
 await validateLayeredContentRuntime();
 await validatePngFiles();
 validateJavaScriptSyntax();
@@ -182,6 +211,17 @@ async function validateFilesExist() {
   for (const file of requiredFiles) {
     await readFile(join(root, file), "utf8");
   }
+}
+
+async function validateRepositoryHygiene() {
+  const rootEntries = await readdir(root);
+
+  assert(rootEntries.includes(".gitignore"), "Repository ignore rules must live in .gitignore.");
+  assert(!rootEntries.includes(".gitIgnore"), "Use .gitignore, not .gitIgnore.");
+
+  const gitignore = await readFile(join(root, ".gitignore"), "utf8");
+
+  assert(gitignore.includes(".DS_Store"), ".gitignore must ignore macOS metadata files.");
 }
 
 async function validateLayeredContentRuntime() {
