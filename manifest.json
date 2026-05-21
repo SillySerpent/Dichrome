@@ -53,6 +53,7 @@
         "content/chatgpt/runtime/adapter/composer-controls.js",
         "content/chatgpt/runtime/adapter/assistant-response.js",
         "content/chatgpt/runtime/response/extraction.js",
+        "content/chatgpt/runtime/history/project-history.js",
         "content/chatgpt/runtime/network/capture-client.js",
         "content/chatgpt/runtime/offscreen/bridge.js",
         "content/chatgpt/runtime/page/visibility.js",
