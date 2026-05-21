@@ -1,11 +1,16 @@
 import {
+  AUTOMATION_TARGET_TYPES,
   CHATGPT_AUTOMATION_MESSAGES,
-  REQUEST_STATES
+  REQUEST_STATES,
+  VISIBILITY_MODES,
+  isTerminalState
 } from "../../shared/contracts.js";
+import { isChatGptUrl } from "../constants.js";
 
 export function createRequestController({
   appendEvent,
   captureVisibleTabScreenshot,
+  clearAutomationRequestActive = async () => null,
   disableFocusEmulationForRequest,
   findOrCreateChatGptTab,
   getProfile,
@@ -14,6 +19,7 @@ export function createRequestController({
   normalizeText,
   queryBestSourceTab,
   restoreAttachmentPayloads,
+  sendMessageToOffscreenFrame = async () => null,
   sendMessageToTab,
   startRequest,
   updateRequest
@@ -128,6 +134,54 @@ export function createRequestController({
     });
   }
 
+  async function startHistoryFollowupRequest(message) {
+    const conversation = normalizeConversationTarget(message.conversation);
+    const attachments = normalizeIncomingAttachments(message.attachments);
+    const selectedText = normalizeText(message.selectedText || "");
+    const manualText = buildComposerPrompt({
+      text: message.text,
+      selectedText,
+      attachments
+    });
+
+    if (!manualText) {
+      throw new Error("Follow-up prompt is empty.");
+    }
+
+    if (!conversation.url) {
+      throw new Error("The selected conversation has no saved workspace target.");
+    }
+
+    if (!isChatGptUrl(conversation.url)) {
+      throw new Error("The selected conversation target is not a workspace URL.");
+    }
+
+    const sourceTab = await queryBestSourceTab();
+
+    return startRequest({
+      profileId: "custom_text",
+      sourceTab,
+      selectedText,
+      manualText,
+      attachments,
+      parentRequestId: null,
+      conversationMode: "followup",
+      expectedConversationUrl: conversation.url || null,
+      expectedConversationKey: conversation.key || null,
+      preferredChatTabId: null,
+      chatOptionsOverride: {
+        project: {
+          enabled: false
+        },
+        conversation: {
+          mode: "continue",
+          startNewChat: false,
+          expectedConversationUrl: conversation.url || null
+        }
+      }
+    });
+  }
+
   async function retryRequest(message) {
     const existing = await getRequest(message.requestId);
 
@@ -140,6 +194,7 @@ export function createRequestController({
       ? existing.repairSuggestions.hints
       : [];
 
+    const isFollowupRetry = existing.conversationMode === "followup";
     const retry = await startRequest({
       profileId: existing.profileId,
       sourceTab: existing.source,
@@ -149,9 +204,27 @@ export function createRequestController({
       adapterHints,
       parentRequestId: existing.parentRequestId || null,
       conversationMode: existing.conversationMode || "new",
-      expectedConversationUrl: existing.conversationMode === "followup" ? existing.chatConversationUrl || null : null,
-      expectedConversationKey: existing.conversationMode === "followup" ? existing.chatConversationKey || null : null,
-      preferredChatTabId: existing.chatTabId || null
+      expectedConversationUrl: isFollowupRetry ? existing.chatConversationUrl || null : null,
+      expectedConversationKey: isFollowupRetry ? existing.chatConversationKey || null : null,
+      preferredChatTabId: existing.chatTabId || null,
+      chatOptionsOverride: isFollowupRetry
+        ? {
+          project: {
+            enabled: false
+          },
+          conversation: {
+            mode: "continue",
+            startNewChat: false,
+            expectedConversationUrl: existing.chatConversationUrl || null
+          }
+        }
+        : {
+          conversation: {
+            mode: "new",
+            startNewChat: true,
+            expectedConversationUrl: null
+          }
+        }
     });
 
     await updateRequest(retry.requestId, (request) => {
@@ -168,14 +241,19 @@ export function createRequestController({
       throw new Error("Request not found.");
     }
 
-    if (request.chatTabId) {
-      await sendMessageToTab(request.chatTabId, {
-        type: CHATGPT_AUTOMATION_MESSAGES.CANCEL,
-        requestId
-      }).catch(() => null);
-    }
+    const cancelMessage = {
+      type: CHATGPT_AUTOMATION_MESSAGES.CANCEL,
+      requestId
+    };
+
+    void deliverAutomationCancel(request, cancelMessage);
 
     await disableFocusEmulationForRequest(requestId).catch(() => null);
+    await clearAutomationRequestActive(requestId).catch(() => null);
+
+    if (request.completedAt || isTerminalState(request.state)) {
+      return {};
+    }
 
     await updateRequest(requestId, (draft) => {
       draft.state = REQUEST_STATES.ERROR_STATE;
@@ -185,6 +263,20 @@ export function createRequestController({
     });
 
     return {};
+  }
+
+  async function deliverAutomationCancel(request, cancelMessage) {
+    if (request.chatTabId) {
+      await sendMessageToTab(request.chatTabId, cancelMessage).catch(() => null);
+      return;
+    }
+
+    if (
+      request.automationTargetType === AUTOMATION_TARGET_TYPES.OFFSCREEN_FRAME
+      || request.automationVisibilityMode === VISIBILITY_MODES.HIDDEN
+    ) {
+      await sendMessageToOffscreenFrame(cancelMessage).catch(() => null);
+    }
   }
 
   async function openChatGptTabForRequest(requestId) {
@@ -206,6 +298,7 @@ export function createRequestController({
     startScreenshotRequest,
     captureScreenshotAttachment,
     startFollowupRequest,
+    startHistoryFollowupRequest,
     retryRequest,
     cancelRequest,
     openChatGptTabForRequest
@@ -260,6 +353,15 @@ function normalizeIncomingAttachments(value) {
     }));
 }
 
+function normalizeConversationTarget(value) {
+  const source = value && typeof value === "object" ? value : {};
+
+  return {
+    key: normalizeComposerText(source.key || source.id || source.conversationKey || ""),
+    url: normalizeComposerText(source.url || source.conversationUrl || "")
+  };
+}
+
 function createAttachmentId() {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
@@ -267,4 +369,3 @@ function createAttachmentId() {
 
   return `attachment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
-
