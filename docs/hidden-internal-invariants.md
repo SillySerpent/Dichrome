@@ -27,24 +27,22 @@ Hidden internal mode is the highest-risk path in this extension. These invariant
 - If Chrome rejects the non-tab rule, the fallback rule must remain scoped to ChatGPT subframes.
 - The rule must be removed when hidden automation is closed or when hidden support is recorded as unsupported.
 
-## Target Fallback
+## Hidden-Only Routing
 
-- If hidden internal probing fails, the extension must fall back to exactly one reusable inactive ChatGPT tab.
-- Fallback must append a useful event/failure reason for debugging.
-- A failed content-script ping or probe must not create duplicate tabs without first confirming the stored target is deleted or unusable.
-- The fallback tab should be marked non-discardable while it is used for automation.
+- If hidden internal probing fails, the extension must surface a bounded error instead of opening or controlling a visible ChatGPT automation tab.
+- The only visible ChatGPT page allowed in the normal product is the explicit user-triggered sign-in/setup handoff.
+- Hidden workspace failures must include a useful failure reason and normalized error code.
+- Stored legacy visibility values must sanitize to hidden before request orchestration.
 
-## Focus And Visibility
+## Visibility
 
-- Background tab modes need debugger focus emulation before the automation run starts.
 - Offscreen-frame mode uses its own internal visibility mode because offscreen documents cannot be focused.
-- Tab-backed hidden/sidecar modes should fail clearly if ChatGPT remains `document.visibilityState === "hidden"` after focus emulation.
-- Focus restoration should return the user to the original source tab after completion or error when the mode expects source focus preservation.
+- A hidden workspace visibility failure should produce an actionable sign-in/setup or unavailable-workspace error.
 
 ## Request And Conversation Behavior
 
 - Normal requests start a new chat by default after project routing succeeds.
-- Follow-ups force `startNewChat: false` and reopen the saved parent conversation URL in the same canonical automation target when needed.
+- Follow-ups force `startNewChat: false` and reopen the saved parent conversation URL in the hidden workspace when needed.
 - If a follow-up conversation URL cannot be reopened, the request must fail clearly rather than silently starting a new conversation.
 - Project routing must complete before file attachment, prompt insertion, and send.
 - If project routing is enabled and the project cannot be selected or created, the prompt must not be sent.
@@ -57,8 +55,8 @@ Hidden internal mode is the highest-risk path in this extension. These invariant
 - Backend/network response capture can replace low-confidence DOM text, but plain text is the canonical payload.
 - Final HTML rendering and sanitization should happen in the side panel.
 
-## Debugging
+## Internal Diagnostics
 
-- `Dump Debug` must include settings, automation session summary, focus-emulation sessions, offscreen host/bridge state, frame-policy status, request state, tab/window summaries, and a content-side DOM snapshot when reachable.
-- Debug dump collection belongs in `background/debug/debug-dump-collector.js`.
+- Debug dump collection belongs in `background/debug/debug-dump-collector.js` and must stay internal-only unless a separate developer surface is added.
 - Content-side frame dumps should include location, visibility state, focus state, ready state, active run, composer/send/stop summaries, and network capture state.
+- The normal side panel must not expose diagnostic controls, local repair controls, or automation-mode selectors.

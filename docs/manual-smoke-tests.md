@@ -1,91 +1,69 @@
 # Manual Smoke Tests
 
-Run `npm run check` and `npm test` before manual testing. Load the unpacked extension after code changes so Chrome sees the new manifest and content script order.
+Run `npm run check`, `npm test`, and `npm run package` before manual testing. Load the current unpacked extension after code changes so Chrome sees the new manifest and content script order.
 
 ## Hidden Internal
 
-1. In the side panel, set automation target mode to `Hidden internal`.
+1. Sign in to ChatGPT in the browser profile.
 2. Open a normal webpage, select text, and choose `Ask assistant about this`.
-3. Confirm the source webpage stays focused.
+3. Confirm no visible ChatGPT automation tab or window is created.
 4. Confirm the side panel streams response text and reaches `RESPONSE_COMPLETE`.
-5. Click `Dump Debug`.
-6. Confirm the debug dump reports an offscreen host and a connected offscreen frame bridge.
-7. Confirm no new visible ChatGPT tab is created when hidden support is working.
+5. Confirm the status text uses hidden workspace wording rather than tab-mode wording.
 
-## Hidden Fallback Single Tab
+## Logged Out
 
-1. Use a browser/profile state where hidden internal is unsupported, or temporarily block the offscreen bridge during local diagnosis.
-2. Run a normal selection request in `Hidden internal`.
-3. Confirm the request appends a fallback/support event.
-4. Confirm exactly one inactive ChatGPT tab is created or reused.
-5. Confirm the source tab remains selected and the side panel completes the response.
+1. Use a fresh browser profile or sign out of ChatGPT.
+2. Open Dichrome and try a normal message and a project-history refresh.
+3. Confirm the sidebar says the user must sign in to ChatGPT.
+4. Click `Open ChatGPT to sign in` and complete authentication.
+5. Return to Dichrome, retry once, and confirm project history and normal sends recover predictably.
 
-## One Background Tab
+## Project History
 
-1. Set automation target mode to `One background tab`.
-2. Run two normal selection requests from different source tabs.
-3. Confirm both reuse the same inactive ChatGPT tab.
-4. Confirm the tab is not duplicated after completion.
-
-## Visible Side Window
-
-1. Set automation target mode to `Visible side window`.
-2. Run a normal request.
-3. Confirm the side window opens for visual inspection.
-4. Confirm response streaming still completes.
-5. Confirm debugger focus emulation status appears in `Dump Debug`.
-
-## Focus ChatGPT
-
-1. Set automation target mode to `Focus ChatGPT`.
-2. Run a normal request.
-3. Confirm ChatGPT becomes focused during generation.
-4. Confirm focus returns to the source tab after completion or error.
+1. Use a project with enough conversations to scroll.
+2. Confirm project history loads automatically through the hidden workspace.
+3. Scroll near the bottom and load older conversations.
+4. Confirm the list keeps its visual scroll anchor after loading.
+5. Click a lower conversation and confirm the conversation loads without resetting the project-history scroll position.
+6. Confirm long project and conversation titles truncate cleanly and action text remains readable.
 
 ## Project Routing
 
-1. Enable project routing and set a known project name.
+1. Use the default project routing configuration.
 2. Run a normal request.
 3. Confirm the request reaches `PROJECT_READY` before `PROMPT_INSERTED`.
 4. Confirm the conversation is inside the requested project.
-5. Set a missing project name with `Create if missing` disabled.
-6. Confirm the request fails before sending the prompt.
+5. Set a missing project name with project creation disabled through internal settings, then confirm the request fails before sending the prompt.
 
 ## Follow-Up
 
 1. Run a normal request to completion.
-2. Enter a follow-up in the side panel follow-up box.
-3. Confirm the follow-up uses the saved parent conversation URL.
-4. Confirm it does not start a fresh chat.
+2. Enter a follow-up in the side-panel composer.
+3. Confirm the follow-up uses the saved parent conversation URL in the hidden workspace.
+4. Confirm it does not start a fresh chat unless `New` was pressed.
 
 ## Model Selection
 
-1. Choose a visible model or mode label for the account, such as `Instant`, `Thinking`, or `Extended` when that label is shown in ChatGPT. Confirm the Enabled checkbox turns on automatically.
-2. Run a request without pressing Save Routing first and confirm `MODEL_SELECTED` appears before prompt insertion.
-3. Send a follow-up and confirm `MODEL_SELECTED` appears before the follow-up prompt insertion.
-4. Enable `Require exact match` with an unavailable model label.
-5. Confirm the request fails before sending.
+1. Choose a visible model or mode label for the account, such as `Instant`, `Thinking`, or `Extended` when that label is shown in ChatGPT.
+2. Run a request and confirm `MODEL_SELECTED` appears before prompt insertion.
+3. Select a model label unavailable on the account.
+4. Confirm the request fails before prompt insertion and the message clearly says the model is unavailable.
 
-## Screenshot Request
+## Attachments And Screenshot
 
 1. Open a normal webpage with visible content.
 2. Open Dichrome from the toolbar or context menu so Chrome grants active-tab access for the source tab.
-3. Use the side-panel screenshot request.
-4. Confirm an image attachment is attempted through ChatGPT's file input.
-5. Confirm the request either sends with the attachment or fails with a clear capture/file-input error.
+3. Attach a local file and attach a visible screenshot.
+4. Confirm successful attachments send through ChatGPT's file input.
+5. Try an oversized or unsupported file and confirm the sidebar does not present the attachment as successfully sent.
+6. Confirm ChatGPT upload-limit or rejection messages surface as user-readable errors.
 
-## Local Repair
+## Usage Limits
 
-1. Enable local repair and configure the local Ollama-compatible endpoint.
-2. Trigger or simulate a DOM adapter failure.
-3. Confirm repair suggestions appear only when strict JSON hints validate.
-4. Retry with repair hints and confirm the hints are still checked against runtime element predicates.
-
-## Debug Dump
-
-1. Click `Dump Debug` while idle.
-2. Click `Dump Debug` during a request.
-3. Confirm both dumps render without throwing and include request/session/offscreen/focus/content sections where available.
+1. Use an account state that is temporarily limited, or wait for a known usage/upload limit.
+2. Send a normal request or attachment.
+3. Confirm the sidebar shows a bounded error state instead of spinning indefinitely.
+4. Confirm retry behavior is manual and does not loop.
 
 ## Math Rendering
 

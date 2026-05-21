@@ -4,7 +4,7 @@ Use this file as the review packet source when preparing the Chrome Web Store li
 
 ## Single Purpose
 
-Dichrome is a local-first side-panel extension that lets a user send selected webpage text, typed prompts, and optional user-chosen attachments to an already-open ChatGPT workspace, then read the assistant response in the extension side panel.
+Dichrome is a local-first side-panel extension that lets a user send selected webpage text, typed prompts, and optional user-chosen attachments to a hidden internal ChatGPT workspace, then read the assistant response in the extension side panel.
 
 The extension does not replace search, inject ads, alter page content, or run a hosted backend.
 
@@ -35,14 +35,12 @@ Upload the ZIP created under `.dist/`, not the whole repository. The package scr
 | --- | --- |
 | `activeTab` | Reads the user's current selection from the active source tab when the side panel is used, and attempts visible-tab screenshot capture only after a user action. |
 | `contextMenus` | Adds the user-invoked selection actions: ask, define, and summarize. |
-| `debugger` | Applies DevTools Protocol focus/lifecycle emulation only to the ChatGPT automation target so background requests can stream response DOM without stealing focus. The extension detaches when the request no longer needs emulation. |
 | `declarativeNetRequestWithHostAccess` | Installs session-scoped rules limited to ChatGPT subframe responses for hidden internal automation probing. The rule removes embedding headers only for the ChatGPT iframe used by the offscreen automation path and is removed when unsupported or closed. |
 | `offscreen` | Hosts the extension-owned offscreen automation page that contains the ChatGPT iframe used by hidden internal mode. |
-| `scripting` | Injects the packaged ChatGPT automation scripts into a ChatGPT tab when an existing tab needs repair/reinjection, and reads selected text from the active tab after a user action. |
+| `scripting` | Registers and runs packaged scripts for ChatGPT pages and reads selected text from the active source tab after a user action. |
 | `sidePanel` | Provides the main extension UI. |
-| `storage` | Stores user settings, recent request state, request events, and the remembered automation target. |
-| `tabs` | Finds the active source tab, reuses one ChatGPT automation tab, and validates ChatGPT tab URLs. |
-| `windows` | Restores focus to the source window and manages the optional visible sidecar automation window. |
+| `storage` | Stores user settings, recent request state, request events, and the hidden workspace session summary. |
+| `tabs` | Finds the active source tab and opens ChatGPT only when the user chooses the sign-in/setup handoff. |
 
 ## Host Permissions
 
@@ -60,9 +58,9 @@ Select the Developer Dashboard remote-code answer that states the extension does
 The extension does communicate with remote services as data endpoints:
 
 - ChatGPT pages and ChatGPT backend endpoints through the user's signed-in browser session.
-- A user-configured local Ollama-compatible endpoint on `localhost` or `127.0.0.1` when local repair is explicitly enabled.
+No developer-operated service receives the user's data from the extension.
 
-The submitted package contains the extension logic. It does not load remote script files, does not call `eval`, does not use `new Function`, and does not execute code returned by ChatGPT or the local repair endpoint.
+The submitted package contains the extension logic. It does not load remote script files, does not call `eval`, does not use `new Function`, and does not execute code returned by ChatGPT.
 
 ## Data Use Disclosure
 
@@ -81,11 +79,11 @@ Use the privacy policy draft in `docs/privacy-policy.md` as the source for the p
 3. Open a normal webpage, select text, right-click, and choose `Ask assistant about this`.
 4. Confirm the side panel opens, the selected text is routed to ChatGPT, and a response streams back.
 5. In the side panel, type a follow-up and send it.
-6. Optional: change automation mode to `One background tab` if hidden internal iframe automation is unavailable in the review environment.
-7. Optional: click `Dump debug` if a request fails; the dump is for diagnosis and does not send data to a developer server.
+6. Sign out of ChatGPT and retry a request.
+7. Confirm the side panel shows a clear sign-in message and that `Open ChatGPT to sign in` opens ChatGPT only for authentication/setup.
 
 ## Known Review Risks To Disclose Clearly
 
-- `debugger` and `declarativeNetRequestWithHostAccess` are high-sensitivity permissions. They are core to the local UI-driven hidden/background automation design and should be justified directly in the privacy fields.
-- Hidden internal mode depends on ChatGPT allowing a signed-in session inside an extension-hosted iframe. If that fails, the extension falls back to one inactive ChatGPT tab.
+- `declarativeNetRequestWithHostAccess` is a high-sensitivity permission. It is core to the local UI-driven hidden automation design and should be justified directly in the privacy fields.
+- Hidden internal mode depends on ChatGPT allowing a signed-in session inside an extension-hosted iframe. If that fails, the extension shows an actionable error instead of opening a normal automation tab.
 - The extension depends on the user's existing ChatGPT account and browser session. The listing should say that Dichrome is not affiliated with ChatGPT/OpenAI and requires the user to sign in to ChatGPT separately.
