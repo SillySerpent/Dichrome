@@ -728,7 +728,6 @@ function startNewConversationDraft() {
 }
 
 async function attachVisibleScreenshot() {
-  await ensureScreenshotCapturePermission();
   const response = await sendMessage(PANEL_MESSAGES.CAPTURE_SCREENSHOT_ATTACHMENT);
   const screenshot = response.attachment;
 
@@ -835,20 +834,6 @@ function renderAttachments() {
 
     chip.append(body, remove);
     dom.attachmentsTray.append(chip);
-  }
-}
-
-async function ensureScreenshotCapturePermission() {
-  if (!chrome.permissions?.request) {
-    return;
-  }
-
-  const granted = await chrome.permissions.request({
-    origins: ["<all_urls>"]
-  });
-
-  if (!granted) {
-    throw new Error("Visible screenshot capture needs All Sites access. Grant the permission prompt, then retry.");
   }
 }
 

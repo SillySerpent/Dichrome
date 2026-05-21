@@ -20,9 +20,6 @@
     "https://chatgpt.com/*",
     "https://chat.openai.com/*"
   ],
-  "optional_host_permissions": [
-    "<all_urls>"
-  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://chatgpt.com https://chat.openai.com;"
   },

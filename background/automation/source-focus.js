@@ -91,7 +91,7 @@ export async function captureVisibleTabScreenshot(windowId, sourceTab = null) {
     const sourceUrl = sourceTab?.url || sourceTab?.pendingUrl || "";
     const target = sourceUrl ? ` for ${sourceUrl}` : "";
 
-    throw new Error(`Visible screenshot capture failed${target}. Grant the extension All Sites access when prompted, reload the unpacked extension if the manifest just changed, then retry. Chrome may still require opening the panel from the extension toolbar for browser-internal pages such as chrome://newtab. ${serializeError(error)}`);
+    throw new Error(`Visible screenshot capture failed${target}. Open Dichrome from the toolbar or context menu on the source tab immediately before retrying so Chrome can provide an activeTab grant. Chrome may still block browser-internal pages such as chrome://newtab. ${serializeError(error)}`);
   }
 
   const sizeBytes = Math.ceil((dataUrl.length * 3) / 4);
