@@ -42,7 +42,7 @@
     }
 
     const candidates = afterMs
-      ? eligibleNodes.filter((candidate) => !candidate.timeMs || candidate.timeMs >= afterMs)
+      ? eligibleNodes.filter((candidate) => candidate.timeMs && candidate.timeMs >= afterMs)
       : eligibleNodes;
 
     if (!candidates.length) {
@@ -58,6 +58,136 @@
     });
 
     return candidates[candidates.length - 1] || null;
+  }
+
+  function selectConversationMessagesFromConversationData(data, { limit = 0 } = {}) {
+    const mapping = data?.mapping && typeof data.mapping === "object" ? data.mapping : {};
+    const nodes = orderConversationNodes(mapping, data?.current_node || data?.currentNode || "");
+    const messages = [];
+    const seen = new Set();
+
+    for (const { node, nodeId } of nodes) {
+      const normalized = normalizeConversationMessage(node?.message || null, {
+        node,
+        nodeId
+      });
+
+      if (!normalized) {
+        continue;
+      }
+
+      const identity = normalized.id
+        ? `id:${normalized.id}`
+        : `fallback:${normalized.role}:${normalized.createdAt || ""}:${normalized.text.length}:${normalized.text.slice(0, 120)}`;
+
+      if (seen.has(identity)) {
+        continue;
+      }
+
+      seen.add(identity);
+      messages.push(normalized);
+    }
+
+    const safeLimit = Number.isFinite(Number(limit)) ? Math.max(0, Number(limit)) : 0;
+
+    return safeLimit ? messages.slice(-safeLimit) : messages;
+  }
+
+  function extractConversationTitleFromConversationData(data) {
+    return normalizeText(
+      data?.title
+      || data?.conversation?.title
+      || data?.metadata?.title
+      || data?.conversation_template?.title
+      || ""
+    );
+  }
+
+  function orderConversationNodes(mapping, currentNodeId) {
+    const path = [];
+    const seenPath = new Set();
+    let cursorId = currentNodeId ? String(currentNodeId) : "";
+
+    while (cursorId && mapping[cursorId] && !seenPath.has(cursorId)) {
+      seenPath.add(cursorId);
+      path.push({
+        node: mapping[cursorId],
+        nodeId: cursorId
+      });
+      cursorId = mapping[cursorId]?.parent ? String(mapping[cursorId].parent) : "";
+    }
+
+    if (path.length > 1) {
+      return path.reverse();
+    }
+
+    return Object.entries(mapping)
+      .map(([nodeId, node]) => ({
+        node,
+        nodeId
+      }))
+      .sort((a, b) => {
+        const aTime = getConversationMessageTimeMs(a.node?.message, a.node);
+        const bTime = getConversationMessageTimeMs(b.node?.message, b.node);
+
+        if (aTime !== bTime) {
+          return aTime - bTime;
+        }
+
+        return String(a.nodeId).localeCompare(String(b.nodeId));
+      });
+  }
+
+  function normalizeConversationMessage(message, { node, nodeId } = {}) {
+    if (!message || typeof message !== "object") {
+      return null;
+    }
+
+    if (message.metadata?.is_visually_hidden_from_conversation) {
+      return null;
+    }
+
+    const role = normalizeConversationRole(message?.author?.role || message.role || "");
+
+    if (!role) {
+      return null;
+    }
+
+    const text = extractConversationMessageText(message);
+
+    if (!text) {
+      return null;
+    }
+
+    const createTimeMs = getConversationMessageTimeMs({
+      create_time: message.create_time
+    }, node);
+    const updateTimeMs = getConversationMessageTimeMs({
+      update_time: message.update_time || message.create_time
+    }, node);
+
+    return {
+      id: message.id || nodeId || "",
+      role,
+      text,
+      html: "",
+      createdAt: createTimeMs ? new Date(createTimeMs).toISOString() : null,
+      updatedAt: updateTimeMs ? new Date(updateTimeMs).toISOString() : null
+    };
+  }
+
+  function normalizeConversationRole(role) {
+    const normalized = String(role || "").toLowerCase().trim();
+
+    if (normalized === "user" || normalized === "human") {
+      return "user";
+    }
+
+    if (normalized === "assistant") {
+      return "assistant";
+    }
+
+    return "";
   }
 
   function extractConversationMessageText(message) {
@@ -77,7 +207,17 @@
       return normalizeText(contentText.join("\n\n"));
     }
 
-    return normalizeText(content.text || content.result || "");
+    return normalizeText(
+      content.text
+      || content.result
+      || content.markdown
+      || message.text
+      || message.result
+      || message.markdown
+      || message.metadata?.user_message_text
+      || message.metadata?.message_text
+      || ""
+    );
   }
 
   function extractConversationPartText(part) {
@@ -211,6 +351,8 @@
 
   runtime.responseExtraction = Object.freeze({
     selectLatestAssistantResponseFromConversationData,
+    selectConversationMessagesFromConversationData,
+    extractConversationTitleFromConversationData,
     extractConversationMessageText,
     extractConversationPartText,
     getConversationMessageTimeMs,
