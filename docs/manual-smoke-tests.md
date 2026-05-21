@@ -69,9 +69,10 @@ Run `npm run check` and `npm test` before manual testing. Load the unpacked exte
 ## Screenshot Request
 
 1. Open a normal webpage with visible content.
-2. Use the side-panel screenshot request.
-3. Confirm an image attachment is attempted through ChatGPT's file input.
-4. Confirm the request either sends with the attachment or fails with a clear file-input error.
+2. Open Dichrome from the toolbar or context menu so Chrome grants active-tab access for the source tab.
+3. Use the side-panel screenshot request.
+4. Confirm an image attachment is attempted through ChatGPT's file input.
+5. Confirm the request either sends with the attachment or fails with a clear capture/file-input error.
 
 ## Local Repair
 

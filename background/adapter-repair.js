@@ -134,7 +134,7 @@ export function sanitizeRepairSettings(value) {
 
 function buildRepairPrompt(snapshot, failure) {
   return [
-    "You are assisting a local browser extension prototype with ChatGPT DOM adapter repair.",
+    "You are assisting a local browser extension with ChatGPT DOM adapter repair.",
     "Return only strict JSON. Do not return markdown. Do not suggest code changes.",
     "Only suggest selector or semantic mapping hints for elements visible in the snapshot.",
     "",

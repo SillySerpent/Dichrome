@@ -1,8 +1,8 @@
 # Dichrome
 
-Experimental local Chrome/Chromium extension for routing selected webpage text into an already-open assistant workspace, then reflecting the assistant response in an extension side panel.
+Local-first Chrome/Chromium extension for routing selected webpage text into an already-open assistant workspace, then reflecting the assistant response in an extension side panel.
 
-This is intentionally UI-driven. It does not use the OpenAI API, does not require a hosted backend, and is not structured as a public product. The prototype exists to test whether a personal, non-API browser workflow can be made reliable enough for local use.
+This is intentionally UI-driven. It does not use the OpenAI API and does not require a hosted backend. Dichrome depends on the user's signed-in ChatGPT browser session and uses packaged extension code to drive the visible ChatGPT web UI.
 
 ## Current Workflow
 
@@ -70,6 +70,14 @@ npm test
 
 No install step is required; both scripts only use Node built-ins.
 
+Create a Chrome Web Store upload ZIP after validation:
+
+```bash
+npm run package
+```
+
+The ZIP is written under `.dist/` and contains only the runtime extension files needed by Chrome.
+
 Regenerate icons after editing `assets/icon.svg` or `scripts/generate-icons.mjs`:
 
 ```bash
@@ -93,7 +101,7 @@ The side panel stores plain text as the canonical response payload and renders f
 
 ## Automation Target Mode
 
-`Hidden internal` is the default mode. It first installs a session-scoped `declarativeNetRequest` rule for ChatGPT subframe responses, then creates a Chrome offscreen document that hosts a ChatGPT iframe. The rule removes `X-Frame-Options` and `Content-Security-Policy` from ChatGPT subframe responses so the local/unpacked prototype can test true hidden iframe automation. The rule is scoped to non-tab ChatGPT subframe requests when Chrome accepts `tabIds: [chrome.tabs.TAB_ID_NONE]`; if that scoped rule is rejected, or if it installs but the offscreen ChatGPT bridge still never connects, the extension falls back to a ChatGPT-subframe-only rule. The rule is removed when hidden automation is closed or when the probe records hidden automation as unsupported.
+`Hidden internal` is the default mode. It first installs a session-scoped `declarativeNetRequest` rule for ChatGPT subframe responses, then creates a Chrome offscreen document that hosts a ChatGPT iframe. The rule removes `X-Frame-Options` and `Content-Security-Policy` from ChatGPT subframe responses so Dichrome can test true hidden iframe automation. The rule is scoped to non-tab ChatGPT subframe requests when Chrome accepts `tabIds: [chrome.tabs.TAB_ID_NONE]`; if that scoped rule is rejected, or if it installs but the offscreen ChatGPT bridge still never connects, the extension falls back to a ChatGPT-subframe-only rule. The rule is removed when hidden automation is closed or when the probe records hidden automation as unsupported.
 
 The ChatGPT automation content script is registered for all ChatGPT frames at `document_start`; when Chrome can inject it into that offscreen iframe, the frame opens a runtime port back to the service worker and accepts automation commands through that port. The frame bridge reconnects if the MV3 service worker restarts while the offscreen document survives, and the background probe reloads the iframe once with a cache-busting probe URL if the host reports that ChatGPT loaded but the bridge still did not connect. If ChatGPT blocks cookies, frame-script injection, account/session access, or background streaming after that recovery path, the extension records the reason and falls back to one inactive reusable ChatGPT tab.
 
@@ -141,7 +149,11 @@ The model must return strict JSON with `hints`. The extension validates target n
 
 ## Screenshot Status
 
-The side panel includes an experimental visible-screenshot request. It uses `chrome.tabs.captureVisibleTab`, so Chrome requires host access to the visible page or a valid `activeTab` grant. In side-panel workflows, `activeTab` grants can be unreliable, so this local/unpacked prototype requests optional `<all_urls>` host access the first time you use visible screenshot capture. It captures the visible viewport, not a stitched full-page screenshot. Full-page screenshot support would need a separate scroll-and-stitch flow.
+The side panel includes a visible-screenshot attachment request. It uses `chrome.tabs.captureVisibleTab`, so Chrome requires a valid active-tab capture grant for the visible page. Dichrome does not request required or optional `<all_urls>` host access for this feature. It captures the visible viewport, not a stitched full-page screenshot. Full-page screenshot support would need a separate scroll-and-stitch flow.
+
+## Chrome Web Store Review
+
+Chrome Web Store submission notes, permission justifications, reviewer test steps, and the privacy policy draft live in `docs/chrome-web-store-submission.md` and `docs/privacy-policy.md`. Keep those files synchronized with the uploaded build and the Developer Dashboard privacy fields.
 
 ## Known Constraints
 
@@ -150,5 +162,5 @@ The side panel includes an experimental visible-screenshot request. It uses `chr
 - Login screens, account gates, and modal dialogs require manual handling in the ChatGPT tab.
 - Multiple simultaneous requests are isolated by request id, but a single ChatGPT tab can only run one automation at a time.
 - Attachment upload through the ChatGPT web UI is best effort and depends on the page exposing a file input compatible with scripted `FileList` assignment.
-- Screenshot capture requests optional `<all_urls>` host access for deterministic visible-page screenshots, and local repair can reach the configured Ollama-compatible endpoint when enabled. Background automation modes require Chrome's high-privilege `debugger` permission for the ChatGPT tab.
+- Screenshot capture depends on a browser-granted active-tab capture path and may fail on browser-internal pages or when Chrome does not provide a current active-tab grant. Local repair can reach the configured localhost Ollama-compatible endpoint when enabled. Background automation modes require Chrome's high-privilege `debugger` permission for the ChatGPT tab.
 - Fully hidden automation depends on Chrome offscreen iframe capability, the local session-scoped frame-policy override, ChatGPT account/session behavior in an embedded frame, and successful content-script execution inside the ChatGPT iframe. If any of those are blocked, the supported fallback is one inactive reusable browser tab.

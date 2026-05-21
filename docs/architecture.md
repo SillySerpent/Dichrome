@@ -2,7 +2,7 @@
 
 ## Surfaces
 
-The prototype has three extension surfaces:
+Dichrome has three extension surfaces:
 
 - Background service worker: deterministic orchestration, state machine transitions, content-script injection, message dispatch, repair calls.
 - Automation modules: settings migration, canonical target session storage, offscreen capability probing, source-focus restoration, and debugger focus emulation.
@@ -166,7 +166,7 @@ The ChatGPT adapter looks for:
 - Assistant response: explicit `data-message-author-role="assistant"` containers first, then bounded conversation-area fallbacks.
 - File input: `input[type=file]` accepting image files for screenshot attachment attempts.
 - Fresh hidden project chats: prefer ChatGPT's visible `New chat` control when available, but fall back to direct navigation from `/g/<project>/c/<conversation>` to `/g/<project>/project` when the control is hidden or responsive-layout dependent.
-- Screenshot capture: the local/unpacked prototype requests optional `<all_urls>` host access from the side panel so `chrome.tabs.captureVisibleTab` does not depend on a transient `activeTab` grant for normal web pages.
+- Screenshot capture: the side panel uses `chrome.tabs.captureVisibleTab` through the user-triggered active-tab capture path. The extension does not request required or optional `<all_urls>` host access, so Chrome may reject capture when the active-tab grant is unavailable or the page is browser-internal.
 
 Response tracking is deliberately scoped. The script selects the newest assistant message after the send action and extracts content only from that message container. It does not stream arbitrary page text. Plain text is the canonical response payload; final HTML rendering, sanitization, markdown-ish formatting, and local math rendering are centralized in `shared/response-formatting.js` and applied by the side panel.
 

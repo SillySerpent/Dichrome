@@ -103,6 +103,7 @@ Keep side-panel DOM ids stable unless the HTML/CSS are changed in the same pass.
 ## Scripts And Tests
 
 - `scripts/validate-extension.mjs` validates required files, manifest shape, content script order, PNG signatures, and JavaScript syntax.
+- `scripts/package-extension.mjs` builds the Chrome Web Store upload ZIP from runtime extension files after validation.
 - `scripts/test.mjs` is the test aggregator.
 - `scripts/test-contracts.mjs` guards shared constants and manifest content script order.
 - `scripts/test-response-formatting.mjs` guards response rendering, sanitizer behavior, structured writing/task-list/table cases, and math fallback behavior.
