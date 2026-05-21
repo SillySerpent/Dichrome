@@ -3,6 +3,8 @@ import {
 } from "../../background/automation/settings.js";
 import {
   PANEL_MESSAGES,
+  PROJECT_CONVERSATION_HISTORY_LIMIT,
+  PROJECT_CONVERSATION_MESSAGE_BATCH_SIZE,
   VISIBILITY_MODES
 } from "../../shared/contracts.js";
 import {
@@ -12,6 +14,15 @@ import {
 } from "../../shared/response-formatting.js";
 import { sendMessage } from "./client.js";
 import { dom } from "./dom.js";
+import {
+  createProjectHistoryState,
+  loadPersistedProjectHistoryState,
+  normalizeHistoryProjectKey,
+  persistProjectHistoryState
+} from "./project-history-state.js";
+import {
+  getUnreflectedLiveRequestsForHistory
+} from "./conversation-thread.js";
 import { createResponseAnimation } from "./response-animation.js";
 import { createResponseView } from "./response-view.js";
 import {
@@ -23,6 +34,11 @@ const MAX_CONTEXT_PREVIEW_LENGTH = 700;
 const MAX_FILE_ATTACHMENT_BYTES = 32 * 1024 * 1024;
 const SELECTION_REFRESH_DELAY_MS = 180;
 const CHAT_THREAD_AUTOSCROLL_BOTTOM_THRESHOLD_PX = 64;
+const CHAT_THREAD_HISTORY_TOP_THRESHOLD_PX = 72;
+const HISTORY_LIST_BOTTOM_THRESHOLD_PX = 48;
+const PROJECT_HISTORY_AUTO_LOAD_DELAY_MS = 120;
+const PROJECT_HISTORY_AUTO_RETRY_DELAY_MS = 4000;
+const PROJECT_HISTORY_AUTO_RETRY_MAX_DELAY_MS = 30000;
 
 let profiles = [];
 let panelState = {
@@ -38,6 +54,10 @@ let selectedContext = null;
 let dismissedSelectionKey = "";
 let selectionRefreshTimer = null;
 let composerReadingMode = true;
+let projectHistoryAutoLoadTimer = null;
+let projectHistoryAutoRetryCount = 0;
+let projectHistoryLoadPromise = null;
+const projectHistoryState = createProjectHistoryState();
 const chatThreadScrollState = {
   autoScroll: true,
   lastProgrammaticScrollAt: 0
@@ -61,11 +81,13 @@ chrome.runtime.onMessage.addListener((message) => {
     panelState = message.panelState;
     render();
     void refreshAutomationTargetStatus();
+    return;
   }
 });
 
 async function initialize() {
   bindEvents();
+  loadPersistedProjectHistoryState(projectHistoryState);
   await Promise.all([
     loadProfiles(),
     loadPanelState(),
@@ -74,6 +96,10 @@ async function initialize() {
   ]);
   await maybeRefreshSelectedContext({ force: true });
   render();
+  scheduleProjectHistoryAutoLoad({
+    force: true,
+    reset: true
+  });
 }
 
 function bindEvents() {
@@ -89,6 +115,43 @@ function bindEvents() {
 
   dom.newChatButton.addEventListener("click", () => {
     startNewConversationDraft();
+  });
+
+  dom.historyRefreshButton.addEventListener("click", () => {
+    void runPanelAction(() => loadProjectConversations({
+      reset: true
+    }));
+  });
+
+  dom.historyList.addEventListener("click", (event) => {
+    const conversationButton = event.target?.closest?.("[data-history-conversation-id]");
+
+    if (conversationButton) {
+      void runPanelAction(() => loadProjectConversation(conversationButton.dataset.historyConversationId));
+      return;
+    }
+
+    if (event.target?.closest?.("[data-history-load-more]")) {
+      void runPanelAction(() => loadProjectConversations({
+        reset: false
+      }));
+    }
+  });
+
+  dom.historyList.addEventListener("scroll", () => {
+    if (projectHistoryState.loadingList || projectHistoryState.nextCursor === null) {
+      return;
+    }
+
+    const distanceFromBottom = dom.historyList.scrollHeight - dom.historyList.clientHeight - dom.historyList.scrollTop;
+
+    if (distanceFromBottom <= HISTORY_LIST_BOTTOM_THRESHOLD_PX) {
+      void runPanelAction(() => loadProjectConversations({
+        reset: false
+      }));
+    }
+  }, {
+    passive: true
   });
 
   dom.sendManualButton.addEventListener("click", () => {
@@ -201,9 +264,20 @@ function bindEvents() {
       return;
     }
 
+    if (projectHistoryState.activeConversation && dom.chatMessages.scrollTop <= CHAT_THREAD_HISTORY_TOP_THRESHOLD_PX) {
+      revealOlderHistoryMessages();
+      return;
+    }
+
     chatThreadScrollState.autoScroll = isChatThreadScrolledNearBottom();
   }, {
     passive: true
+  });
+
+  dom.chatMessages.addEventListener("click", (event) => {
+    if (event.target?.closest?.("[data-load-older-history-messages]")) {
+      revealOlderHistoryMessages();
+    }
   });
 
   dom.retryButton.addEventListener("click", () => {
@@ -219,17 +293,31 @@ function bindEvents() {
   });
 
   dom.openChatGptButton.addEventListener("click", () => {
-    const request = getActiveRequest();
+    const request = projectHistoryState.activeConversation
+      ? getActiveProjectConversationRequest()
+      : getActiveRequest();
 
     if (request) {
       void runPanelAction(() => sendMessage(PANEL_MESSAGES.OPEN_CHATGPT_TAB, {
         requestId: request.id
       }));
+      return;
+    }
+
+    if (projectHistoryState.activeConversation) {
+      void runPanelAction(() => sendMessage(PANEL_MESSAGES.OPEN_PROJECT_CONVERSATION, {
+        conversation: {
+          id: projectHistoryState.activeConversation.id,
+          url: projectHistoryState.activeConversation.url
+        }
+      }));
     }
   });
 
   dom.cancelButton.addEventListener("click", () => {
-    const request = getActiveRequest();
+    const request = projectHistoryState.activeConversation
+      ? getActiveProjectConversationRequest()
+      : getActiveRequest();
 
     if (request) {
       void runPanelAction(() => sendMessage(PANEL_MESSAGES.CANCEL_REQUEST, {
@@ -322,6 +410,199 @@ async function loadAutomationSettings() {
   renderAutomationTargetStatus(settings.automationSession || null);
 }
 
+function scheduleProjectHistoryAutoLoad({ force = false, reset = false, delayMs = PROJECT_HISTORY_AUTO_LOAD_DELAY_MS } = {}) {
+  window.clearTimeout(projectHistoryAutoLoadTimer);
+
+  if (projectHistoryState.loadingList || projectHistoryLoadPromise) {
+    return;
+  }
+
+  projectHistoryAutoLoadTimer = window.setTimeout(() => {
+    projectHistoryAutoLoadTimer = null;
+    void runPanelAction(() => maybeAutoLoadProjectHistory({
+      force,
+      reset
+    }));
+  }, delayMs);
+}
+
+async function maybeAutoLoadProjectHistory({ force = false, reset = false } = {}) {
+  if (!shouldLoadProjectHistoryAutomatically()) {
+    return;
+  }
+
+  if (projectHistoryState.loadingList) {
+    return;
+  }
+
+  const currentKey = getCurrentProjectHistoryKey();
+  const loadedKey = getLoadedProjectHistoryKey();
+  const shouldReset = reset || Boolean(loadedKey && loadedKey !== currentKey);
+
+  if (!force && projectHistoryState.loaded && loadedKey === currentKey) {
+    return;
+  }
+
+  await loadProjectConversations({
+    reset: shouldReset || !projectHistoryState.loaded
+  });
+}
+
+function shouldLoadProjectHistoryAutomatically() {
+  return Boolean(dom.projectRoutingEnabled.checked && dom.projectName.value.trim());
+}
+
+function getCurrentProjectHistoryKey() {
+  return normalizeHistoryProjectKey({
+    name: dom.projectName.value
+  });
+}
+
+function getLoadedProjectHistoryKey() {
+  return normalizeHistoryProjectKey(projectHistoryState.project);
+}
+
+async function loadProjectConversations({ reset = false } = {}) {
+  if (projectHistoryLoadPromise) {
+    return projectHistoryLoadPromise;
+  }
+
+  if (projectHistoryState.loadingList) {
+    return;
+  }
+
+  if (!reset && projectHistoryState.loaded && projectHistoryState.nextCursor === null) {
+    return;
+  }
+
+  projectHistoryState.loadingList = true;
+  projectHistoryState.pending = false;
+  projectHistoryState.pendingSource = "";
+  projectHistoryState.error = "";
+  renderHistoryPanel();
+
+  projectHistoryLoadPromise = (async () => {
+  try {
+    const response = await sendMessage(PANEL_MESSAGES.GET_PROJECT_CONVERSATIONS, {
+      cursor: reset ? 0 : projectHistoryState.nextCursor || 0,
+      limit: PROJECT_CONVERSATION_HISTORY_LIMIT
+    });
+
+    if (response.pending) {
+      projectHistoryState.project = response.project || projectHistoryState.project;
+      projectHistoryState.pending = true;
+      projectHistoryState.pendingSource = response.source || "pending";
+      const retryDelay = Math.min(
+        PROJECT_HISTORY_AUTO_RETRY_MAX_DELAY_MS,
+        PROJECT_HISTORY_AUTO_RETRY_DELAY_MS * Math.max(1, 2 ** projectHistoryAutoRetryCount)
+      );
+      projectHistoryAutoRetryCount += 1;
+      window.clearTimeout(projectHistoryAutoLoadTimer);
+      projectHistoryAutoLoadTimer = window.setTimeout(() => {
+        projectHistoryAutoLoadTimer = null;
+        void runPanelAction(() => maybeAutoLoadProjectHistory({
+          force: true,
+          reset: true
+        }));
+      }, retryDelay);
+      return;
+    }
+
+    const incoming = Array.isArray(response.conversations) ? response.conversations : [];
+    const existing = reset ? [] : projectHistoryState.conversations;
+    const byId = new Map(existing.map((conversation) => [conversation.id, conversation]));
+
+    for (const conversation of incoming) {
+      if (conversation?.id) {
+        byId.set(conversation.id, conversation);
+      }
+    }
+
+    projectHistoryAutoRetryCount = 0;
+    projectHistoryState.loaded = true;
+    projectHistoryState.pending = false;
+    projectHistoryState.pendingSource = "";
+    projectHistoryState.project = response.project || projectHistoryState.project;
+    projectHistoryState.conversations = Array.from(byId.values());
+    projectHistoryState.nextCursor = response.nextCursor ?? null;
+  } catch (error) {
+    projectHistoryState.error = error.message || String(error);
+    throw error;
+  } finally {
+    projectHistoryState.loadingList = false;
+    projectHistoryLoadPromise = null;
+    renderHistoryPanel();
+  }
+  })();
+
+  return projectHistoryLoadPromise;
+}
+
+async function loadProjectConversation(conversationId) {
+  const summary = projectHistoryState.conversations.find((conversation) => conversation.id === conversationId);
+
+  if (!summary) {
+    throw new Error("Conversation not found in loaded project history.");
+  }
+
+  projectHistoryState.loadingConversationId = conversationId;
+  projectHistoryState.error = "";
+  renderHistoryPanel();
+
+  try {
+    const response = await sendMessage(PANEL_MESSAGES.GET_PROJECT_CONVERSATION, {
+      conversationId: summary.id,
+      conversationUrl: summary.url
+    });
+    const conversation = normalizeLoadedProjectConversation(response.conversation || summary);
+
+    forceNewConversationDraft = false;
+    projectHistoryState.activeConversation = conversation;
+    projectHistoryState.renderedMessageCount = Math.min(
+      conversation.messages.length,
+      PROJECT_CONVERSATION_MESSAGE_BATCH_SIZE
+    );
+    chatThreadScrollState.autoScroll = true;
+    responseAnimation.stop();
+    responseView.resetAutoScroll();
+    render();
+    setTransientStatus(`Loaded ${conversation.title}`);
+  } catch (error) {
+    projectHistoryState.error = error.message || String(error);
+    throw error;
+  } finally {
+    projectHistoryState.loadingConversationId = "";
+    renderHistoryPanel();
+  }
+}
+
+function normalizeLoadedProjectConversation(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const messages = Array.isArray(source.messages)
+    ? source.messages
+      .filter((message) => message && (message.role === "user" || message.role === "assistant") && normalizeResponseText(message.text || ""))
+      .map((message) => ({
+        id: String(message.id || createLocalId()),
+        role: message.role,
+        text: normalizeResponseText(message.text || ""),
+        html: message.html || "",
+        createdAt: message.createdAt || null,
+        updatedAt: message.updatedAt || null
+      }))
+    : [];
+
+  return {
+    id: String(source.id || ""),
+    title: String(source.title || "Untitled conversation"),
+    url: String(source.url || ""),
+    projectName: String(source.projectName || projectHistoryState.project?.name || ""),
+    projectSegment: String(source.projectSegment || projectHistoryState.project?.segment || ""),
+    messages,
+    messageCount: Number.isFinite(Number(source.messageCount)) ? Number(source.messageCount) : messages.length,
+    loadedAt: source.loadedAt || new Date().toISOString()
+  };
+}
+
 function setModelLabelValue(label) {
   const normalized = String(label || "").trim();
 
@@ -357,7 +638,8 @@ async function sendComposerRequest() {
     }
 
     const activeRequest = getActiveRequest();
-    const canContinue = canContinueActiveConversation(activeRequest);
+    const canContinueProjectConversation = canContinueActiveProjectConversation();
+    const canContinue = !canContinueProjectConversation && canContinueActiveConversation(activeRequest);
 
     if (isRunningRequest(activeRequest)) {
       setTransientStatus("Wait for the current response or cancel it first.");
@@ -365,11 +647,21 @@ async function sendComposerRequest() {
     }
 
     await saveAutomationSettings({ silent: true });
-    markOutgoingRequestPending(canContinue ? "Sending message..." : "Starting new conversation...");
+    markOutgoingRequestPending(canContinue || canContinueProjectConversation ? "Sending message..." : "Starting new conversation...");
 
     if (canContinue) {
       await sendMessage(PANEL_MESSAGES.RUN_FOLLOWUP_REQUEST, {
         requestId: activeRequest.id,
+        text,
+        selectedText,
+        attachments
+      });
+    } else if (canContinueProjectConversation) {
+      await sendMessage(PANEL_MESSAGES.RUN_HISTORY_FOLLOWUP_REQUEST, {
+        conversation: {
+          id: projectHistoryState.activeConversation.id,
+          url: projectHistoryState.activeConversation.url
+        },
         text,
         selectedText,
         attachments
@@ -401,6 +693,10 @@ function canContinueActiveConversation(request) {
   return Boolean(request.chatConversationUrl || request.chatConversationKey || request.chatTabId);
 }
 
+function canContinueActiveProjectConversation() {
+  return Boolean(!forceNewConversationDraft && projectHistoryState.activeConversation?.url);
+}
+
 function clearComposerAfterSend() {
   dom.manualText.value = "";
   pendingAttachments = [];
@@ -417,6 +713,8 @@ function startNewConversationDraft() {
   forceNewConversationDraft = true;
   pendingAttachments = [];
   selectedContext = null;
+  projectHistoryState.activeConversation = null;
+  projectHistoryState.renderedMessageCount = 0;
   dismissedSelectionKey = "";
   dom.manualText.value = "";
   responseAnimation.stop();
@@ -646,7 +944,9 @@ function applyQuickAction(action) {
 }
 
 async function retryActiveRequest(useRepairHints) {
-  const request = getActiveRequest();
+  const request = projectHistoryState.activeConversation
+    ? getActiveProjectConversationRequest()
+    : getActiveRequest();
 
   if (!request) {
     return;
@@ -678,7 +978,9 @@ async function saveRepairSettings() {
 }
 
 async function dumpDebugState() {
-  const request = getActiveRequest();
+  const request = projectHistoryState.activeConversation
+    ? getActiveProjectConversationRequest()
+    : getActiveRequest();
   const response = await sendMessage(PANEL_MESSAGES.DUMP_DEBUG, {
     requestId: request?.id || null
   });
@@ -707,6 +1009,10 @@ async function saveAutomationSettings({ silent = false } = {}) {
 
   if (!silent) {
     setTransientStatus("Settings saved.");
+    scheduleProjectHistoryAutoLoad({
+      force: true,
+      reset: true
+    });
   }
 }
 
@@ -750,6 +1056,9 @@ async function refreshAutomationTargetStatus() {
 
 function render() {
   const request = forceNewConversationDraft ? null : getActiveRequest();
+  const historyConversation = !forceNewConversationDraft ? projectHistoryState.activeConversation : null;
+  const historyRequest = historyConversation ? getActiveProjectConversationRequest() : null;
+  const displayedRequest = historyConversation ? historyRequest : request;
 
   if (outgoingRequestPending && request && request.id !== outgoingRequestPending.previousRequestId) {
     outgoingRequestPending = null;
@@ -765,38 +1074,224 @@ function render() {
     return;
   }
 
-  const isRunning = isRunningRequest(request);
-  dom.statusLine.textContent = request
-    ? `${request.profileLabel} - ${formatState(request.state)}`
-    : forceNewConversationDraft
-      ? "New chat draft"
-      : "Ready";
-  dom.profileLabel.textContent = request?.profileLabel || "-";
-  dom.sourceLabel.textContent = request?.source?.title || request?.source?.url || "-";
-  dom.selectedText.textContent = request?.selectedText || "";
-  dom.selectedBlock.classList.toggle("hidden", !request?.selectedText);
+  const isRunning = isRunningRequest(displayedRequest);
+  dom.statusLine.textContent = displayedRequest
+    ? `${displayedRequest.profileLabel} - ${formatState(displayedRequest.state)}`
+    : historyConversation
+      ? `History - ${historyConversation.title}`
+      : forceNewConversationDraft
+        ? "New chat draft"
+        : "Ready";
+  dom.profileLabel.textContent = displayedRequest?.profileLabel || (historyConversation ? "Project history" : "-");
+  dom.sourceLabel.textContent = displayedRequest?.source?.title || displayedRequest?.source?.url || historyConversation?.projectName || "-";
+  dom.selectedText.textContent = displayedRequest?.selectedText || "";
+  dom.selectedBlock.classList.toggle("hidden", !displayedRequest?.selectedText);
 
-  renderChatThread(request);
-  renderResponse(request);
+  renderHistoryPanel();
 
-  if (request?.error) {
-    dom.errorBlock.textContent = request.error;
+  if (historyConversation) {
+    renderProjectConversationThread(historyConversation, historyRequest);
+    renderResponse(historyRequest);
+  } else {
+    renderChatThread(request);
+    renderResponse(request);
+  }
+
+  if (displayedRequest?.error) {
+    dom.errorBlock.textContent = displayedRequest.error;
     dom.errorBlock.classList.remove("hidden");
   } else {
     dom.errorBlock.textContent = "";
     dom.errorBlock.classList.add("hidden");
   }
 
-  const hasRequest = Boolean(request);
+  const hasRequest = Boolean(displayedRequest);
 
   dom.retryButton.disabled = !hasRequest;
   dom.followupButton.disabled = true;
-  dom.openChatGptButton.disabled = !hasRequest;
+  dom.openChatGptButton.disabled = !hasRequest && !historyConversation;
   dom.cancelButton.disabled = !isRunning;
 
-  renderRepairSuggestions(request);
-  renderEvents(request);
+  renderRepairSuggestions(displayedRequest);
+  renderEvents(displayedRequest);
   updateComposerSendState();
+}
+
+function renderHistoryPanel() {
+  const projectName = projectHistoryState.project?.name || dom.projectName?.value || "Project";
+  const activeTitle = projectHistoryState.activeConversation?.title || "";
+
+  if (projectHistoryState.loadingList) {
+    dom.historyStatus.textContent = `Loading ${projectName}...`;
+  } else if (projectHistoryState.pending) {
+    dom.historyStatus.textContent = `Preparing hidden ChatGPT history for ${projectName}...`;
+  } else if (projectHistoryState.error) {
+    dom.historyStatus.textContent = projectHistoryState.error;
+  } else if (activeTitle) {
+    dom.historyStatus.textContent = activeTitle;
+  } else if (projectHistoryState.loaded) {
+    dom.historyStatus.textContent = `${projectHistoryState.conversations.length} conversation${projectHistoryState.conversations.length === 1 ? "" : "s"} in ${projectName}`;
+  } else {
+    dom.historyStatus.textContent = `Loading ${projectName} history`;
+  }
+
+  dom.historyRefreshButton.disabled = projectHistoryState.loadingList;
+  dom.historyRefreshButton.textContent = "Refresh";
+  dom.historyList.replaceChildren();
+  dom.historyList.classList.toggle("hidden", !projectHistoryState.loaded && !projectHistoryState.loadingList);
+
+  for (const conversation of projectHistoryState.conversations) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "history-item";
+    button.dataset.historyConversationId = conversation.id;
+    button.classList.toggle("is-active", conversation.id === projectHistoryState.activeConversation?.id);
+    button.disabled = projectHistoryState.loadingConversationId === conversation.id;
+
+    const body = document.createElement("div");
+    body.className = "history-item-body";
+    const title = document.createElement("div");
+    title.className = "history-item-title";
+    title.textContent = conversation.title || "Untitled conversation";
+    const meta = document.createElement("div");
+    meta.className = "history-item-meta";
+    meta.textContent = formatHistoryMeta(conversation);
+    body.append(title, meta);
+
+    const marker = document.createElement("span");
+    marker.className = "history-item-meta";
+    marker.textContent = projectHistoryState.loadingConversationId === conversation.id ? "Loading" : "Open";
+
+    button.append(body, marker);
+    dom.historyList.append(button);
+  }
+
+  if (projectHistoryState.loaded && projectHistoryState.nextCursor !== null) {
+    const loadMore = document.createElement("button");
+    loadMore.type = "button";
+    loadMore.className = "tiny-button history-load-more";
+    loadMore.dataset.historyLoadMore = "true";
+    loadMore.disabled = projectHistoryState.loadingList;
+    loadMore.textContent = projectHistoryState.loadingList ? "Loading" : "Load older";
+    dom.historyList.append(loadMore);
+  }
+
+  persistProjectHistoryState(projectHistoryState);
+}
+
+function renderProjectConversationThread(conversation, activeRequest) {
+  const previousScrollTop = dom.chatMessages.scrollTop;
+  const shouldStickToBottom = chatThreadScrollState.autoScroll || isChatThreadScrolledNearBottom();
+  const totalMessages = conversation.messages.length;
+  const renderedCount = Math.min(
+    Math.max(projectHistoryState.renderedMessageCount || PROJECT_CONVERSATION_MESSAGE_BATCH_SIZE, 0),
+    totalMessages
+  );
+  const hiddenCount = Math.max(0, totalMessages - renderedCount);
+  const visibleMessages = conversation.messages.slice(hiddenCount);
+
+  dom.chatMessages.replaceChildren();
+
+  if (hiddenCount > 0) {
+    const loadOlder = document.createElement("button");
+    loadOlder.type = "button";
+    loadOlder.className = "tiny-button history-load-more";
+    loadOlder.dataset.loadOlderHistoryMessages = "true";
+    loadOlder.textContent = `Load ${Math.min(PROJECT_CONVERSATION_MESSAGE_BATCH_SIZE, hiddenCount)} earlier`;
+    dom.chatMessages.append(loadOlder);
+  }
+
+  if (!visibleMessages.length && !activeRequest) {
+    moveResponseTextToParking();
+    const empty = document.createElement("div");
+    empty.className = "empty-chat";
+    const title = document.createElement("strong");
+    title.textContent = conversation.title || "Conversation";
+    const body = document.createElement("span");
+    body.textContent = "No messages were returned for this conversation.";
+    empty.append(title, body);
+    dom.chatMessages.append(empty);
+    restoreChatThreadScroll(previousScrollTop, shouldStickToBottom);
+    return;
+  }
+
+  for (const message of visibleMessages) {
+    dom.chatMessages.append(createHistoryMessageCard(message));
+  }
+
+  const liveRequests = activeRequest
+    ? getUnreflectedLiveRequestsForHistory(conversation.messages, getRequestThread(activeRequest))
+    : [];
+
+  let renderedActiveRequest = false;
+
+  if (liveRequests.length) {
+    for (const request of liveRequests) {
+      const isActiveLiveRequest = request.id === activeRequest.id;
+      renderedActiveRequest = renderedActiveRequest || isActiveLiveRequest;
+      dom.chatMessages.append(createUserMessageCard(request));
+      dom.chatMessages.append(createAssistantMessageCard(request, isActiveLiveRequest));
+    }
+  }
+
+  if (!renderedActiveRequest) {
+    moveResponseTextToParking();
+  }
+
+  restoreChatThreadScroll(previousScrollTop, shouldStickToBottom);
+}
+
+function createHistoryMessageCard(message) {
+  const card = document.createElement("article");
+  const isAssistant = message.role === "assistant";
+  card.className = `message-card ${isAssistant ? "assistant-message" : "user-message"}`;
+
+  const meta = document.createElement("div");
+  meta.className = "message-meta";
+  meta.textContent = isAssistant ? "Assistant" : "You";
+
+  const body = document.createElement("div");
+  body.className = `message-body${isAssistant ? " assistant-body" : ""}`;
+
+  if (isAssistant) {
+    const content = document.createElement("div");
+    content.className = "response-content";
+    content.innerHTML = message.text ? renderMarkdownToHtml(message.text) : normalizeResponseHtml(message.html || "");
+    responseView.enhanceContainer(content);
+    body.append(content);
+  } else {
+    body.textContent = message.text || "";
+  }
+
+  card.append(meta, body);
+  return card;
+}
+
+function revealOlderHistoryMessages() {
+  const conversation = projectHistoryState.activeConversation;
+
+  if (!conversation?.messages?.length) {
+    return;
+  }
+
+  const totalMessages = conversation.messages.length;
+  const currentCount = Math.min(projectHistoryState.renderedMessageCount || 0, totalMessages);
+
+  if (currentCount >= totalMessages) {
+    chatThreadScrollState.autoScroll = isChatThreadScrolledNearBottom();
+    return;
+  }
+
+  const previousHeight = dom.chatMessages.scrollHeight;
+  projectHistoryState.renderedMessageCount = Math.min(
+    totalMessages,
+    currentCount + PROJECT_CONVERSATION_MESSAGE_BATCH_SIZE
+  );
+  chatThreadScrollState.autoScroll = false;
+  render();
+  const nextHeight = dom.chatMessages.scrollHeight;
+  chatThreadScrollState.lastProgrammaticScrollAt = Date.now();
+  dom.chatMessages.scrollTop = Math.max(0, dom.chatMessages.scrollTop + (nextHeight - previousHeight));
 }
 
 function renderChatThread(activeRequest) {
@@ -915,7 +1410,9 @@ function moveResponseTextToParking() {
 }
 
 function updateComposerSendState() {
-  const request = getActiveRequest();
+  const request = projectHistoryState.activeConversation
+    ? getActiveProjectConversationRequest() || getActiveRequest()
+    : getActiveRequest();
   const hasContent = Boolean(dom.manualText.value.trim() || selectedContext?.text || pendingAttachments.length);
   dom.sendManualButton.disabled = !hasContent
     || composerSendInFlight
@@ -936,7 +1433,9 @@ function markReaderInterest() {
 
 function updateComposerCollapseState() {
   const activeElement = document.activeElement;
-  const request = getActiveRequest();
+  const request = projectHistoryState.activeConversation
+    ? getActiveProjectConversationRequest() || getActiveRequest()
+    : getActiveRequest();
   const hasComposerFocus = Boolean(activeElement && dom.composerPanel.contains(activeElement));
   const composerIsEmpty = !dom.manualText.value.trim() && !selectedContext?.text && pendingAttachments.length === 0;
   const shouldCollapse = composerReadingMode
@@ -1066,6 +1565,66 @@ function getActiveRequest() {
   return panelState.requests.find((request) => request.id === panelState.activeRequestId) || panelState.requests[0] || null;
 }
 
+function getActiveProjectConversationRequest() {
+  const conversation = projectHistoryState.activeConversation;
+
+  if (!conversation) {
+    return null;
+  }
+
+  const activeRequest = getActiveRequest();
+
+  if (requestMatchesProjectConversation(activeRequest, conversation)) {
+    return activeRequest;
+  }
+
+  return panelState.requests.find((request) => requestMatchesProjectConversation(request, conversation)) || null;
+}
+
+function requestMatchesProjectConversation(request, conversation) {
+  if (!request || !conversation) {
+    return false;
+  }
+
+  const conversationUrl = normalizeConversationUrlForComparison(conversation.url);
+  const conversationKey = conversation.id || getConversationKeyFromUrl(conversation.url);
+  const requestUrls = [
+    request.chatConversationUrl,
+    request.expectedConversationUrl
+  ].map(normalizeConversationUrlForComparison).filter(Boolean);
+  const requestKeys = [
+    request.chatConversationKey,
+    request.expectedConversationKey,
+    ...requestUrls.map(getConversationKeyFromUrl)
+  ].filter(Boolean).map(String);
+
+  return Boolean(
+    conversationUrl && requestUrls.includes(conversationUrl)
+    || conversationKey && requestKeys.includes(String(conversationKey))
+  );
+}
+
+function normalizeConversationUrlForComparison(value) {
+  try {
+    const url = new URL(value);
+
+    return `${url.origin}${url.pathname}`;
+  } catch (_error) {
+    return "";
+  }
+}
+
+function getConversationKeyFromUrl(value) {
+  try {
+    const url = new URL(value);
+    const match = url.pathname.match(/\/c\/([^/?#]+)/);
+
+    return match?.[1] || "";
+  } catch (_error) {
+    return "";
+  }
+}
+
 async function runPanelAction(action) {
   try {
     await action();
@@ -1112,6 +1671,30 @@ function renderAutomationTargetStatus(session) {
     : "";
 
   dom.automationTargetStatus.textContent = `Automation target: ${session.targetType}${fallback}`;
+}
+
+function formatHistoryMeta(conversation) {
+  const updated = formatCompactDate(conversation.updatedAt || conversation.createdAt);
+  const project = conversation.projectName || projectHistoryState.project?.name || "";
+
+  return [updated, project].filter(Boolean).join(" - ") || "Project conversation";
+}
+
+function formatCompactDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric"
+  });
 }
 
 function formatTime(value) {
