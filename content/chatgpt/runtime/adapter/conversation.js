@@ -54,6 +54,9 @@
           }
         } else {
           usedDirectNavigation = true;
+          if (isOffscreenAutomationFrame()) {
+            throw new Error("Hidden fresh-chat navigation was not prepared before the automation run. Retry after the background worker refreshes the hidden composer.");
+          }
           location.assign(freshUrl);
         }
 
@@ -93,13 +96,22 @@
           return true;
         }
 
-        return queryAllSafe('[data-message-author-role], main article, main [data-message-id]')
+        return queryAllSafe([
+          '[data-message-author-role]',
+          '[data-message-id]',
+          'main [data-testid^="conversation-turn-"]',
+          'main article[data-testid*="conversation-turn"]'
+        ].join(", "))
           .some((element) => isVisible(element) && normalizeText(element.innerText || element.textContent || ""));
       },
 
       buildFreshConversationUrl(projectOptions) {
         const project = normalizeProjectOptions(projectOptions);
         const projectSegment = extractProjectPathSegment(location.pathname);
+
+        if (project.enabled && project.name && project.segment) {
+          return project.url || `${location.origin}/g/${project.segment}/project`;
+        }
 
         if (project.enabled && project.name && projectSegment) {
           return `${location.origin}/g/${projectSegment}/project`;
