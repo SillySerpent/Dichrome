@@ -15,6 +15,7 @@ Future cross-surface constants and formatting rules belong here first. Do not du
 - `background/runtime/app.js` registers Chrome listeners and coordinates request lifecycle work.
 - `background/runtime/context-menu.js` owns context menu creation and selected-text request handoff.
 - `background/runtime/message-router.js` maps runtime message types to injected handlers.
+- `background/runtime/project-history-controller.js` owns panel-facing project-history list/load/open commands. List/load commands route through hidden automation or an existing canonical ChatGPT automation target without creating tabs; the explicit open command may focus or create a tab.
 - `background/runtime/request-controller.js` owns panel-facing request actions: manual request, screenshot request, follow-up, retry, cancel, and opening a ChatGPT target.
 - `background/runtime/settings-repository.js` owns stored automation and repair settings access.
 - `background/debug/debug-dump-collector.js` owns debug dump assembly, including content dump collection and offscreen fallback collection.
@@ -46,14 +47,15 @@ Manifest order is the contract:
 14. `content/chatgpt/runtime/adapter/composer-controls.js`
 15. `content/chatgpt/runtime/adapter/assistant-response.js`
 16. `content/chatgpt/runtime/response/extraction.js`
-17. `content/chatgpt/runtime/network/capture-client.js`
-18. `content/chatgpt/runtime/offscreen/bridge.js`
-19. `content/chatgpt/runtime/page/visibility.js`
-20. `content/chatgpt/runtime/debug/dump.js`
-21. `content/chatgpt/runtime/response/observer.js`
-22. `content/chatgpt/runtime/runner/automation-runner.js`
-23. `content/chatgpt/runtime/app.js`
-24. `content/chatgpt/90-bootstrap.js`
+17. `content/chatgpt/runtime/history/project-history.js`
+18. `content/chatgpt/runtime/network/capture-client.js`
+19. `content/chatgpt/runtime/offscreen/bridge.js`
+20. `content/chatgpt/runtime/page/visibility.js`
+21. `content/chatgpt/runtime/debug/dump.js`
+22. `content/chatgpt/runtime/response/observer.js`
+23. `content/chatgpt/runtime/runner/automation-runner.js`
+24. `content/chatgpt/runtime/app.js`
+25. `content/chatgpt/90-bootstrap.js`
 
 Ownership:
 
@@ -71,14 +73,15 @@ Ownership:
 - `content/chatgpt/runtime/adapter/model-selection.js` owns model picker discovery, model option selection, and exact-match failure policy.
 - `content/chatgpt/runtime/adapter/composer-controls.js` owns `ChatGptDomAdapter` composer, send-button, stop-button, and file-input methods.
 - `content/chatgpt/runtime/adapter/assistant-response.js` owns `ChatGptDomAdapter` assistant-message discovery, assistant text/html extraction, response error detection, and conversation API response fetch.
-- `content/chatgpt/runtime/response/extraction.js` owns backend conversation-data response extraction, low-confidence DOM response scoring, backend-vs-DOM preference, and backend completion-status detection.
+- `content/chatgpt/runtime/response/extraction.js` owns backend conversation-data response extraction, full conversation message normalization, low-confidence DOM response scoring, backend-vs-DOM preference, and backend completion-status detection.
+- `content/chatgpt/runtime/history/project-history.js` owns project-scoped conversation listing, selected conversation loading, project id validation, and conversion of backend conversation data into side-panel history payloads. It may read backend history data and real conversation links, but it must not click guessed project-page rows as a discovery mechanism.
 - `content/chatgpt/runtime/network/capture-client.js` owns main-world response-capture injection, capture event state, access-token caching, and network capture debug state.
 - `content/chatgpt/runtime/offscreen/bridge.js` owns hidden/offscreen iframe bridge connection, ready announcements, reconnect timers, direct-app-frame detection, extension-ancestor checks, and offscreen frame command forwarding.
 - `content/chatgpt/runtime/page/visibility.js` owns visibility-mode normalization and debugger-focus visibility assertions.
 - `content/chatgpt/runtime/debug/dump.js` owns content-side event/debug emission, conversation metadata, error payloads, and DOM debug dump assembly.
 - `content/chatgpt/runtime/response/observer.js` owns assistant response streaming, DOM/backend/network response selection, completion detection, and response completion events.
 - `content/chatgpt/runtime/runner/automation-runner.js` owns the request lifecycle from app-shell readiness through project routing, conversation setup, model selection, attachment upload, prompt send, and response observation handoff.
-- `content/chatgpt/runtime/app.js` owns top-level dependency wiring, adapter method composition, Chrome message registration, active-run locking, and module startup.
+- `content/chatgpt/runtime/app.js` owns top-level dependency wiring, adapter method composition, Chrome message registration, active-run/history locking, and module startup.
 - `content/chatgpt/90-bootstrap.js` stays a small marker/entrypoint after runtime modules have loaded.
 - `content/chatgpt/main-world-capture.js` runs in the page world and emits plain text as the canonical response payload. Final HTML rendering and sanitization belongs in the side panel through `shared/response-formatting.js`.
 
@@ -87,9 +90,10 @@ Future content-runtime changes should usually land in the concern-specific modul
 ## Side Panel
 
 - `sidepanel/sidepanel.js` is the HTML entrypoint and only imports `sidepanel/runtime/app.js`.
-- `sidepanel/runtime/app.js` owns panel initialization, event binding, panel state loading, request actions, settings actions, and top-level rendering.
+- `sidepanel/runtime/app.js` owns panel initialization, event binding, panel state loading, request actions, project-history UI state, settings actions, and top-level rendering.
 - `sidepanel/runtime/dom.js` owns DOM id lookup.
 - `sidepanel/runtime/client.js` owns checked `chrome.runtime.sendMessage` calls.
+- `sidepanel/runtime/project-history-state.js` owns project-history side-panel state creation, local persistence, and project-key normalization.
 - `sidepanel/runtime/state.js` owns panel-facing running/streaming helpers using shared request-state contracts.
 - `sidepanel/runtime/response-view.js` owns sanitized response insertion, auto-scroll state, copyable code/math blocks, and clipboard writes.
 - `sidepanel/runtime/response-animation.js` owns the streaming typewriter animation.
