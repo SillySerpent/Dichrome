@@ -105,6 +105,29 @@ export async function getUsableChatGptTab(tabId, { sourceFocus, visibility } = {
   });
 }
 
+export async function getExistingChatGptAutomationTab({ sourceFocus, visibility } = {}) {
+  const session = await getAutomationSession();
+
+  if (!session.tabId) {
+    return null;
+  }
+
+  const tab = await getChatGptTabOrNull(session.tabId);
+
+  if (!tab) {
+    return null;
+  }
+
+  if (usesSidecarWindow(visibility)) {
+    return ensureChatGptTabVisible(tab, {
+      sourceFocus,
+      visibility
+    });
+  }
+
+  return ensureChatGptTabLoaded(tab);
+}
+
 export async function resolvePreferredAutomationTabId(preferredChatTabId, visibility) {
   if (!preferredChatTabId) {
     return null;
