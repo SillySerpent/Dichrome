@@ -9,7 +9,8 @@
     return {
       enabled: Boolean(source.enabled),
       name: normalizeText(source.name || "").slice(0, 80),
-      createIfMissing: source.createIfMissing !== false
+      createIfMissing: source.createIfMissing !== false,
+      ...normalizeProjectTarget(source)
     };
   }
 
@@ -61,6 +62,44 @@
       .replace(/[ \t]+\n/g, "\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
+  }
+
+  function normalizeProjectTarget(source) {
+    const segment = sanitizeProjectSegment(source.segment || extractProjectSegmentFromUrl(source.url));
+    const origin = extractAllowedChatGptOrigin(source.url) || location.origin || "https://chatgpt.com";
+
+    return {
+      segment,
+      url: segment ? `${origin}/g/${segment}/project` : ""
+    };
+  }
+
+  function sanitizeProjectSegment(value) {
+    const text = normalizeText(value || "").slice(0, 160);
+
+    return /^g-p-[a-z0-9-]+$/i.test(text) ? text : "";
+  }
+
+  function extractProjectSegmentFromUrl(value) {
+    try {
+      return new URL(value, location.origin).pathname.match(/^\/g\/(g-p-[^/]+)/i)?.[1] || "";
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function extractAllowedChatGptOrigin(value) {
+    try {
+      const url = new URL(value, location.origin);
+
+      if (url.protocol === "https:" && (url.hostname === "chatgpt.com" || url.hostname === "chat.openai.com")) {
+        return url.origin;
+      }
+    } catch (_error) {
+      return "";
+    }
+
+    return "";
   }
 
   runtime.adapterOptions = Object.freeze({
