@@ -10,18 +10,13 @@ import {
 } from "../state-machine.js";
 import { requestAdapterRepair } from "../adapter-repair.js";
 import {
-  VISIBILITY_MODES,
   getVisibilityMode,
   mergeAutomationSettings,
-  usesFocusedAutomation,
-  usesFocusEmulation,
-  usesHiddenAutomation,
-  usesSidecarWindow
+  usesHiddenAutomation
 } from "../automation/settings.js";
 import { summarizeDebugData } from "../debug-dump.js";
 import {
   disableFocusEmulationForRequest,
-  enableFocusEmulation,
   setFocusEmulationDetachHandler
 } from "../focus-emulation.js";
 import {
@@ -43,19 +38,8 @@ import {
   setOffscreenFrameDisconnectHandler
 } from "../automation/offscreen-target.js";
 import {
-  findOrCreateChatGptTab,
-  getAutomationTargetType,
-  getExistingChatGptAutomationTab,
-  getUsableChatGptTab,
-  navigateTabToConversation,
-  prepareAutomationTab,
-  resolvePreferredAutomationTabId,
-  setAutomationWindowState
-} from "../automation/tab-target.js";
-import {
   CHATGPT_CONTENT_SCRIPT_FILES,
   getTabId,
-  isChatGptUrl,
   serializeError,
   sleep
 } from "../constants.js";
@@ -72,8 +56,7 @@ import {
   captureVisibleTabScreenshot,
   getSourceFocusTarget,
   queryBestSourceTab,
-  rememberSourceTab,
-  restoreSourceFocus
+  rememberSourceTab
 } from "../automation/source-focus.js";
 import {
   getAutomationSettings,
@@ -89,7 +72,10 @@ import { createProjectHistoryController } from "./project-history-controller.js"
 import { createRequestController } from "./request-controller.js";
 import { getFreshConversationUrl } from "./fresh-conversation-url.js";
 import { dumpDebugState as collectDebugDumpState } from "../debug/debug-dump-collector.js";
-import { CHATGPT_AUTOMATION_MESSAGES } from "../../shared/contracts.js";
+import {
+  CHATGPT_AUTOMATION_MESSAGES,
+  REQUEST_ERROR_CODES
+} from "../../shared/contracts.js";
 
 const EXTENSION_NAME = chrome.runtime.getManifest().name;
 const contextMenuController = createContextMenuController({
@@ -105,10 +91,8 @@ const requestController = createRequestController({
   captureVisibleTabScreenshot,
   clearAutomationRequestActive,
   disableFocusEmulationForRequest,
-  findOrCreateChatGptTab,
   getProfile,
   getRequest,
-  getSourceFocusTarget,
   normalizeText,
   queryBestSourceTab,
   restoreAttachmentPayloads,
@@ -118,20 +102,9 @@ const requestController = createRequestController({
   updateRequest
 });
 const projectHistoryController = createProjectHistoryController({
-  disableFocusEmulationForRequest,
-  enableFocusEmulation,
-  findOrCreateChatGptTab,
   getAutomationSettings: () => getResolvedAutomationSettings(),
-  getExistingChatGptAutomationTab,
-  getSourceFocusTarget,
-  injectAutomationScript,
-  navigateTabToConversation,
-  prepareAutomationTab,
   probeOffscreenAutomationTarget,
-  queryBestSourceTab,
-  restoreSourceFocus,
   sendMessageToOffscreenFrame,
-  sendMessageToTab,
   setAutomationSettings: (settings) => setAutomationSettings(settings, EXTENSION_NAME)
 });
 const runtimeMessageRouter = createRuntimeMessageRouter({
@@ -148,8 +121,7 @@ const runtimeMessageRouter = createRuntimeMessageRouter({
   startHistoryFollowupRequest: requestController.startHistoryFollowupRequest,
   retryRequest: requestController.retryRequest,
   cancelRequest: requestController.cancelRequest,
-  openChatGptTabForRequest: requestController.openChatGptTabForRequest,
-  openProjectConversation: projectHistoryController.openProjectConversation,
+  openChatGptAuth: requestController.openChatGptAuth,
   getProjectConversations: projectHistoryController.getProjectConversations,
   getProjectConversation: projectHistoryController.getProjectConversation,
   getLocalRepairSettings: async () => ({
@@ -219,7 +191,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.error("ChatGPT relay background error", error);
       sendResponse({
         ok: false,
-        error: serializeError(error)
+        error: serializeError(error),
+        errorCode: error?.errorCode || classifyRequestError(error)
       });
     });
 
@@ -233,7 +206,6 @@ async function startRequest({
   manualText = "",
   attachments = [],
   adapterHints = [],
-  preferredChatTabId = null,
   chatOptionsOverride = null,
   parentRequestId = null,
   conversationMode = "new",
@@ -273,7 +245,6 @@ async function startRequest({
   void orchestrateRequest(requestId, {
     attachments,
     adapterHints,
-    preferredChatTabId,
     chatOptionsOverride
   });
 
@@ -285,7 +256,6 @@ async function startRequest({
 async function orchestrateRequest(requestId, {
   attachments = [],
   adapterHints = [],
-  preferredChatTabId = null,
   chatOptionsOverride = null
 } = {}) {
   try {
@@ -300,104 +270,22 @@ async function orchestrateRequest(requestId, {
       chatOptionsOverride,
       EXTENSION_NAME
     ));
-    const visibility = automationSettings.visibility;
-    const sourceFocus = getSourceFocusTarget(request.source);
-    const hiddenCapability = usesHiddenAutomation(visibility)
-      ? await probeOffscreenAutomationTarget()
-      : null;
+    const hiddenCapability = await probeOffscreenAutomationTarget();
 
-    if (hiddenCapability && !hiddenCapability.supported) {
-      await updateRequest(requestId, (draft) => {
-        appendEvent(draft, `Hidden internal target unavailable; using one inactive tab. ${hiddenCapability.failureReason || ""}`.trim());
-      });
+    if (!hiddenCapability?.supported) {
+      throw createCodedError(
+        `Hidden internal ChatGPT automation is unavailable. ${hiddenCapability?.failureReason || "Open ChatGPT to sign in, then retry from Dichrome."}`.trim(),
+        classifyHiddenCapabilityFailure(hiddenCapability?.failureReason)
+      );
     }
 
-    if (usesHiddenAutomation(visibility) && hiddenCapability?.supported) {
-      await runOffscreenAutomationTarget({
-        request,
-        requestId,
-        attachments,
-        adapterHints,
-        automationSettings
-      });
-      return;
-    }
-
-    const preferredAutomationTabId = await resolvePreferredAutomationTabId(preferredChatTabId, visibility);
-    const discoveredChatTab = preferredAutomationTabId
-      ? await getUsableChatGptTab(preferredAutomationTabId, {
-        sourceFocus,
-        visibility
-      })
-      : await findOrCreateChatGptTab({
-        sourceFocus,
-        visibility
-      });
-    let chatTab = await prepareAutomationTab(discoveredChatTab);
-
-    if (request.conversationMode === "followup") {
-      if (request.expectedConversationUrl) {
-        await navigateTabToConversation(chatTab.id, request.expectedConversationUrl);
-      } else if (!preferredChatTabId || chatTab.id !== preferredChatTabId) {
-        throw new Error("The previous request has no saved ChatGPT conversation URL, and its original ChatGPT tab is not available. The extension will not start a new chat for this follow-up.");
-      }
-    } else {
-      const freshConversationUrl = getFreshConversationUrl(automationSettings, chatTab.url || chatTab.pendingUrl || "");
-
-      if (freshConversationUrl) {
-        await updateRequest(requestId, (draft) => {
-          appendEvent(draft, "Preparing a fresh ChatGPT composer.");
-        });
-        chatTab = await navigateTabToConversation(chatTab.id, freshConversationUrl);
-        await updateRequest(requestId, (draft) => {
-          appendEvent(draft, "Fresh ChatGPT composer is ready.");
-        });
-      }
-    }
-
-    await markAutomationRequestActive(requestId);
-
-    await updateRequest(requestId, (draft) => {
-      draft.chatTabId = chatTab.id;
-      draft.automationVisibilityMode = getVisibilityMode(visibility);
-      draft.automationTargetType = getAutomationTargetType(visibility);
-      draft.state = REQUEST_STATES.CHATGPT_TAB_READY;
-      appendEvent(draft, `Using ChatGPT tab ${chatTab.id}.`);
+    await runOffscreenAutomationTarget({
+      request,
+      requestId,
+      attachments,
+      adapterHints,
+      automationSettings
     });
-
-    if (usesFocusEmulation(visibility)) {
-      await enableFocusEmulation({
-        tabId: chatTab.id,
-        requestId
-      });
-      await updateRequest(requestId, (draft) => {
-        appendEvent(draft, "Chrome debugger focus emulation enabled for background ChatGPT streaming.");
-      });
-    }
-
-    await injectAutomationScript(chatTab.id);
-
-    if (usesSidecarWindow(visibility) && !usesFocusedAutomation(visibility)) {
-      await restoreSourceFocus(sourceFocus, chatTab.windowId);
-    }
-
-    const response = await sendMessageToTab(chatTab.id, {
-      type: CHATGPT_AUTOMATION_MESSAGES.RUN,
-      request: buildAutomationRunRequest({
-        request,
-        attachments,
-        adapterHints,
-        automationSettings
-      })
-    });
-
-    if (!response?.accepted) {
-      throw new Error(response?.error || "ChatGPT automation script did not accept the request.");
-    }
-
-    if (usesSidecarWindow(visibility) && !usesFocusedAutomation(visibility)) {
-      await restoreSourceFocus(sourceFocus, chatTab.windowId);
-    }
   } catch (error) {
     await disableFocusEmulationForRequest(requestId).catch(() => null);
     await clearAutomationRequestActive(requestId).catch(() => null);
@@ -559,10 +447,6 @@ async function handleAutomationEvent(message, sender) {
   }
 
   await updateRequest(requestId, (draft) => {
-    if (sender.tab?.id) {
-      draft.chatTabId = sender.tab.id;
-    }
-
     if (message.state) {
       draft.state = message.state;
     }
@@ -579,6 +463,10 @@ async function handleAutomationEvent(message, sender) {
       draft.error = message.error;
     }
 
+    if (message.errorCode) {
+      draft.errorCode = message.errorCode;
+    }
+
     if (message.conversationUrl) {
       draft.chatConversationUrl = message.conversationUrl;
     }
@@ -592,18 +480,12 @@ async function handleAutomationEvent(message, sender) {
     }
 
     if (message.state === REQUEST_STATES.ERROR_STATE) {
+      draft.errorCode = draft.errorCode || classifyRequestError(message.error || message.detail || "");
       draft.completedAt = new Date().toISOString();
     }
 
     appendEvent(draft, message.detail || message.state || "Automation event received.");
   });
-
-  if (sender.tab?.id && isChatGptUrl(sender.tab.url || sender.tab.pendingUrl || "")) {
-    await setAutomationWindowState({
-      windowId: sender.tab.windowId,
-      tabId: sender.tab.id
-    });
-  }
 
   if (message.conversationUrl || message.conversationKey) {
     await updateSessionConversation({
@@ -616,16 +498,8 @@ async function handleAutomationEvent(message, sender) {
     message.state === REQUEST_STATES.RESPONSE_COMPLETE
     || message.state === REQUEST_STATES.ERROR_STATE
   ) {
-    const request = await getRequest(requestId);
-    const settings = await getAutomationSettings(EXTENSION_NAME);
-    const requestVisibilityMode = request?.automationVisibilityMode || getVisibilityMode(settings.visibility);
-
     await disableFocusEmulationForRequest(requestId).catch(() => null);
     await clearAutomationRequestActive(requestId).catch(() => null);
-
-    if (requestVisibilityMode === VISIBILITY_MODES.FOCUSED) {
-      await restoreSourceFocus(getSourceFocusTarget(request?.source), sender.tab?.windowId);
-    }
   }
 
   if (message.state === REQUEST_STATES.ERROR_STATE && message.domSnapshot) {
@@ -642,7 +516,10 @@ async function handleFocusEmulationDetached({ requestId, reason }) {
 
   await markRequestError(
     requestId,
-    new Error(`Chrome debugger focus emulation detached (${reason}). Background ChatGPT streaming cannot continue while the ChatGPT page is hidden. Close DevTools for the ChatGPT tab and retry, or switch routing mode to Focus ChatGPT.`)
+    createCodedError(
+      `Hidden ChatGPT workspace lost its automation connection (${reason}). Retry from Dichrome after the workspace is ready.`,
+      REQUEST_ERROR_CODES.HIDDEN_FRAME_UNAVAILABLE
+    )
   );
 }
 
@@ -656,7 +533,10 @@ async function handleOffscreenFrameDisconnected({ requestId, reason }) {
   await clearAutomationRequestActive(requestId).catch(() => null);
   await markRequestError(
     requestId,
-    new Error(`${reason} Hidden internal automation cannot continue. The next run will probe again and may fall back to one inactive tab.`)
+    createCodedError(
+      `${reason} Hidden internal automation cannot continue. Open ChatGPT to sign in if needed, then retry from Dichrome.`,
+      classifyHiddenCapabilityFailure(reason)
+    )
   );
 }
 
@@ -687,7 +567,7 @@ async function handleAutomationDebug(message, sender) {
 async function maybeRequestLocalAdapterRepair(requestId, message) {
   const settings = await getRepairSettings();
 
-  if (!settings.enabled) {
+  if (!settings.enabled || settings.internalDeveloperSurface !== true) {
     return;
   }
 
@@ -721,9 +601,50 @@ async function markRequestError(requestId, error) {
   await updateRequest(requestId, (draft) => {
     draft.state = REQUEST_STATES.ERROR_STATE;
     draft.error = serializeError(error);
+    draft.errorCode = error?.errorCode || classifyRequestError(draft.error);
     draft.completedAt = new Date().toISOString();
     appendEvent(draft, `Error: ${draft.error}`);
   });
+}
+
+function createCodedError(message, errorCode) {
+  const error = new Error(message);
+  error.errorCode = errorCode || REQUEST_ERROR_CODES.CHATGPT_UNAVAILABLE;
+  return error;
+}
+
+function classifyHiddenCapabilityFailure(message) {
+  return classifyRequestError(message || "Hidden internal automation is unavailable.");
+}
+
+function classifyRequestError(error) {
+  const message = serializeError(error).toLowerCase();
+
+  if (/\b(log in|login|sign in|sign-in|auth|account gate|401|403|session|access token)\b/.test(message)) {
+    return REQUEST_ERROR_CODES.AUTH_REQUIRED;
+  }
+
+  if (/\b(model|picker)\b/.test(message) && /\b(unavailable|not available|not selectable|not confirm|not found|upgrade|plan|tier|rejected)\b/.test(message)) {
+    return REQUEST_ERROR_CODES.MODEL_UNAVAILABLE;
+  }
+
+  if (/\b(upload|attachment|file input|file too large|unsupported file|image limit|file limit|rejected)\b/.test(message)) {
+    return REQUEST_ERROR_CODES.UPLOAD_REJECTED;
+  }
+
+  if (/\b(rate limit|usage limit|too many requests|temporarily unavailable|try again later|429)\b/.test(message)) {
+    return REQUEST_ERROR_CODES.RATE_LIMITED;
+  }
+
+  if (/\b(project)\b/.test(message) && /\b(not found|unavailable|requires|routing|history)\b/.test(message)) {
+    return REQUEST_ERROR_CODES.PROJECT_UNAVAILABLE;
+  }
+
+  if (/\b(hidden|offscreen|frame|iframe)\b/.test(message)) {
+    return REQUEST_ERROR_CODES.HIDDEN_FRAME_UNAVAILABLE;
+  }
+
+  return REQUEST_ERROR_CODES.CHATGPT_UNAVAILABLE;
 }
 
 function isTerminalRequest(request) {

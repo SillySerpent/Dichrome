@@ -153,6 +153,7 @@ await validateFilesExist();
 await validateRepositoryHygiene();
 await validateLayeredContentRuntime();
 await validateStoreReviewReadiness();
+await validateNoUserFacingDebugControls();
 await validateNoRemoteCodeExecution();
 await validatePngFiles();
 validateJavaScriptSyntax();
@@ -197,9 +198,11 @@ async function validateManifest() {
 
   const permissions = new Set(manifest.permissions || []);
 
-  for (const permission of ["activeTab", "contextMenus", "debugger", "declarativeNetRequestWithHostAccess", "offscreen", "scripting", "sidePanel", "storage", "tabs", "windows"]) {
+  for (const permission of ["activeTab", "contextMenus", "declarativeNetRequestWithHostAccess", "offscreen", "scripting", "sidePanel", "storage", "tabs"]) {
     assert(permissions.has(permission), `Missing permission: ${permission}`);
   }
+  assert(!permissions.has("debugger"), "Debugger permission must not return for hidden-internal-only builds.");
+  assert(!permissions.has("windows"), "Windows permission must not return unless a visible automation route is reintroduced.");
 
   const hostPermissions = new Set(manifest.host_permissions || []);
   const optionalHostPermissions = manifest.optional_host_permissions || [];
@@ -278,6 +281,33 @@ async function validateStoreReviewReadiness() {
 
   for (const requiredPhrase of ["Data handled by the extension", "Data sharing", "Storage and retention"]) {
     assert(privacyPolicy.includes(requiredPhrase), `Privacy policy draft must include: ${requiredPhrase}`);
+  }
+}
+
+async function validateNoUserFacingDebugControls() {
+  const sidepanelHtml = await readFile(join(root, "sidepanel/sidepanel.html"), "utf8");
+  const sidepanelDom = await readFile(join(root, "sidepanel/runtime/dom.js"), "utf8");
+  const sidepanelApp = await readFile(join(root, "sidepanel/runtime/app.js"), "utf8");
+
+  for (const phrase of [
+    "Routing, automation, and debug",
+    "Local repair",
+    "Dump Debug",
+    "Dump debug",
+    "automation target",
+    "debug dump",
+    "repairSuggestions",
+    "eventLog",
+    "automationVisibilityMode",
+    "modelSelectionEnabled",
+    "projectRoutingEnabled"
+  ]) {
+    assert(!sidepanelHtml.includes(phrase), `Side panel HTML must not expose debug/repair controls: ${phrase}`);
+    assert(!sidepanelDom.includes(phrase), `Side panel DOM bindings must not expose debug/repair controls: ${phrase}`);
+  }
+
+  for (const forbiddenCall of ["DUMP_DEBUG", "SET_LOCAL_REPAIR_SETTINGS", "GET_LOCAL_REPAIR_SETTINGS", "GET_AUTOMATION_SESSION"]) {
+    assert(!sidepanelApp.includes(forbiddenCall), `Side panel app must not call internal debug/repair route: ${forbiddenCall}`);
   }
 }
 

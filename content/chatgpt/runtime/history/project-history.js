@@ -692,6 +692,10 @@
       });
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(`ChatGPT authentication is required for project history (HTTP ${response.status}).`);
+        }
+
         throw new Error(`HTTP ${response.status}`);
       }
 

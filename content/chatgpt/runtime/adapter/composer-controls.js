@@ -88,6 +88,12 @@
         });
 
         await sleep(900);
+
+        const uploadError = detectAttachmentUploadError({ normalizeText, queryAllSafe, isVisible });
+
+        if (uploadError) {
+          throw new Error(uploadError);
+        }
       },
 
       findFileInput() {
@@ -196,4 +202,22 @@
   runtime.adapterComposerControls = Object.freeze({
     createMethods
   });
+
+  function detectAttachmentUploadError({ normalizeText, queryAllSafe, isVisible }) {
+    const candidates = queryAllSafe('[role="alert"], [role="status"], [aria-live], [role="dialog"], dialog, main')
+      .filter(isVisible)
+      .map((element) => normalizeText(element.innerText || element.textContent || ""))
+      .filter(Boolean);
+
+    const errorText = candidates.find((text) => {
+      return /\b(upload|file|image|attachment)\b/i.test(text)
+        && /\b(limit|too large|unsupported|failed|try again|could not|cannot|maximum|upgrade|not allowed|rejected)\b/i.test(text);
+    });
+
+    if (!errorText) {
+      return "";
+    }
+
+    return `Attachment upload failed: ${errorText.slice(0, 220)}`;
+  }
 })();

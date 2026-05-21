@@ -5,6 +5,7 @@ import {
   PANEL_MESSAGES,
   PROJECT_CONVERSATION_HISTORY_LIMIT,
   PROJECT_CONVERSATION_MESSAGE_BATCH_SIZE,
+  REQUEST_ERROR_CODES,
   VISIBILITY_MODES
 } from "../../shared/contracts.js";
 import {
@@ -18,7 +19,9 @@ import {
   createProjectHistoryState,
   loadPersistedProjectHistoryState,
   normalizeHistoryProjectKey,
-  persistProjectHistoryState
+  persistProjectHistoryState,
+  PROJECT_HISTORY_STATUS,
+  setProjectHistoryStatus
 } from "./project-history-state.js";
 import {
   getUnreflectedLiveRequestsForHistory
@@ -39,12 +42,13 @@ const HISTORY_LIST_BOTTOM_THRESHOLD_PX = 48;
 const PROJECT_HISTORY_AUTO_LOAD_DELAY_MS = 120;
 const PROJECT_HISTORY_AUTO_RETRY_DELAY_MS = 4000;
 const PROJECT_HISTORY_AUTO_RETRY_MAX_DELAY_MS = 30000;
+const DEFAULT_PROJECT_NAME = chrome.runtime?.getManifest?.().name || "Dichrome";
 
-let profiles = [];
 let panelState = {
   activeRequestId: null,
   requests: []
 };
+let automationSettingsState = null;
 
 let outgoingRequestPending = null;
 let composerSendInFlight = false;
@@ -80,7 +84,6 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === PANEL_MESSAGES.PANEL_STATE_UPDATED) {
     panelState = message.panelState;
     render();
-    void refreshAutomationTargetStatus();
     return;
   }
 });
@@ -89,9 +92,7 @@ async function initialize() {
   bindEvents();
   loadPersistedProjectHistoryState(projectHistoryState);
   await Promise.all([
-    loadProfiles(),
     loadPanelState(),
-    loadRepairSettings(),
     loadAutomationSettings()
   ]);
   await maybeRefreshSelectedContext({ force: true });
@@ -284,34 +285,8 @@ function bindEvents() {
     void runPanelAction(() => retryActiveRequest(false));
   });
 
-  dom.followupButton.addEventListener("click", () => {
-    void runPanelAction(sendComposerRequest);
-  });
-
-  dom.debugDumpButton.addEventListener("click", () => {
-    void runPanelAction(dumpDebugState);
-  });
-
   dom.openChatGptButton.addEventListener("click", () => {
-    const request = projectHistoryState.activeConversation
-      ? getActiveProjectConversationRequest()
-      : getActiveRequest();
-
-    if (request) {
-      void runPanelAction(() => sendMessage(PANEL_MESSAGES.OPEN_CHATGPT_TAB, {
-        requestId: request.id
-      }));
-      return;
-    }
-
-    if (projectHistoryState.activeConversation) {
-      void runPanelAction(() => sendMessage(PANEL_MESSAGES.OPEN_PROJECT_CONVERSATION, {
-        conversation: {
-          id: projectHistoryState.activeConversation.id,
-          url: projectHistoryState.activeConversation.url
-        }
-      }));
-    }
+    void runPanelAction(() => sendMessage(PANEL_MESSAGES.OPEN_CHATGPT_AUTH));
   });
 
   dom.cancelButton.addEventListener("click", () => {
@@ -326,25 +301,11 @@ function bindEvents() {
     }
   });
 
-  dom.saveRepairButton.addEventListener("click", () => {
-    void runPanelAction(saveRepairSettings);
-  });
-
-  dom.saveAutomationButton.addEventListener("click", () => {
-    void runPanelAction(() => saveAutomationSettings());
-  });
-
   dom.modelLabel.addEventListener("input", () => {
-    syncModelSelectionEnabledFromLabel();
     void saveAutomationSettings({ silent: true });
   });
 
   dom.modelLabel.addEventListener("change", () => {
-    syncModelSelectionEnabledFromLabel();
-    void saveAutomationSettings({ silent: true });
-  });
-
-  dom.modelRequireExact.addEventListener("change", () => {
     void saveAutomationSettings({ silent: true });
   });
 
@@ -361,53 +322,49 @@ function bindEvents() {
   responseView.bindInteractions();
 }
 
-async function loadProfiles() {
-  const response = await sendMessage(PANEL_MESSAGES.GET_PROFILES);
-  profiles = response.profiles || [];
-
-  const customProfile = profiles.find((profile) => profile.id === "custom_text") || profiles[0];
-  dom.profileSelect.replaceChildren(...profiles.map((profile) => {
-    const option = document.createElement("option");
-    option.value = profile.id;
-    option.textContent = profile.label;
-
-    return option;
-  }));
-
-  if (customProfile) {
-    dom.profileSelect.value = customProfile.id;
-  }
-}
-
 async function loadPanelState() {
   const response = await sendMessage(PANEL_MESSAGES.GET_PANEL_STATE);
   panelState = response.panelState || panelState;
-}
-
-async function loadRepairSettings() {
-  const response = await sendMessage(PANEL_MESSAGES.GET_LOCAL_REPAIR_SETTINGS);
-  const settings = response.settings || {};
-
-  dom.repairEnabled.checked = Boolean(settings.enabled);
-  dom.repairModel.value = settings.model || "llama3.2:3b";
-  dom.repairUrl.value = settings.ollamaUrl || "http://localhost:11434/api/generate";
 }
 
 async function loadAutomationSettings() {
   const response = await sendMessage(PANEL_MESSAGES.GET_CHATGPT_AUTOMATION_SETTINGS);
   const settings = response.settings || {};
 
-  dom.projectRoutingEnabled.checked = Boolean(settings.project?.enabled);
-  dom.projectName.value = settings.project?.name || "Dichrome";
-  dom.projectCreateIfMissing.checked = settings.project?.createIfMissing !== false;
-  if (dom.startNewChat) {
-    dom.startNewChat.checked = false;
-  }
-  dom.automationVisibilityMode.value = normalizeVisibilityMode(settings.visibility?.mode);
-  dom.modelSelectionEnabled.checked = Boolean(settings.model?.enabled);
-  setModelLabelValue(settings.model?.label || "");
-  dom.modelRequireExact.checked = Boolean(settings.model?.requireExact);
-  renderAutomationTargetStatus(settings.automationSession || null);
+  automationSettingsState = normalizePublicAutomationSettings(settings);
+  setModelLabelValue(automationSettingsState.model.label);
+}
+
+function normalizePublicAutomationSettings(settings = {}) {
+  const source = settings && typeof settings === "object" ? settings : {};
+  const project = source.project && typeof source.project === "object" ? source.project : {};
+  const model = source.model && typeof source.model === "object" ? source.model : {};
+
+  return {
+    project: {
+      enabled: project.enabled !== false,
+      name: String(project.name || DEFAULT_PROJECT_NAME).trim() || DEFAULT_PROJECT_NAME,
+      createIfMissing: project.createIfMissing !== false,
+      segment: String(project.segment || ""),
+      url: String(project.url || "")
+    },
+    conversation: {
+      startNewChat: false
+    },
+    visibility: {
+      schemaVersion: VISIBILITY_SETTINGS_VERSION,
+      mode: VISIBILITY_MODES.HIDDEN
+    },
+    model: {
+      enabled: Boolean(model.enabled || model.label),
+      label: String(model.label || "").trim(),
+      requireExact: Boolean(model.requireExact)
+    }
+  };
+}
+
+function getCurrentProjectSettings() {
+  return normalizePublicAutomationSettings(automationSettingsState || {}).project;
 }
 
 function scheduleProjectHistoryAutoLoad({ force = false, reset = false, delayMs = PROJECT_HISTORY_AUTO_LOAD_DELAY_MS } = {}) {
@@ -449,13 +406,13 @@ async function maybeAutoLoadProjectHistory({ force = false, reset = false } = {}
 }
 
 function shouldLoadProjectHistoryAutomatically() {
-  return Boolean(dom.projectRoutingEnabled.checked && dom.projectName.value.trim());
+  const project = getCurrentProjectSettings();
+
+  return Boolean(project.enabled && project.name);
 }
 
 function getCurrentProjectHistoryKey() {
-  return normalizeHistoryProjectKey({
-    name: dom.projectName.value
-  });
+  return normalizeHistoryProjectKey(getCurrentProjectSettings());
 }
 
 function getLoadedProjectHistoryKey() {
@@ -479,60 +436,75 @@ async function loadProjectConversations({ reset = false } = {}) {
   projectHistoryState.pending = false;
   projectHistoryState.pendingSource = "";
   projectHistoryState.error = "";
-  renderHistoryPanel();
+  setProjectHistoryStatus(projectHistoryState, PROJECT_HISTORY_STATUS.LOADING);
+  renderHistoryPanel({
+    preserveScroll: true
+  });
 
   projectHistoryLoadPromise = (async () => {
-  try {
-    const response = await sendMessage(PANEL_MESSAGES.GET_PROJECT_CONVERSATIONS, {
-      cursor: reset ? 0 : projectHistoryState.nextCursor || 0,
-      limit: PROJECT_CONVERSATION_HISTORY_LIMIT
-    });
+    try {
+      const response = await sendMessage(PANEL_MESSAGES.GET_PROJECT_CONVERSATIONS, {
+        cursor: reset ? 0 : projectHistoryState.nextCursor || 0,
+        limit: PROJECT_CONVERSATION_HISTORY_LIMIT
+      });
 
-    if (response.pending) {
-      projectHistoryState.project = response.project || projectHistoryState.project;
-      projectHistoryState.pending = true;
-      projectHistoryState.pendingSource = response.source || "pending";
-      const retryDelay = Math.min(
-        PROJECT_HISTORY_AUTO_RETRY_MAX_DELAY_MS,
-        PROJECT_HISTORY_AUTO_RETRY_DELAY_MS * Math.max(1, 2 ** projectHistoryAutoRetryCount)
-      );
-      projectHistoryAutoRetryCount += 1;
-      window.clearTimeout(projectHistoryAutoLoadTimer);
-      projectHistoryAutoLoadTimer = window.setTimeout(() => {
-        projectHistoryAutoLoadTimer = null;
-        void runPanelAction(() => maybeAutoLoadProjectHistory({
-          force: true,
-          reset: true
-        }));
-      }, retryDelay);
-      return;
-    }
-
-    const incoming = Array.isArray(response.conversations) ? response.conversations : [];
-    const existing = reset ? [] : projectHistoryState.conversations;
-    const byId = new Map(existing.map((conversation) => [conversation.id, conversation]));
-
-    for (const conversation of incoming) {
-      if (conversation?.id) {
-        byId.set(conversation.id, conversation);
+      if (response.pending) {
+        projectHistoryState.project = response.project || projectHistoryState.project;
+        projectHistoryState.pendingSource = response.source || "pending";
+        setProjectHistoryStatus(projectHistoryState, PROJECT_HISTORY_STATUS.PENDING_AUTH);
+        const retryDelay = Math.min(
+          PROJECT_HISTORY_AUTO_RETRY_MAX_DELAY_MS,
+          PROJECT_HISTORY_AUTO_RETRY_DELAY_MS * Math.max(1, 2 ** projectHistoryAutoRetryCount)
+        );
+        projectHistoryAutoRetryCount += 1;
+        window.clearTimeout(projectHistoryAutoLoadTimer);
+        projectHistoryAutoLoadTimer = window.setTimeout(() => {
+          projectHistoryAutoLoadTimer = null;
+          void runPanelAction(() => maybeAutoLoadProjectHistory({
+            force: true,
+            reset: true
+          }));
+        }, retryDelay);
+        return;
       }
-    }
 
-    projectHistoryAutoRetryCount = 0;
-    projectHistoryState.loaded = true;
-    projectHistoryState.pending = false;
-    projectHistoryState.pendingSource = "";
-    projectHistoryState.project = response.project || projectHistoryState.project;
-    projectHistoryState.conversations = Array.from(byId.values());
-    projectHistoryState.nextCursor = response.nextCursor ?? null;
-  } catch (error) {
-    projectHistoryState.error = error.message || String(error);
-    throw error;
-  } finally {
-    projectHistoryState.loadingList = false;
-    projectHistoryLoadPromise = null;
-    renderHistoryPanel();
-  }
+      const incoming = Array.isArray(response.conversations) ? response.conversations : [];
+      const existing = reset ? [] : projectHistoryState.conversations;
+      const byId = new Map(existing.map((conversation) => [conversation.id, conversation]));
+
+      for (const conversation of incoming) {
+        if (conversation?.id) {
+          byId.set(conversation.id, conversation);
+        }
+      }
+
+      projectHistoryAutoRetryCount = 0;
+      projectHistoryState.project = response.project || projectHistoryState.project;
+      projectHistoryState.conversations = Array.from(byId.values());
+      projectHistoryState.nextCursor = response.nextCursor ?? null;
+      setProjectHistoryStatus(
+        projectHistoryState,
+        projectHistoryState.conversations.length
+          ? PROJECT_HISTORY_STATUS.LOADED
+          : PROJECT_HISTORY_STATUS.EMPTY
+      );
+    } catch (error) {
+      projectHistoryState.error = error.message || String(error);
+      setProjectHistoryStatus(
+        projectHistoryState,
+        error.errorCode === REQUEST_ERROR_CODES.AUTH_REQUIRED
+          ? PROJECT_HISTORY_STATUS.LOGGED_OUT
+          : PROJECT_HISTORY_STATUS.ERROR
+      );
+      throw error;
+    } finally {
+      projectHistoryState.loadingList = false;
+      projectHistoryLoadPromise = null;
+      renderHistoryPanel({
+        preserveScroll: true,
+        scrollAnchor: reset ? "preserve" : "append"
+      });
+    }
   })();
 
   return projectHistoryLoadPromise;
@@ -547,7 +519,9 @@ async function loadProjectConversation(conversationId) {
 
   projectHistoryState.loadingConversationId = conversationId;
   projectHistoryState.error = "";
-  renderHistoryPanel();
+  renderHistoryPanel({
+    preserveScroll: true
+  });
 
   try {
     const response = await sendMessage(PANEL_MESSAGES.GET_PROJECT_CONVERSATION, {
@@ -569,10 +543,15 @@ async function loadProjectConversation(conversationId) {
     setTransientStatus(`Loaded ${conversation.title}`);
   } catch (error) {
     projectHistoryState.error = error.message || String(error);
+    if (error.errorCode === REQUEST_ERROR_CODES.AUTH_REQUIRED) {
+      setProjectHistoryStatus(projectHistoryState, PROJECT_HISTORY_STATUS.LOGGED_OUT);
+    }
     throw error;
   } finally {
     projectHistoryState.loadingConversationId = "";
-    renderHistoryPanel();
+    renderHistoryPanel({
+      preserveScroll: true
+    });
   }
 }
 
@@ -690,7 +669,7 @@ function canContinueActiveConversation(request) {
     return false;
   }
 
-  return Boolean(request.chatConversationUrl || request.chatConversationKey || request.chatTabId);
+  return Boolean(request.chatConversationUrl || request.chatConversationKey);
 }
 
 function canContinueActiveProjectConversation() {
@@ -946,51 +925,12 @@ async function retryActiveRequest(useRepairHints) {
   render();
 }
 
-async function saveRepairSettings() {
-  const response = await sendMessage(PANEL_MESSAGES.SET_LOCAL_REPAIR_SETTINGS, {
-    settings: {
-      enabled: dom.repairEnabled.checked,
-      model: dom.repairModel.value,
-      ollamaUrl: dom.repairUrl.value
-    }
-  });
-  const settings = response.settings;
-
-  dom.repairEnabled.checked = Boolean(settings.enabled);
-  dom.repairModel.value = settings.model;
-  dom.repairUrl.value = settings.ollamaUrl;
-  setTransientStatus("Local repair settings saved.");
-}
-
-async function dumpDebugState() {
-  const request = projectHistoryState.activeConversation
-    ? getActiveProjectConversationRequest()
-    : getActiveRequest();
-  const response = await sendMessage(PANEL_MESSAGES.DUMP_DEBUG, {
-    requestId: request?.id || null
-  });
-
-  console.log("[Dichrome] Side panel debug dump", response.dump);
-  setTransientStatus("Debug dump written to console.");
-}
-
 async function saveAutomationSettings({ silent = false } = {}) {
   const response = await sendMessage(PANEL_MESSAGES.SET_CHATGPT_AUTOMATION_SETTINGS, {
     settings: collectAutomationSettingsFromForm()
   });
-  const settings = response.settings;
-
-  dom.projectRoutingEnabled.checked = Boolean(settings.project.enabled);
-  dom.projectName.value = settings.project.name;
-  dom.projectCreateIfMissing.checked = Boolean(settings.project.createIfMissing);
-  if (dom.startNewChat) {
-    dom.startNewChat.checked = false;
-  }
-  dom.automationVisibilityMode.value = normalizeVisibilityMode(settings.visibility.mode);
-  dom.modelSelectionEnabled.checked = Boolean(settings.model.enabled);
-  setModelLabelValue(settings.model.label);
-  dom.modelRequireExact.checked = Boolean(settings.model.requireExact);
-  renderAutomationTargetStatus(settings.automationSession || null);
+  automationSettingsState = normalizePublicAutomationSettings(response.settings || {});
+  setModelLabelValue(automationSettingsState.model.label);
 
   if (!silent) {
     setTransientStatus("Settings saved.");
@@ -1002,14 +942,11 @@ async function saveAutomationSettings({ silent = false } = {}) {
 }
 
 function collectAutomationSettingsFromForm() {
+  const current = normalizePublicAutomationSettings(automationSettingsState || {});
   const modelLabel = dom.modelLabel.value.trim();
 
   return {
-    project: {
-      enabled: dom.projectRoutingEnabled.checked,
-      name: dom.projectName.value,
-      createIfMissing: dom.projectCreateIfMissing.checked
-    },
+    project: current.project,
     conversation: {
       // Conversation creation is now controlled per message by the sidebar's
       // active conversation state. Model/effort changes must never mutate this.
@@ -1017,26 +954,14 @@ function collectAutomationSettingsFromForm() {
     },
     visibility: {
       schemaVersion: VISIBILITY_SETTINGS_VERSION,
-      mode: normalizeVisibilityMode(dom.automationVisibilityMode.value)
+      mode: VISIBILITY_MODES.HIDDEN
     },
     model: {
-      enabled: Boolean(dom.modelSelectionEnabled.checked || modelLabel),
+      enabled: Boolean(modelLabel),
       label: modelLabel,
-      requireExact: dom.modelRequireExact.checked
+      requireExact: current.model.requireExact
     }
   };
-}
-
-function syncModelSelectionEnabledFromLabel() {
-  dom.modelSelectionEnabled.checked = Boolean(dom.modelLabel.value.trim());
-}
-
-async function refreshAutomationTargetStatus() {
-  const response = await sendMessage(PANEL_MESSAGES.GET_AUTOMATION_SESSION).catch(() => null);
-
-  if (response?.automationSession) {
-    renderAutomationTargetStatus(response.automationSession);
-  }
 }
 
 function render() {
@@ -1061,16 +986,12 @@ function render() {
 
   const isRunning = isRunningRequest(displayedRequest);
   dom.statusLine.textContent = displayedRequest
-    ? `${displayedRequest.profileLabel} - ${formatState(displayedRequest.state)}`
+    ? formatRequestStatus(displayedRequest)
     : historyConversation
       ? `History - ${historyConversation.title}`
       : forceNewConversationDraft
         ? "New chat draft"
         : "Ready";
-  dom.profileLabel.textContent = displayedRequest?.profileLabel || (historyConversation ? "Project history" : "-");
-  dom.sourceLabel.textContent = displayedRequest?.source?.title || displayedRequest?.source?.url || historyConversation?.projectName || "-";
-  dom.selectedText.textContent = displayedRequest?.selectedText || "";
-  dom.selectedBlock.classList.toggle("hidden", !displayedRequest?.selectedText);
 
   renderHistoryPanel();
 
@@ -1091,39 +1012,50 @@ function render() {
   }
 
   const hasRequest = Boolean(displayedRequest);
+  const needsAuth = isAuthRequired(displayedRequest)
+    || projectHistoryState.status === PROJECT_HISTORY_STATUS.LOGGED_OUT
+    || projectHistoryState.status === PROJECT_HISTORY_STATUS.PENDING_AUTH;
 
   dom.retryButton.disabled = !hasRequest;
-  dom.followupButton.disabled = true;
-  dom.openChatGptButton.disabled = !hasRequest && !historyConversation;
+  dom.openChatGptButton.disabled = !needsAuth;
+  dom.openChatGptButton.classList.toggle("hidden", !needsAuth);
   dom.cancelButton.disabled = !isRunning;
 
-  renderRepairSuggestions(displayedRequest);
-  renderEvents(displayedRequest);
   updateComposerSendState();
 }
 
-function renderHistoryPanel() {
-  const projectName = projectHistoryState.project?.name || dom.projectName?.value || "Project";
+function renderHistoryPanel({ preserveScroll = true, scrollAnchor = "preserve" } = {}) {
+  const previousScrollTop = dom.historyList.scrollTop;
+  const previousScrollHeight = dom.historyList.scrollHeight;
+  const projectName = projectHistoryState.project?.name || getCurrentProjectSettings().name || "Project";
   const activeTitle = projectHistoryState.activeConversation?.title || "";
 
-  if (projectHistoryState.loadingList) {
-    dom.historyStatus.textContent = `Loading ${projectName}...`;
-  } else if (projectHistoryState.pending) {
-    dom.historyStatus.textContent = `Preparing hidden ChatGPT history for ${projectName}...`;
-  } else if (projectHistoryState.error) {
-    dom.historyStatus.textContent = projectHistoryState.error;
-  } else if (activeTitle) {
-    dom.historyStatus.textContent = activeTitle;
-  } else if (projectHistoryState.loaded) {
-    dom.historyStatus.textContent = `${projectHistoryState.conversations.length} conversation${projectHistoryState.conversations.length === 1 ? "" : "s"} in ${projectName}`;
-  } else {
-    dom.historyStatus.textContent = `Loading ${projectName} history`;
+  switch (projectHistoryState.status) {
+    case PROJECT_HISTORY_STATUS.LOADING:
+      dom.historyStatus.textContent = `Loading ${projectName} history`;
+      break;
+    case PROJECT_HISTORY_STATUS.PENDING_AUTH:
+    case PROJECT_HISTORY_STATUS.LOGGED_OUT:
+      dom.historyStatus.textContent = `Sign in to ChatGPT to load ${projectName} history`;
+      break;
+    case PROJECT_HISTORY_STATUS.ERROR:
+      dom.historyStatus.textContent = projectHistoryState.error || `Could not load ${projectName} history`;
+      break;
+    case PROJECT_HISTORY_STATUS.EMPTY:
+      dom.historyStatus.textContent = `No conversations in ${projectName}`;
+      break;
+    case PROJECT_HISTORY_STATUS.LOADED:
+      dom.historyStatus.textContent = activeTitle
+        || `${projectHistoryState.conversations.length} conversation${projectHistoryState.conversations.length === 1 ? "" : "s"} in ${projectName}`;
+      break;
+    default:
+      dom.historyStatus.textContent = `Loading ${projectName} history`;
   }
 
   dom.historyRefreshButton.disabled = projectHistoryState.loadingList;
   dom.historyRefreshButton.textContent = "Refresh";
   dom.historyList.replaceChildren();
-  dom.historyList.classList.toggle("hidden", !projectHistoryState.loaded && !projectHistoryState.loadingList);
+  dom.historyList.classList.toggle("hidden", !projectHistoryState.conversations.length);
 
   for (const conversation of projectHistoryState.conversations) {
     const button = document.createElement("button");
@@ -1162,6 +1094,19 @@ function renderHistoryPanel() {
   }
 
   persistProjectHistoryState(projectHistoryState);
+
+  if (!preserveScroll) {
+    return;
+  }
+
+  if (scrollAnchor === "append") {
+    const delta = dom.historyList.scrollHeight - previousScrollHeight;
+    dom.historyList.scrollTop = Math.max(0, previousScrollTop + delta);
+    return;
+  }
+
+  const maxScrollTop = Math.max(0, dom.historyList.scrollHeight - dom.historyList.clientHeight);
+  dom.historyList.scrollTop = Math.min(previousScrollTop, maxScrollTop);
 }
 
 function renderProjectConversationThread(conversation, activeRequest) {
@@ -1467,21 +1412,15 @@ function restoreChatThreadScroll(previousScrollTop, shouldStickToBottom) {
 
 function renderPendingOutgoingState(request) {
   dom.statusLine.textContent = outgoingRequestPending?.label || "Preparing request...";
-  dom.profileLabel.textContent = "-";
-  dom.sourceLabel.textContent = request?.source?.title || request?.source?.url || "-";
-  dom.selectedText.textContent = "";
-  dom.selectedBlock.classList.add("hidden");
   responseAnimation.stop();
   responseView.resetAutoScroll();
   responseView.setHtml("", { forceScroll: true });
   dom.errorBlock.textContent = "";
   dom.errorBlock.classList.add("hidden");
   dom.retryButton.disabled = true;
-  dom.followupButton.disabled = true;
   dom.openChatGptButton.disabled = true;
+  dom.openChatGptButton.classList.add("hidden");
   dom.cancelButton.disabled = true;
-  dom.repairSuggestions.replaceChildren();
-  dom.eventLog.replaceChildren();
 }
 
 function renderResponse(request) {
@@ -1505,45 +1444,6 @@ function renderResponse(request) {
   }
 
   responseAnimation.startOrUpdate(requestId, text);
-}
-
-function renderRepairSuggestions(request) {
-  dom.repairSuggestions.replaceChildren();
-
-  const hints = request?.repairSuggestions?.hints || [];
-
-  if (!hints.length) {
-    return;
-  }
-
-  for (const hint of hints) {
-    const card = document.createElement("div");
-    card.className = "repair-card";
-    const title = document.createElement("strong");
-    title.textContent = `${hint.target} - ${hint.strategy} (${Math.round(hint.confidence * 100)}%)`;
-    const body = document.createElement("div");
-    body.textContent = [
-      hint.selector ? `selector: ${hint.selector}` : "",
-      hint.ariaLabelIncludes ? `aria: ${hint.ariaLabelIncludes}` : "",
-      hint.placeholderIncludes ? `placeholder: ${hint.placeholderIncludes}` : "",
-      hint.textIncludes ? `text: ${hint.textIncludes}` : "",
-      hint.rationale || ""
-    ].filter(Boolean).join(" | ");
-    card.append(title, body);
-    dom.repairSuggestions.append(card);
-  }
-}
-
-function renderEvents(request) {
-  dom.eventLog.replaceChildren();
-
-  const events = request?.events || [];
-
-  for (const event of events.slice().reverse()) {
-    const item = document.createElement("li");
-    item.textContent = `${formatTime(event.at)} - ${event.detail}`;
-    dom.eventLog.append(item);
-  }
 }
 
 function getActiveRequest() {
@@ -1616,6 +1516,7 @@ async function runPanelAction(action) {
   } catch (error) {
     outgoingRequestPending = null;
     setTransientStatus(error.message || String(error));
+    render();
   }
 }
 
@@ -1629,33 +1530,30 @@ function setTransientStatus(text) {
   }, 2800);
 }
 
+function formatRequestStatus(request) {
+  if (!request) {
+    return "Ready";
+  }
+
+  const state = formatState(request.state);
+
+  if (request.errorCode === REQUEST_ERROR_CODES.AUTH_REQUIRED) {
+    return "Sign in required";
+  }
+
+  return state;
+}
+
+function isAuthRequired(request) {
+  return request?.errorCode === REQUEST_ERROR_CODES.AUTH_REQUIRED;
+}
+
 function formatState(state) {
+  if (state === "CHATGPT_TAB_READY") {
+    return "hidden workspace ready";
+  }
+
   return String(state || "IDLE").toLowerCase().replace(/_/g, " ");
-}
-
-function normalizeVisibilityMode(value) {
-  if (value === VISIBILITY_MODES.HIDDEN || value === VISIBILITY_MODES.SINGLE_TAB || value === VISIBILITY_MODES.SIDECAR || value === VISIBILITY_MODES.FOCUSED) {
-    return value;
-  }
-
-  return VISIBILITY_MODES.HIDDEN;
-}
-
-function renderAutomationTargetStatus(session) {
-  if (!dom.automationTargetStatus) {
-    return;
-  }
-
-  if (!session?.targetType) {
-    dom.automationTargetStatus.textContent = "Automation target: not created yet.";
-    return;
-  }
-
-  const fallback = session.offscreenCapability && !session.offscreenCapability.supported
-    ? ` (${session.offscreenCapability.failureReason || "hidden internal unavailable"})`
-    : "";
-
-  dom.automationTargetStatus.textContent = `Automation target: ${session.targetType}${fallback}`;
 }
 
 function formatHistoryMeta(conversation) {
@@ -1679,24 +1577,6 @@ function formatCompactDate(value) {
   return date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric"
-  });
-}
-
-function formatTime(value) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
   });
 }
 

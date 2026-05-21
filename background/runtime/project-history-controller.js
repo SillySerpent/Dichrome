@@ -1,34 +1,17 @@
 import {
   CHATGPT_AUTOMATION_MESSAGES,
-  PROJECT_CONVERSATION_HISTORY_LIMIT
+  PROJECT_CONVERSATION_HISTORY_LIMIT,
+  REQUEST_ERROR_CODES
 } from "../../shared/contracts.js";
-import { isChatGptUrl } from "../constants.js";
-import {
-  usesFocusedAutomation,
-  usesFocusEmulation,
-  usesHiddenAutomation
-} from "../automation/settings.js";
+import { usesHiddenAutomation } from "../automation/settings.js";
 
 const HISTORY_COMMAND_TIMEOUT_MS = 45000;
-const HIDDEN_HISTORY_FAILURE_RETRY_DELAY_MS = 15000;
-const hiddenHistoryFailureCache = new Map();
 const inFlightHistoryCommands = new Map();
 
 export function createProjectHistoryController({
-  disableFocusEmulationForRequest,
-  enableFocusEmulation,
-  findOrCreateChatGptTab,
   getAutomationSettings,
-  getExistingChatGptAutomationTab = async () => null,
-  getSourceFocusTarget,
-  injectAutomationScript,
-  navigateTabToConversation,
-  prepareAutomationTab,
   probeOffscreenAutomationTarget,
-  queryBestSourceTab,
-  restoreSourceFocus,
   sendMessageToOffscreenFrame,
-  sendMessageToTab,
   setAutomationSettings = null
 }) {
   async function getProjectConversations(message = {}) {
@@ -60,34 +43,6 @@ export function createProjectHistoryController({
     };
   }
 
-  async function openProjectConversation(message = {}) {
-    const target = normalizeConversationTarget(message.conversation || message);
-
-    if (!target.url || !isChatGptUrl(target.url)) {
-      throw new Error("The selected conversation target is not a workspace URL.");
-    }
-
-    const settings = await getAutomationSettings();
-    const sourceTab = await queryBestSourceTab();
-    const sourceFocus = getSourceFocusTarget(sourceTab);
-    const chatTab = await prepareAutomationTab(await findOrCreateChatGptTab({
-      sourceFocus,
-      visibility: settings.visibility
-    }));
-    const loadedTab = await navigateTabToConversation(chatTab.id, target.url);
-
-    await chrome.tabs.update(loadedTab.id, {
-      active: true
-    });
-    await chrome.windows.update(loadedTab.windowId, {
-      focused: true
-    }).catch(() => null);
-
-    return {
-      tabId: loadedTab.id
-    };
-  }
-
   async function runProjectHistoryCommand(type, payload = {}) {
     const settings = await getAutomationSettings();
     const project = normalizeProjectSettings(settings.project);
@@ -112,128 +67,32 @@ export function createProjectHistoryController({
       throw new Error("Project history requires project routing to be enabled with a project name.");
     }
 
-    let offscreenAttemptFailed = false;
-    const hiddenFailureKey = getHiddenHistoryFailureKey(type, project);
-
-    if (usesHiddenAutomation(settings.visibility) && !shouldSkipHiddenHistoryFailure(hiddenFailureKey)) {
-      const hiddenCapability = await probeOffscreenAutomationTarget();
-
-      if (hiddenCapability?.supported) {
-        try {
-          const response = await sendMessageToOffscreenFrame({
-            type,
-            project,
-            ...payload
-          }, HISTORY_COMMAND_TIMEOUT_MS);
-
-          hiddenHistoryFailureCache.delete(hiddenFailureKey);
-          return persistResolvedProjectTarget(settings, unwrapHistoryResponse(response, "offscreen-frame"));
-        } catch (error) {
-          offscreenAttemptFailed = true;
-          const errorMessage = error?.message || String(error);
-          
-          // If it's a disconnection error, try to reconnect and retry once
-          if (errorMessage.includes("disconnected")) {
-            console.info("[ChatGPT Relay] Offscreen frame disconnected; attempting reconnection...", {
-              type
-            });
-
-            try {
-              // Give the frame a moment to reconnect naturally
-              await new Promise(resolve => setTimeout(resolve, 500));
-              
-              // Try to probe again to reconnect
-              const reconnectCapability = await probeOffscreenAutomationTarget();
-              
-              if (reconnectCapability?.supported) {
-                try {
-                  const retryResponse = await sendMessageToOffscreenFrame({
-                    type,
-                    project,
-                    ...payload
-                  }, HISTORY_COMMAND_TIMEOUT_MS);
-
-                  hiddenHistoryFailureCache.delete(hiddenFailureKey);
-                  return persistResolvedProjectTarget(settings, unwrapHistoryResponse(retryResponse, "offscreen-frame"));
-                } catch (retryError) {
-                  console.info("[ChatGPT Relay] Reconnection attempt failed; falling back to tab-based automation.", {
-                    originalError: errorMessage,
-                    retryError: retryError?.message || String(retryError),
-                    type
-                  });
-                }
-              }
-            } catch (reconnectError) {
-              console.info("[ChatGPT Relay] Reconnection failed; falling back to tab-based automation.", {
-                error: reconnectError?.message || String(reconnectError),
-                type
-              });
-            }
-          } else {
-            console.info("[ChatGPT Relay] Hidden project history command failed; retrying in a ChatGPT tab.", {
-              error: errorMessage,
-              type
-            });
-          }
-
-          markHiddenHistoryFailure(hiddenFailureKey);
-        }
-      }
-    } else if (usesHiddenAutomation(settings.visibility)) {
-      offscreenAttemptFailed = true;
+    if (!usesHiddenAutomation(settings.visibility)) {
+      throw createHistoryError(
+        "Project history only supports hidden internal automation.",
+        REQUEST_ERROR_CODES.HIDDEN_FRAME_UNAVAILABLE
+      );
     }
 
-    const sourceTab = await queryBestSourceTab();
-    const sourceFocus = getSourceFocusTarget(sourceTab);
-    const existingChatTab = await getExistingChatGptAutomationTab({
-      sourceFocus,
-      visibility: settings.visibility
-    });
+    const hiddenCapability = await probeOffscreenAutomationTarget();
 
-    if (!existingChatTab) {
-      if (type === CHATGPT_AUTOMATION_MESSAGES.LIST_PROJECT_CONVERSATIONS) {
-        return {
-          project,
-          conversations: [],
-          nextCursor: null,
-          source: offscreenAttemptFailed ? "pending-hidden-history-retry" : "pending-automation-target",
-          pending: true,
-          automationTargetType: null
-        };
-      }
-
-      const hiddenDetail = offscreenAttemptFailed
-        ? " Hidden internal history loading failed, and"
-        : "";
-
-      throw new Error(`${hiddenDetail} project history has no existing ChatGPT automation target. It will not open a new browser tab just to load history.`.trim());
+    if (!hiddenCapability?.supported) {
+      throw createHistoryError(
+        `Hidden internal project history is unavailable. ${hiddenCapability?.failureReason || "Open ChatGPT to sign in, then retry."}`.trim(),
+        classifyHistoryError(hiddenCapability?.failureReason)
+      );
     }
-
-    const chatTab = await prepareAutomationTab(existingChatTab);
-    const focusEmulationRequestId = `project-history-${Date.now()}`;
 
     try {
-      if (usesFocusEmulation(settings.visibility)) {
-        await enableFocusEmulation({
-          tabId: chatTab.id,
-          requestId: focusEmulationRequestId
-        });
-      }
-
-      await injectAutomationScript(chatTab.id);
-      const response = await sendMessageToTab(chatTab.id, {
+      const response = await sendMessageToOffscreenFrame({
         type,
         project,
         ...payload
-      });
+      }, HISTORY_COMMAND_TIMEOUT_MS);
 
-      return persistResolvedProjectTarget(settings, unwrapHistoryResponse(response, "single-tab"));
-    } finally {
-      await disableFocusEmulationForRequest(focusEmulationRequestId).catch(() => null);
-
-      if (!usesFocusedAutomation(settings.visibility)) {
-        await restoreSourceFocus(sourceFocus, chatTab.windowId).catch(() => null);
-      }
+      return persistResolvedProjectTarget(settings, unwrapHistoryResponse(response, "offscreen-frame"));
+    } catch (error) {
+      throw createHistoryError(error?.message || String(error), classifyHistoryError(error));
     }
   }
 
@@ -260,8 +119,7 @@ export function createProjectHistoryController({
 
   return Object.freeze({
     getProjectConversations,
-    getProjectConversation,
-    openProjectConversation
+    getProjectConversation
   });
 }
 
@@ -289,24 +147,6 @@ function getHistoryCommandKey(type, project, payload = {}) {
   });
 }
 
-function getHiddenHistoryFailureKey(type, project) {
-  return [
-    type,
-    project.name,
-    project.segment || project.url || ""
-  ].join("|");
-}
-
-function shouldSkipHiddenHistoryFailure(key) {
-  const failedAt = hiddenHistoryFailureCache.get(key);
-
-  return Boolean(failedAt && Date.now() - failedAt < HIDDEN_HISTORY_FAILURE_RETRY_DELAY_MS);
-}
-
-function markHiddenHistoryFailure(key) {
-  hiddenHistoryFailureCache.set(key, Date.now());
-}
-
 function normalizeProjectSettings(value) {
   const source = value && typeof value === "object" ? value : {};
   const segment = sanitizeProjectSegment(source.segment || extractProjectSegmentFromUrl(source.url));
@@ -321,13 +161,28 @@ function normalizeProjectSettings(value) {
   };
 }
 
-function normalizeConversationTarget(value) {
-  const source = value && typeof value === "object" ? value : {};
+function createHistoryError(message, errorCode) {
+  const error = new Error(message);
+  error.errorCode = errorCode || REQUEST_ERROR_CODES.CHATGPT_UNAVAILABLE;
+  return error;
+}
 
-  return {
-    id: String(source.id || source.key || source.conversationKey || "").trim(),
-    url: String(source.url || source.conversationUrl || "").trim()
-  };
+function classifyHistoryError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+
+  if (/\b(log in|login|sign in|auth|account gate|401|403|session|access token)\b/.test(message)) {
+    return REQUEST_ERROR_CODES.AUTH_REQUIRED;
+  }
+
+  if (/\b(project)\b/.test(message)) {
+    return REQUEST_ERROR_CODES.PROJECT_UNAVAILABLE;
+  }
+
+  if (/\b(hidden|offscreen|frame|iframe|bridge|connected|unavailable)\b/.test(message)) {
+    return REQUEST_ERROR_CODES.HIDDEN_FRAME_UNAVAILABLE;
+  }
+
+  return REQUEST_ERROR_CODES.CHATGPT_UNAVAILABLE;
 }
 
 function sanitizeProjectSegment(value) {

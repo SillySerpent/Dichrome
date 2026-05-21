@@ -32,7 +32,7 @@ const sanitized = sanitizeAutomationSettings({
   },
   visibility: {
     schemaVersion: VISIBILITY_SETTINGS_VERSION,
-    mode: VISIBILITY_MODES.SIDECAR,
+    mode: "sidecar",
     windowWidth: 10000,
     windowHeight: 1
   },
@@ -56,7 +56,7 @@ assert.deepEqual(sanitized, {
   },
   visibility: {
     schemaVersion: VISIBILITY_SETTINGS_VERSION,
-    mode: VISIBILITY_MODES.SIDECAR,
+    mode: VISIBILITY_MODES.HIDDEN,
     windowWidth: 900,
     windowHeight: 520
   },
@@ -105,16 +105,16 @@ const previousSchemaVisibility = sanitizeAutomationSettings({
   }
 }, "Fallback Name");
 
-assert.equal(previousSchemaVisibility.visibility.mode, VISIBILITY_MODES.FOCUSED);
+assert.equal(previousSchemaVisibility.visibility.mode, VISIBILITY_MODES.HIDDEN);
 
 const explicitVisibility = sanitizeAutomationSettings({
   visibility: {
     schemaVersion: VISIBILITY_SETTINGS_VERSION,
-    mode: VISIBILITY_MODES.FOCUSED
+    mode: "focused"
   }
 }, "Fallback Name");
 
-assert.equal(explicitVisibility.visibility.mode, VISIBILITY_MODES.FOCUSED);
+assert.equal(explicitVisibility.visibility.mode, VISIBILITY_MODES.HIDDEN);
 
 const invalidVisibility = sanitizeAutomationSettings({
   visibility: {

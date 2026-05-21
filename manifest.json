@@ -7,14 +7,12 @@
   "permissions": [
     "activeTab",
     "contextMenus",
-    "debugger",
     "declarativeNetRequestWithHostAccess",
     "offscreen",
     "scripting",
     "sidePanel",
     "storage",
-    "tabs",
-    "windows"
+    "tabs"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",

@@ -15,12 +15,18 @@
       RESPONSE_COMPLETE: "RESPONSE_COMPLETE",
       ERROR_STATE: "ERROR_STATE"
     }),
+    requestErrorCodes: Object.freeze({
+      AUTH_REQUIRED: "AUTH_REQUIRED",
+      HIDDEN_FRAME_UNAVAILABLE: "HIDDEN_FRAME_UNAVAILABLE",
+      PROJECT_UNAVAILABLE: "PROJECT_UNAVAILABLE",
+      MODEL_UNAVAILABLE: "MODEL_UNAVAILABLE",
+      UPLOAD_REJECTED: "UPLOAD_REJECTED",
+      RATE_LIMITED: "RATE_LIMITED",
+      CHATGPT_UNAVAILABLE: "CHATGPT_UNAVAILABLE"
+    }),
     visibilityModes: Object.freeze({
       OFFSCREEN_FRAME: "offscreen-frame",
-      HIDDEN: "hidden",
-      SINGLE_TAB: "single-tab",
-      SIDECAR: "sidecar",
-      FOCUSED: "focused"
+      HIDDEN: "hidden"
     }),
     messages: Object.freeze({
       ping: "CHATGPT_AUTOMATION_PING",

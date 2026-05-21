@@ -86,107 +86,15 @@
         <div id="errorBlock" class="error-block hidden"></div>
         <div class="request-actions">
           <button id="retryButton" type="button" disabled>Retry</button>
-          <button id="openChatGptButton" type="button" disabled>Open workspace</button>
+          <button id="openChatGptButton" type="button" disabled>Open ChatGPT to sign in</button>
           <button id="cancelButton" type="button" disabled>Cancel</button>
           <span id="statusLine" class="status-line">Ready</span>
         </div>
       </section>
 
-      <details class="advanced-panel">
-        <summary>Routing, automation, and debug</summary>
-        <div class="advanced-grid">
-          <section class="panel-section compact-section">
-            <div class="section-heading">
-              <h2>Workspace routing</h2>
-              <label class="switch-label">
-                <input id="projectRoutingEnabled" type="checkbox">
-                Project
-              </label>
-            </div>
-            <div class="field-row">
-              <label for="projectName">Project name</label>
-              <input id="projectName" type="text" autocomplete="off">
-            </div>
-            <label class="switch-label inline-check">
-              <input id="projectCreateIfMissing" type="checkbox">
-              Create if missing
-            </label>
-            <div class="field-row">
-              <label for="automationVisibilityMode">Automation</label>
-              <select id="automationVisibilityMode">
-                <option value="hidden">Hidden internal</option>
-                <option value="single-tab">One background tab</option>
-                <option value="sidecar">Visible side window</option>
-                <option value="focused">Focus workspace</option>
-              </select>
-            </div>
-            <div id="automationTargetStatus" class="target-status"></div>
-            <div class="advanced-model-options">
-              <label class="switch-label inline-check hidden">
-                <input id="modelSelectionEnabled" type="checkbox">
-                Enable model selection
-              </label>
-              <label class="switch-label inline-check">
-                <input id="modelRequireExact" type="checkbox">
-                Require exact model match
-              </label>
-            </div>
-            <button id="saveAutomationButton" type="button">Save settings</button>
-          </section>
-
-          <section class="panel-section compact-section">
-            <div class="section-heading">
-              <h2>Local repair</h2>
-              <label class="switch-label">
-                <input id="repairEnabled" type="checkbox">
-                Enabled
-              </label>
-            </div>
-            <div class="field-row">
-              <label for="repairModel">Model</label>
-              <input id="repairModel" type="text" autocomplete="off">
-            </div>
-            <div class="field-row">
-              <label for="repairUrl">Ollama URL</label>
-              <input id="repairUrl" type="url" autocomplete="off">
-            </div>
-            <button id="saveRepairButton" type="button">Save repair</button>
-            <div id="repairSuggestions" class="repair-suggestions"></div>
-          </section>
-
-          <section class="panel-section compact-section debug-section">
-            <div class="section-heading">
-              <h2>Debug</h2>
-              <button id="debugDumpButton" type="button">Dump debug</button>
-            </div>
-            <dl class="metadata-grid debug-metadata">
-              <div>
-                <dt>Profile</dt>
-                <dd id="profileLabel">-</dd>
-              </div>
-              <div>
-                <dt>Source</dt>
-                <dd id="sourceLabel">-</dd>
-              </div>
-            </dl>
-            <select id="profileSelect" class="hidden" aria-hidden="true"></select>
-            <label class="field-stack hidden" for="followupText">
-              Legacy follow-up
-              <textarea id="followupText" rows="2"></textarea>
-            </label>
-            <button id="followupButton" class="hidden" type="button" disabled>Send follow-up</button>
-            <div id="selectedBlock" class="text-block hidden">
-              <div class="block-label">Selection</div>
-              <pre id="selectedText"></pre>
-            </div>
-            <div id="responseParking" class="hidden">
-              <div id="responseText" class="response-content"></div>
-            </div>
-            <h2>Events</h2>
-            <ol id="eventLog" class="event-log"></ol>
-          </section>
-        </div>
-      </details>
+      <div id="responseParking" class="hidden" aria-hidden="true">
+        <div id="responseText" class="response-content"></div>
+      </div>
     </main>
 
     <script type="module" src="sidepanel.js"></script>

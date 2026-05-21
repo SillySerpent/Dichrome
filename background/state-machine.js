@@ -161,6 +161,7 @@ export function createRequestRecord({
     expectedConversationUrl: expectedConversationUrl || null,
     expectedConversationKey: expectedConversationKey || null,
     error: null,
+    errorCode: null,
     repairSuggestions: null,
     events: [],
     createdAt: now,

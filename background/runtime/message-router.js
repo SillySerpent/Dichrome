@@ -35,11 +35,8 @@ export function createRuntimeMessageRouter(handlers) {
         case PANEL_MESSAGES.CANCEL_REQUEST:
           return handlers.cancelRequest(message.requestId);
 
-        case PANEL_MESSAGES.OPEN_CHATGPT_TAB:
-          return handlers.openChatGptTabForRequest(message.requestId);
-
-        case PANEL_MESSAGES.OPEN_PROJECT_CONVERSATION:
-          return handlers.openProjectConversation(message);
+        case PANEL_MESSAGES.OPEN_CHATGPT_AUTH:
+          return handlers.openChatGptAuth();
 
         case PANEL_MESSAGES.GET_PROJECT_CONVERSATIONS:
           return handlers.getProjectConversations(message);

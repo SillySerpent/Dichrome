@@ -457,19 +457,7 @@
   }
 
   function buildModelSelectionFailureMessage(modelLabel, opened) {
-    const attemptedCount = opened?.attempted?.length || 0;
-    const optionCount = opened?.visibleOptions?.length || 0;
-    const openDebugCount = opened?.openDebug?.length || 0;
-    const attempts = attemptedCount
-      ? ` Tried ${attemptedCount} possible picker button(s). First attempts: ${JSON.stringify(opened.attempted.slice(0, 4))}`
-      : " No model picker button was detected.";
-    const optionHint = optionCount
-      ? ` Best visible candidate(s): ${JSON.stringify(opened.visibleOptions.slice(0, 4))}`
-      : openDebugCount
-        ? ` Open-menu/model-ish visible item(s): ${JSON.stringify(opened.openDebug.slice(0, 6))}`
-        : " No visible model picker menu or matching model option candidates were detected after opening the picker.";
-
-    return `Requested model was not selectable in the picker: ${modelLabel}.${attempts}${optionHint}`;
+    return `Model not available on this ChatGPT account: ${modelLabel}. Choose an available model and retry.`;
   }
 
   function normalizeDebugText(value) {

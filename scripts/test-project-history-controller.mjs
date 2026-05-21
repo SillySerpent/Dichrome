@@ -17,62 +17,43 @@ globalThis.chrome = {
 const { createProjectHistoryController } = await import("../background/runtime/project-history-controller.js");
 
 {
-  let createdTab = false;
+  let attemptedTabPath = false;
   const controller = createProjectHistoryController({
-    disableFocusEmulationForRequest: async () => null,
-    enableFocusEmulation: async () => null,
-    findOrCreateChatGptTab: async () => {
-      createdTab = true;
-      return {
-        id: 99
-      };
-    },
     getAutomationSettings: async () => createSettings(),
-    getExistingChatGptAutomationTab: async () => null,
-    getSourceFocusTarget: () => ({}),
-    injectAutomationScript: async () => null,
-    navigateTabToConversation: async () => null,
-    prepareAutomationTab: async (tab) => tab,
     probeOffscreenAutomationTarget: async () => ({
       supported: false,
       failureReason: "test-hidden-unavailable"
     }),
-    queryBestSourceTab: async () => ({
-      id: 1,
-      windowId: 2
-    }),
-    restoreSourceFocus: async () => null,
     sendMessageToOffscreenFrame: async () => {
       throw new Error("offscreen should not be used when unsupported");
-    },
-    sendMessageToTab: async () => {
-      throw new Error("tab messaging should not run without an existing target");
     }
   });
 
-  const response = await controller.getProjectConversations();
-
-  assert.equal(response.pending, true);
-  assert.equal(response.conversations.length, 0);
-  assert.equal(createdTab, false);
+  await assert.rejects(
+    () => controller.getProjectConversations(),
+    (error) => {
+      assert.equal(error.errorCode, "HIDDEN_FRAME_UNAVAILABLE");
+      assert.match(error.message, /Hidden internal project history is unavailable/);
+      return true;
+    }
+  );
+  assert.equal(attemptedTabPath, false);
 
   await assert.rejects(
     () => controller.getProjectConversation({
       conversationId: "conversation-1",
       conversationUrl: "https://chatgpt.com/g/g-p-dichrome/c/conversation-1"
     }),
-    /will not open a new browser tab just to load history/
+    (error) => {
+      assert.equal(error.errorCode, "HIDDEN_FRAME_UNAVAILABLE");
+      return true;
+    }
   );
 }
 
 {
   let hiddenAttempts = 0;
   const controller = createProjectHistoryController({
-    disableFocusEmulationForRequest: async () => null,
-    enableFocusEmulation: async () => null,
-    findOrCreateChatGptTab: async () => {
-      throw new Error("history listing should not create a tab after hidden failure");
-    },
     getAutomationSettings: async () => createSettings({
       project: {
         enabled: true,
@@ -82,72 +63,37 @@ const { createProjectHistoryController } = await import("../background/runtime/p
         url: ""
       }
     }),
-    getExistingChatGptAutomationTab: async () => null,
-    getSourceFocusTarget: () => ({}),
-    injectAutomationScript: async () => null,
-    navigateTabToConversation: async () => null,
-    prepareAutomationTab: async (tab) => tab,
     probeOffscreenAutomationTarget: async () => ({
       supported: true
     }),
-    queryBestSourceTab: async () => ({
-      id: 1,
-      windowId: 2
-    }),
-    restoreSourceFocus: async () => null,
     sendMessageToOffscreenFrame: async () => {
       hiddenAttempts += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5));
       throw new Error("ChatGPT project was not found: Dichrome");
-    },
-    sendMessageToTab: async () => {
-      throw new Error("tab messaging should not run without an existing target");
     }
   });
 
-  const firstResponse = await controller.getProjectConversations();
-  const secondResponse = await controller.getProjectConversations();
+  const [firstResponse, secondResponse] = await Promise.allSettled([
+    controller.getProjectConversations(),
+    controller.getProjectConversations()
+  ]);
 
-  assert.equal(firstResponse.pending, true);
-  assert.equal(secondResponse.pending, true);
+  assert.equal(firstResponse.status, "rejected");
+  assert.equal(secondResponse.status, "rejected");
+  assert.equal(firstResponse.reason.errorCode, "PROJECT_UNAVAILABLE");
+  assert.equal(secondResponse.reason.errorCode, "PROJECT_UNAVAILABLE");
   assert.equal(hiddenAttempts, 1);
 }
 
 {
-  let createdTab = false;
-  let messagedTabId = null;
+  let hiddenMessages = 0;
   const controller = createProjectHistoryController({
-    disableFocusEmulationForRequest: async () => null,
-    enableFocusEmulation: async () => null,
-    findOrCreateChatGptTab: async () => {
-      createdTab = true;
-      return {
-        id: 99
-      };
-    },
     getAutomationSettings: async () => createSettings(),
-    getExistingChatGptAutomationTab: async () => ({
-      id: 42,
-      windowId: 24,
-      url: "https://chatgpt.com/"
-    }),
-    getSourceFocusTarget: () => ({}),
-    injectAutomationScript: async () => null,
-    navigateTabToConversation: async () => null,
-    prepareAutomationTab: async (tab) => tab,
     probeOffscreenAutomationTarget: async () => ({
-      supported: false,
-      failureReason: "test-hidden-unavailable"
+      supported: true
     }),
-    queryBestSourceTab: async () => ({
-      id: 1,
-      windowId: 2
-    }),
-    restoreSourceFocus: async () => null,
     sendMessageToOffscreenFrame: async () => {
-      throw new Error("offscreen should not be used when unsupported");
-    },
-    sendMessageToTab: async (tabId) => {
-      messagedTabId = tabId;
+      hiddenMessages += 1;
 
       return {
         ok: true,
@@ -169,10 +115,9 @@ const { createProjectHistoryController } = await import("../background/runtime/p
 
   const response = await controller.getProjectConversations();
 
-  assert.equal(createdTab, false);
-  assert.equal(messagedTabId, 42);
+  assert.equal(hiddenMessages, 1);
   assert.equal(response.conversations.length, 1);
-  assert.equal(response.automationTargetType, "single-tab");
+  assert.equal(response.automationTargetType, "offscreen-frame");
 }
 
 console.log("Project history controller tests passed.");

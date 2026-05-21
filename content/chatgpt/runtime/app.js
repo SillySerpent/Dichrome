@@ -42,10 +42,7 @@
   });
   const VISIBILITY_MODES = CONTRACTS.visibilityModes || Object.freeze({
     OFFSCREEN_FRAME: "offscreen-frame",
-    HIDDEN: "hidden",
-    SINGLE_TAB: "single-tab",
-    SIDECAR: "sidecar",
-    FOCUSED: "focused"
+    HIDDEN: "hidden"
   });
   const AUTOMATION_MESSAGES = MESSAGE_RUNTIME.types || CONTRACTS.messages || Object.freeze({
     ping: "CHATGPT_AUTOMATION_PING",

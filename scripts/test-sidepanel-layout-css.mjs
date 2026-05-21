@@ -24,6 +24,9 @@ assertRuleIncludes(".attachments-tray", ["width: 100%", "overflow-x: hidden"]);
 assertRuleIncludes(".attachment-chip", ["width: 100%", "flex: 0 1 100%", "contain: layout paint"]);
 assertRuleIncludes(".request-actions", ["display: grid", "grid-template-columns: auto auto auto minmax(0, 1fr)"]);
 assertRuleIncludes(".request-actions .status-line", ["min-width: 0", "text-align: right"]);
+assertRuleIncludes(".history-panel", ["border-radius: 8px", "padding: 10px"]);
+assertRuleIncludes(".history-list", ["max-height: clamp(180px, 28vh, 260px)", "scrollbar-gutter: stable", "overflow-anchor: none"]);
+assertRuleIncludes(".history-item", ["min-height: 54px", "border-radius: 8px", "grid-template-columns: minmax(0, 1fr) auto"]);
 assertRuleIncludes(".response-copy-wrapper", ["display: grid"]);
 assertRuleIncludes(".response-copy-wrapper", ["position: relative"]);
 assertRuleIncludes(".response-copy-toolbar", ["position: absolute", "right: 18px", "justify-content: flex-end", "opacity: 0", "pointer-events: none", "user-select: none"]);
@@ -78,8 +81,12 @@ assert(
   "Mode control must keep an accessible label without taking visible row space."
 );
 assert(
-  !/(ChatGPT Relay|Message ChatGPT|Open ChatGPT|ChatGPT routing|Focus ChatGPT|GPT)/.test(html),
-  "Side panel visible text must not reference GPT branding."
+  html.includes("Open ChatGPT to sign in"),
+  "Side panel must keep a clear user-triggered ChatGPT sign-in handoff."
+);
+assert(
+  !/(ChatGPT Relay|Message ChatGPT|ChatGPT routing|Focus ChatGPT|Routing, automation, and debug|Dump Debug|Local repair|automation target|debug dump|event log)/i.test(html),
+  "Side panel visible text must not expose old branding or debug/repair internals."
 );
 assert(iconSvg.includes("Dichrome icon"), "Source icon must use Dichrome branding.");
 
