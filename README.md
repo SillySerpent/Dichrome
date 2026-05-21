@@ -25,10 +25,11 @@ This is intentionally UI-driven. It does not use the OpenAI API and does not req
 - `manifest.json` - MV3 manifest, permissions, side panel entry, ChatGPT host permissions, offscreen permission, and the DNR host-access permission used for hidden iframe frame-policy overrides.
 - `shared/contracts.js` - shared request states, message strings, hidden workspace constants, content script order, and response-rendering allowlists.
 - `shared/response-formatting.js` - response normalization, markdown-ish rendering, HTML sanitization, and deterministic local math rendering.
+- `shared/error-messages.js` - centralized user-facing error titles, details, and action labels.
 - `background/service-worker.js` - small manifest-loaded entrypoint for the background runtime.
 - `background/runtime/*` - listener orchestration, runtime message routing, request control, and settings repositories.
 - `background/runtime/project-history-controller.js` - project-scoped conversation history list/load routing through the hidden internal workspace.
-- `background/debug/debug-dump-collector.js` - internal diagnostic assembly across background, content, and offscreen state.
+- `background/debug-dump.js` - internal diagnostic summarization kept out of the normal side-panel UI.
 - `background/automation/settings.js` - stored ChatGPT project-routing, visibility, and model-selection settings.
 - `background/automation/session.js` - hidden workspace session storage and migration away from legacy remembered visible-tab data.
 - `background/automation/tab-target.js` - legacy visible-tab helpers kept out of the normal product route until a later dead-path pass removes them.
@@ -38,12 +39,11 @@ This is intentionally UI-driven. It does not use the OpenAI API and does not req
 - `background/requests/store.js` - request history, attachment payload storage, event appends, and panel update broadcasts.
 - `background/focus-emulation.js` - legacy focus-emulation helper kept out of the normal hidden-only route.
 - `background/state-machine.js` - request states and prompt profiles.
-- `background/adapter-repair.js` - optional local-model repair prompt, response parsing, and mapping validation.
 - `content/chatgpt/*` - ordered injected ChatGPT-side automation entrypoints.
 - `content/chatgpt/runtime/*` - ChatGPT-side runtime layers for contracts, messaging, URL/frame decisions, errors, adapter heuristics, response extraction, and the automation runner.
 - `content/chatgpt/runtime/history/project-history.js` - project-scoped history listing and selected conversation loading through ChatGPT's signed-in web session.
 - `sidepanel/*` - side panel HTML/CSS and entrypoint.
-- `sidepanel/runtime/*` - side panel client, DOM lookup, state helpers, response view, response animation, and app orchestration.
+- `sidepanel/runtime/*` - side panel client, DOM lookup, state helpers, attachment handling, response view, response animation, settings dialog, and app orchestration.
 - `docs/module-map.md` - maintainer map for module ownership and future extraction boundaries.
 - `docs/hidden-internal-invariants.md` - hidden internal mode behaviors that must not regress.
 - `docs/manual-smoke-tests.md` - manual validation scenarios for browser-dependent behavior.
@@ -91,7 +91,7 @@ The automation is split deliberately:
 - The background worker owns request state and hidden workspace routing.
 - The ChatGPT content script owns deterministic DOM interaction.
 - The side panel owns display and operator controls.
-- Internal diagnostics and repair helpers are not exposed in the normal sidebar UI.
+- Internal diagnostics are kept out of the normal sidebar UI; obsolete fallback automation experiments are no longer part of the product build.
 
 The ChatGPT adapter avoids whole-page scraping for response extraction. It looks for assistant message containers using semantic attributes first, then bounded conversation-area fallbacks. Once a candidate response is selected, the observer only tracks that message's content. Completion requires several signals: response stability, no visible stop-generation control, an enabled send button, and no detected error UI.
 
@@ -133,7 +133,7 @@ When a model label is requested, model-selection failure stops the request befor
 
 ## Screenshot Status
 
-The side panel includes a visible-screenshot attachment request. It uses `chrome.tabs.captureVisibleTab`, so Chrome requires a valid active-tab capture grant for the visible page. Dichrome does not request required or optional `<all_urls>` host access for this feature. It captures the visible viewport, not a stitched full-page screenshot. Full-page screenshot support would need a separate scroll-and-stitch flow.
+The side panel includes a visible-screenshot attachment request. It uses `chrome.tabs.captureVisibleTab`, so Chrome requires either an active-tab capture grant or host access for the visible page. Dichrome requests optional site access only when the user presses `Screenshot`, narrows the prompt to the active origin when possible, and rejects browser-internal pages with a clear error. It captures the visible viewport, not a stitched full-page screenshot. Full-page screenshot support would need a separate scroll-and-stitch flow.
 
 ## Chrome Web Store Review
 

@@ -8,7 +8,6 @@ import {
   getProfile,
   normalizeText
 } from "../state-machine.js";
-import { requestAdapterRepair } from "../adapter-repair.js";
 import {
   getVisibilityMode,
   mergeAutomationSettings,
@@ -61,9 +60,7 @@ import {
 import {
   getAutomationSettings,
   getPublicAutomationSettings,
-  getRepairSettings,
-  setAutomationSettings,
-  setRepairSettings
+  setAutomationSettings
 } from "./settings-repository.js";
 import { createContextMenuController } from "./context-menu.js";
 import { buildChatOptionsForAutomationRun } from "./conversation-run-options.js";
@@ -71,11 +68,11 @@ import { createRuntimeMessageRouter } from "./message-router.js";
 import { createProjectHistoryController } from "./project-history-controller.js";
 import { createRequestController } from "./request-controller.js";
 import { getFreshConversationUrl } from "./fresh-conversation-url.js";
-import { dumpDebugState as collectDebugDumpState } from "../debug/debug-dump-collector.js";
 import {
   CHATGPT_AUTOMATION_MESSAGES,
   REQUEST_ERROR_CODES
 } from "../../shared/contracts.js";
+import { formatUserFacingError } from "../../shared/error-messages.js";
 
 const EXTENSION_NAME = chrome.runtime.getManifest().name;
 const contextMenuController = createContextMenuController({
@@ -103,7 +100,7 @@ const requestController = createRequestController({
 });
 const projectHistoryController = createProjectHistoryController({
   getAutomationSettings: () => getResolvedAutomationSettings(),
-  probeOffscreenAutomationTarget,
+  probeOffscreenAutomationTarget: () => probeHiddenAutomationWithWarmup({ attempts: 3, initialDelayMs: 350 }),
   sendMessageToOffscreenFrame,
   setAutomationSettings: (settings) => setAutomationSettings(settings, EXTENSION_NAME)
 });
@@ -124,26 +121,11 @@ const runtimeMessageRouter = createRuntimeMessageRouter({
   openChatGptAuth: requestController.openChatGptAuth,
   getProjectConversations: projectHistoryController.getProjectConversations,
   getProjectConversation: projectHistoryController.getProjectConversation,
-  getLocalRepairSettings: async () => ({
-    settings: await getRepairSettings()
-  }),
-  setLocalRepairSettings: setRepairSettings,
   getChatGptAutomationSettings: async () => ({
     settings: await getPublicAutomationSettings(EXTENSION_NAME)
   }),
-  getAutomationSession: async () => ({
-    automationSession: summarizeAutomationSession(await getReconciledAutomationSession())
-  }),
   setChatGptAutomationSettings: (settings) => setAutomationSettings(settings, EXTENSION_NAME),
-  dumpDebug: (message) => collectDebugDumpState({
-    requestId: message.requestId,
-    extensionName: EXTENSION_NAME,
-    getAutomationSettings: () => getAutomationSettings(EXTENSION_NAME),
-    getAutomationSession: getReconciledAutomationSession,
-    getRepairSettings,
-    injectAutomationScript,
-    sendMessageToTab
-  }),
+  checkChatGptWorkspace,
   handleAutomationDebug,
   handleAutomationEvent
 });
@@ -205,7 +187,6 @@ async function startRequest({
   selectedText = "",
   manualText = "",
   attachments = [],
-  adapterHints = [],
   chatOptionsOverride = null,
   parentRequestId = null,
   conversationMode = "new",
@@ -244,7 +225,6 @@ async function startRequest({
 
   void orchestrateRequest(requestId, {
     attachments,
-    adapterHints,
     chatOptionsOverride
   });
 
@@ -255,7 +235,6 @@ async function startRequest({
 
 async function orchestrateRequest(requestId, {
   attachments = [],
-  adapterHints = [],
   chatOptionsOverride = null
 } = {}) {
   try {
@@ -270,7 +249,7 @@ async function orchestrateRequest(requestId, {
       chatOptionsOverride,
       EXTENSION_NAME
     ));
-    const hiddenCapability = await probeOffscreenAutomationTarget();
+    const hiddenCapability = await probeHiddenAutomationWithWarmup({ attempts: 3, initialDelayMs: 350 });
 
     if (!hiddenCapability?.supported) {
       throw createCodedError(
@@ -283,7 +262,6 @@ async function orchestrateRequest(requestId, {
       request,
       requestId,
       attachments,
-      adapterHints,
       automationSettings
     });
   } catch (error) {
@@ -324,7 +302,6 @@ async function runOffscreenAutomationTarget({
   request,
   requestId,
   attachments,
-  adapterHints,
   automationSettings
 }) {
   if (request.conversationMode === "followup") {
@@ -365,7 +342,6 @@ async function runOffscreenAutomationTarget({
     request: buildAutomationRunRequest({
       request,
       attachments,
-      adapterHints,
       automationSettings,
       visibilityModeOverride: "offscreen-frame"
     })
@@ -379,7 +355,6 @@ async function runOffscreenAutomationTarget({
 function buildAutomationRunRequest({
   request,
   attachments,
-  adapterHints,
   automationSettings,
   visibilityModeOverride = null
 }) {
@@ -388,7 +363,6 @@ function buildAutomationRunRequest({
     profileId: request.profileId,
     prompt: request.prompt,
     attachments,
-    adapterHints,
     chatOptions: buildChatOptionsForAutomationRun({
       automationSettings,
       request,
@@ -404,6 +378,43 @@ async function injectAutomationScript(tabId) {
     },
     files: CHATGPT_CONTENT_SCRIPT_FILES
   });
+}
+
+async function checkChatGptWorkspace() {
+  const capability = await probeHiddenAutomationWithWarmup({
+    attempts: 3,
+    initialDelayMs: 350
+  });
+  const errorCode = capability?.supported
+    ? null
+    : classifyHiddenCapabilityFailure(capability?.failureReason || "Hidden internal automation is unavailable.");
+
+  return {
+    ready: Boolean(capability?.supported),
+    capability,
+    errorCode,
+    message: capability?.supported
+      ? "Hidden ChatGPT workspace is ready."
+      : formatUserFacingError(errorCode, capability?.failureReason || "Hidden internal automation is unavailable.")
+  };
+}
+
+async function probeHiddenAutomationWithWarmup({ attempts = 2, initialDelayMs = 300 } = {}) {
+  let lastCapability = null;
+
+  for (let index = 0; index < attempts; index += 1) {
+    lastCapability = await probeOffscreenAutomationTarget();
+
+    if (lastCapability?.supported) {
+      return lastCapability;
+    }
+
+    if (index < attempts - 1) {
+      await sleep(initialDelayMs * (index + 1));
+    }
+  }
+
+  return lastCapability;
 }
 
 async function handleAutomationEvent(message, sender) {
@@ -502,9 +513,6 @@ async function handleAutomationEvent(message, sender) {
     await clearAutomationRequestActive(requestId).catch(() => null);
   }
 
-  if (message.state === REQUEST_STATES.ERROR_STATE && message.domSnapshot) {
-    await maybeRequestLocalAdapterRepair(requestId, message);
-  }
 }
 
 async function handleFocusEmulationDetached({ requestId, reason }) {
@@ -564,44 +572,13 @@ async function handleAutomationDebug(message, sender) {
   }).catch(() => null);
 }
 
-async function maybeRequestLocalAdapterRepair(requestId, message) {
-  const settings = await getRepairSettings();
-
-  if (!settings.enabled || settings.internalDeveloperSurface !== true) {
-    return;
-  }
-
-  await updateRequest(requestId, (draft) => {
-    appendEvent(draft, "Requesting local DOM adapter repair suggestions.");
-  });
-
-  try {
-    const suggestions = await requestAdapterRepair({
-      snapshot: message.domSnapshot,
-      failure: message.error || message.detail,
-      settings
-    });
-
-    await updateRequest(requestId, (draft) => {
-      draft.repairSuggestions = {
-        hints: suggestions.hints,
-        warnings: suggestions.warnings,
-        createdAt: new Date().toISOString()
-      };
-      appendEvent(draft, `Local repair returned ${suggestions.hints.length} validated hint(s).`);
-    });
-  } catch (error) {
-    await updateRequest(requestId, (draft) => {
-      appendEvent(draft, `Local repair failed: ${serializeError(error)}`);
-    });
-  }
-}
-
 async function markRequestError(requestId, error) {
   await updateRequest(requestId, (draft) => {
     draft.state = REQUEST_STATES.ERROR_STATE;
-    draft.error = serializeError(error);
-    draft.errorCode = error?.errorCode || classifyRequestError(draft.error);
+    const rawError = serializeError(error);
+    draft.errorCode = error?.errorCode || classifyRequestError(rawError);
+    draft.error = formatUserFacingError(draft.errorCode, rawError);
+    draft.rawError = rawError;
     draft.completedAt = new Date().toISOString();
     appendEvent(draft, `Error: ${draft.error}`);
   });
@@ -638,6 +615,10 @@ function classifyRequestError(error) {
 
   if (/\b(project)\b/.test(message) && /\b(not found|unavailable|requires|routing|history)\b/.test(message)) {
     return REQUEST_ERROR_CODES.PROJECT_UNAVAILABLE;
+  }
+
+  if (/\b(disconnect|disconnected|receiving end does not exist|message port closed|could not establish connection|bridge)\b/.test(message)) {
+    return REQUEST_ERROR_CODES.BRIDGE_DISCONNECTED;
   }
 
   if (/\b(hidden|offscreen|frame|iframe)\b/.test(message)) {

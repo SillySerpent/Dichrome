@@ -19,7 +19,7 @@ Visible ChatGPT tabs are allowed only for explicit authentication/setup handoff.
 Tasks:
 
 - Remove the normal side-panel `Routing, automation, and debug` details block from the main user experience.
-- Remove visible local repair controls, debug dump button, event log, automation target status, and automation mode selector from `sidepanel/sidepanel.html`.
+- Remove visible legacy local-repair controls, debug dump button, event log, automation target status, and automation mode selector from `sidepanel/sidepanel.html`.
 - Keep product-facing controls only: project history, workspace/project affordance, model choice, message composer, attachments, retry/cancel, and explicit login/setup action when needed.
 - Remove corresponding unused DOM bindings and event handlers from `sidepanel/runtime/dom.js` and `sidepanel/runtime/app.js`.
 - Keep internal debug collection callable only from extension internals or a future separate developer surface.
@@ -27,7 +27,7 @@ Tasks:
 Acceptance criteria:
 
 - Main UI no longer shows repair/debug/local controls.
-- Normal users never see "automation target", "debug dump", "local repair", or event-log internals.
+- Normal users never see "automation target", "debug dump", "legacy local-repair", or event-log internals.
 - Hidden internal send, follow-up, project history, model selection, and attachments still work through the product UI.
 - Side-panel layout tests assert these debug/repair controls are absent from visible HTML.
 
@@ -114,15 +114,15 @@ Acceptance criteria:
 
 Tasks:
 
-- After hidden-only behavior is covered by tests, remove or isolate dead tab automation helpers, focus-emulation paths, local repair settings, and retry-with-hints flow.
-- Remove legacy docs/manual smoke tests for single-tab, sidecar, focused, and local repair.
+- After hidden-only behavior is covered by tests, remove or isolate dead tab automation helpers, focus-emulation paths, obsolete fallback settings, and retry-with-hints flow.
+- Remove legacy docs/manual smoke tests for single-tab, sidecar, focused, and legacy local-repair.
 - Keep structured internal logs with consistent fields: `scope`, `requestId`, `projectKey`, `conversationId`, `phase`, `errorCode`, and `attempt`.
 - Bound all retry loops with explicit max attempts and delay caps.
 - Update README, architecture notes, hidden-internal invariants, Chrome Web Store submission notes, privacy policy, and manual smoke tests to match hidden-internal-only behavior.
 
 Acceptance criteria:
 
-- `rg` finds no user-facing references to single-tab, sidecar, focused mode, local repair, or debug dump.
+- `rg` finds no user-facing references to single-tab, sidecar, focused mode, legacy local-repair, or debug dump.
 - Validator fails if visible debug/repair controls or non-hidden user automation modes return.
 - Store permission justifications match the manifest after permission removal.
 - Manual smoke docs cover hidden internal, login handoff, project history, model errors, upload errors, and fresh install.

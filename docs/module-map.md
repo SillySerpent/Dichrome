@@ -17,13 +17,12 @@ Future cross-surface constants and formatting rules belong here first. Do not du
 - `background/runtime/message-router.js` maps runtime message types to injected handlers.
 - `background/runtime/project-history-controller.js` owns panel-facing project-history list/load commands. Commands route through hidden automation and fail clearly instead of creating tabs.
 - `background/runtime/request-controller.js` owns panel-facing request actions: manual request, screenshot request, follow-up, retry, cancel, and opening ChatGPT only for sign-in/setup.
-- `background/runtime/settings-repository.js` owns stored automation and repair settings access.
-- `background/debug/debug-dump-collector.js` owns internal diagnostic assembly, including content dump collection and offscreen fallback collection.
+- `background/runtime/settings-repository.js` owns stored automation settings access.
+- `background/debug-dump.js` owns internal diagnostic summarization for packaged runtime status events.
 - `background/requests/store.js` owns request records, attachment payload persistence, event appends, and panel broadcasts.
 - `background/state-machine.js` owns request profiles, prompt construction, request records, and request-state re-exports.
 - `background/automation/*` owns hidden workspace session storage, offscreen probing, frame-policy override, source-tab helpers, and automation settings migration.
 - `background/focus-emulation.js` is a legacy helper kept out of the normal hidden-only route until dead-path cleanup removes it.
-- `background/adapter-repair.js` owns internal repair request/response validation and is not exposed in the normal side panel.
 
 Keep Chrome API orchestration in background runtime modules. Keep target-specific behavior in `background/automation/`. Keep stored request shape changes in `background/requests/store.js` and update tests before changing storage contracts.
 
@@ -65,7 +64,7 @@ Ownership:
 - `content/chatgpt/runtime/errors/errors.js` owns content-side error classes and error serialization.
 - `content/chatgpt/runtime/dom/utils.js` owns generic DOM predicates, writable text helpers, element descriptions, response-node cleanup, hint resolution, candidate collection, and file conversion helpers.
 - `content/chatgpt/runtime/async/wait.js` owns cancellation-aware wait helpers and small timing utilities.
-- `content/chatgpt/runtime/adapter/options.js` owns adapter option normalization for projects, conversations, model selection, and repair hints.
+- `content/chatgpt/runtime/adapter/options.js` owns adapter option normalization for projects, conversations, and model selection.
 - `content/chatgpt/runtime/adapter/scoring.js` owns adapter scoring and text-matching helpers for project routing, project creation, new chat, model picker, and model option candidates.
 - `content/chatgpt/runtime/adapter/base.js` owns the `ChatGptDomAdapter` class shell, app-shell wait, blocking UI detection, debug snapshots, and repair-hint lookup.
 - `content/chatgpt/runtime/adapter/project-routing.js` owns project detection, project sidebar routing, project creation, project dialog actions, and left-side project row click behavior.
@@ -90,7 +89,9 @@ Future content-runtime changes should usually land in the concern-specific modul
 ## Side Panel
 
 - `sidepanel/sidepanel.js` is the HTML entrypoint and only imports `sidepanel/runtime/app.js`.
-- `sidepanel/runtime/app.js` owns panel initialization, event binding, panel state loading, request actions, project-history UI state, product-facing model settings, sign-in handoff, and top-level rendering.
+- `sidepanel/runtime/app.js` owns panel initialization, event binding, panel state loading, request actions, project-history UI state, sign-in handoff, and top-level rendering.
+- `sidepanel/runtime/settings-dialog.js` owns the routing/model settings popup form, summary label, and settings payload collection.
+- `sidepanel/runtime/attachments.js` owns screenshot permission prompts, visible-tab screenshot attachment construction, and user file attachment normalization.
 - `sidepanel/runtime/dom.js` owns DOM id lookup.
 - `sidepanel/runtime/client.js` owns checked `chrome.runtime.sendMessage` calls.
 - `sidepanel/runtime/project-history-state.js` owns project-history side-panel state creation, local persistence, and project-key normalization.

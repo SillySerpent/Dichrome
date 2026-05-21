@@ -5,7 +5,6 @@ import {
   getDefaultAutomationSettings,
   sanitizeAutomationSettings
 } from "../background/automation/settings.js";
-import { validateRepairSuggestions } from "../background/adapter-repair.js";
 
 const defaults = getDefaultAutomationSettings("ChatGPT Page Relay Prototype");
 
@@ -124,39 +123,5 @@ const invalidVisibility = sanitizeAutomationSettings({
 }, "Fallback Name");
 
 assert.equal(invalidVisibility.visibility.mode, VISIBILITY_MODES.HIDDEN);
-
-const repairValidation = validateRepairSuggestions({
-  hints: [
-    {
-      target: "projectNavigationItem",
-      strategy: "aria",
-      ariaLabelIncludes: "ChatGPT Page Relay Prototype",
-      confidence: 0.8
-    },
-    {
-      target: "modelPicker",
-      strategy: "role",
-      role: "button",
-      confidence: 0.7
-    }
-  ]
-});
-
-assert.equal(repairValidation.valid, true);
-assert.equal(repairValidation.hints.length, 2);
-assert.equal(repairValidation.hints[0].target, "projectNavigationItem");
-assert.equal(repairValidation.hints[1].target, "modelPicker");
-
-const invalidRepairValidation = validateRepairSuggestions({
-  hints: [
-    {
-      target: "extensionSourceCode",
-      strategy: "selector",
-      selector: "script"
-    }
-  ]
-});
-
-assert.equal(invalidRepairValidation.valid, false);
 
 console.log("Settings tests passed.");

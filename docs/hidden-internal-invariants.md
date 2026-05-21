@@ -57,6 +57,6 @@ Hidden internal mode is the highest-risk path in this extension. These invariant
 
 ## Internal Diagnostics
 
-- Debug dump collection belongs in `background/debug/debug-dump-collector.js` and must stay internal-only unless a separate developer surface is added.
+- Diagnostic summaries belong in `background/debug-dump.js` and must stay internal-only unless a separate developer surface is added.
 - Content-side frame dumps should include location, visibility state, focus state, ready state, active run, composer/send/stop summaries, and network capture state.
-- The normal side panel must not expose diagnostic controls, local repair controls, or automation-mode selectors.
+- The normal side panel must not expose diagnostic controls or automation-mode selectors.

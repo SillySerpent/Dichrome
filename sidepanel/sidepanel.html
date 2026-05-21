@@ -13,6 +13,7 @@
         <h1>Dichrome</h1>
       </div>
       <div class="header-actions">
+        <button id="settingsButton" class="ghost-button" type="button" title="Routing and model settings">Settings</button>
         <button id="newChatButton" class="ghost-button" type="button" title="Start a separate new conversation">New</button>
         <button id="refreshButton" class="icon-button" type="button" title="Refresh panel state">Refresh</button>
       </div>
@@ -64,19 +65,7 @@
               <button id="composerAttachButton" class="icon-only-button" type="button" title="Attach files">Files</button>
             </div>
             <div class="composer-right-actions">
-              <label class="composer-model-control">
-                <span class="visually-hidden">Mode</span>
-                <select id="modelLabel" aria-label="Mode">
-                  <option value="">Default</option>
-                  <option value="Auto">Auto</option>
-                  <option value="Instant">Instant</option>
-                  <option value="Thinking">Thinking</option>
-                  <option value="Extended">Extended</option>
-                  <option value="Pro">Pro</option>
-                  <option value="o3">o3</option>
-                  <option value="o4">o4</option>
-                </select>
-              </label>
+              <span id="routingSummary" class="routing-summary" title="Current routing target">Project</span>
               <button id="sendManualButton" class="primary-button send-button" type="button" title="Send message" aria-label="Send message">
                 <span aria-hidden="true">↑</span>
               </button>
@@ -96,6 +85,65 @@
         <div id="responseText" class="response-content"></div>
       </div>
     </main>
+
+    <div id="settingsOverlay" class="settings-overlay hidden" role="presentation">
+      <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="settings-header">
+          <div>
+            <h2 id="settingsTitle">Routing and model settings</h2>
+            <p>Choose where Dichrome sends new ChatGPT conversations. These settings do not change the active conversation unless you press New or select history.</p>
+          </div>
+          <button id="settingsCloseButton" class="tiny-button" type="button">Close</button>
+        </div>
+
+        <div class="settings-grid">
+          <label class="settings-row settings-toggle-row">
+            <input id="projectRoutingEnabled" type="checkbox">
+            <span>Route new conversations into a ChatGPT project</span>
+          </label>
+
+          <label class="settings-row">
+            <span>Project name</span>
+            <input id="projectNameInput" type="text" maxlength="80" placeholder="Dichrome">
+          </label>
+
+          <label class="settings-row">
+            <span>Project URL or ID</span>
+            <input id="projectUrlInput" type="text" maxlength="220" placeholder="https://chatgpt.com/g/g-p-.../project">
+          </label>
+
+          <label class="settings-row settings-toggle-row">
+            <input id="projectCreateIfMissing" type="checkbox">
+            <span>Create the project if ChatGPT exposes the create-project control</span>
+          </label>
+
+          <label class="settings-row">
+            <span>Preferred model</span>
+            <select id="modelLabel" aria-label="Preferred model">
+              <option value="">Default</option>
+              <option value="Auto">Auto</option>
+              <option value="Instant">Instant</option>
+              <option value="Thinking">Thinking</option>
+              <option value="Extended">Extended</option>
+              <option value="Pro">Pro</option>
+              <option value="o3">o3</option>
+              <option value="o4">o4</option>
+            </select>
+          </label>
+
+          <label class="settings-row settings-toggle-row">
+            <input id="modelRequireExact" type="checkbox">
+            <span>Require exact model selection; fail clearly if unavailable</span>
+          </label>
+        </div>
+
+        <div class="settings-actions">
+          <span id="settingsStatus" class="status-line">Hidden internal automation only.</span>
+          <button id="settingsCancelButton" class="ghost-button" type="button">Cancel</button>
+          <button id="settingsSaveButton" class="primary-button" type="button">Save settings</button>
+        </div>
+      </section>
+    </div>
 
     <script type="module" src="sidepanel.js"></script>
   </body>

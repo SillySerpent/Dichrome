@@ -44,23 +44,14 @@ export function createRuntimeMessageRouter(handlers) {
         case PANEL_MESSAGES.GET_PROJECT_CONVERSATION:
           return handlers.getProjectConversation(message);
 
-        case PANEL_MESSAGES.GET_LOCAL_REPAIR_SETTINGS:
-          return handlers.getLocalRepairSettings();
-
-        case PANEL_MESSAGES.SET_LOCAL_REPAIR_SETTINGS:
-          return handlers.setLocalRepairSettings(message.settings);
-
         case PANEL_MESSAGES.GET_CHATGPT_AUTOMATION_SETTINGS:
           return handlers.getChatGptAutomationSettings();
-
-        case PANEL_MESSAGES.GET_AUTOMATION_SESSION:
-          return handlers.getAutomationSession();
 
         case PANEL_MESSAGES.SET_CHATGPT_AUTOMATION_SETTINGS:
           return handlers.setChatGptAutomationSettings(message.settings);
 
-        case PANEL_MESSAGES.DUMP_DEBUG:
-          return handlers.dumpDebug(message);
+        case PANEL_MESSAGES.CHECK_CHATGPT_WORKSPACE:
+          return handlers.checkChatGptWorkspace();
 
         case CHATGPT_AUTOMATION_MESSAGES.DEBUG:
           await handlers.handleAutomationDebug(message, sender);

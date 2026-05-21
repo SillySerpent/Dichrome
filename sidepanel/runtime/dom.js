@@ -1,8 +1,10 @@
 export const dom = {
   statusLine: document.getElementById("statusLine"),
   refreshButton: document.getElementById("refreshButton"),
+  settingsButton: document.getElementById("settingsButton"),
   newChatButton: document.getElementById("newChatButton"),
   historyRefreshButton: document.getElementById("historyRefreshButton"),
+  historyPanel: document.querySelector(".history-panel"),
   historyStatus: document.getElementById("historyStatus"),
   historyList: document.getElementById("historyList"),
   manualText: document.getElementById("manualText"),
@@ -26,5 +28,16 @@ export const dom = {
   retryButton: document.getElementById("retryButton"),
   openChatGptButton: document.getElementById("openChatGptButton"),
   cancelButton: document.getElementById("cancelButton"),
+  routingSummary: document.getElementById("routingSummary"),
+  settingsOverlay: document.getElementById("settingsOverlay"),
+  settingsCloseButton: document.getElementById("settingsCloseButton"),
+  settingsCancelButton: document.getElementById("settingsCancelButton"),
+  settingsSaveButton: document.getElementById("settingsSaveButton"),
+  settingsStatus: document.getElementById("settingsStatus"),
+  projectRoutingEnabled: document.getElementById("projectRoutingEnabled"),
+  projectNameInput: document.getElementById("projectNameInput"),
+  projectUrlInput: document.getElementById("projectUrlInput"),
+  projectCreateIfMissing: document.getElementById("projectCreateIfMissing"),
+  modelRequireExact: document.getElementById("modelRequireExact"),
   modelLabel: document.getElementById("modelLabel")
 };

@@ -18,7 +18,6 @@ const requiredFiles = [
   "background/runtime/project-history-controller.js",
   "background/runtime/request-controller.js",
   "background/runtime/settings-repository.js",
-  "background/debug/debug-dump-collector.js",
   "background/automation/offscreen-target.js",
   "background/automation/offscreen-frame-policy.js",
   "background/automation/project-target.js",
@@ -30,7 +29,6 @@ const requiredFiles = [
   "background/focus-emulation.js",
   "background/requests/store.js",
   "background/state-machine.js",
-  "background/adapter-repair.js",
   "content/chatgpt/00-namespace.js",
   "content/chatgpt/runtime/contracts.js",
   "content/chatgpt/runtime/messaging/messages.js",
@@ -99,14 +97,17 @@ const requiredFiles = [
   "sidepanel/sidepanel.css",
   "sidepanel/sidepanel.js",
   "sidepanel/runtime/app.js",
+  "sidepanel/runtime/attachments.js",
   "sidepanel/runtime/client.js",
   "sidepanel/runtime/conversation-thread.js",
   "sidepanel/runtime/dom.js",
   "sidepanel/runtime/project-history-state.js",
   "sidepanel/runtime/response-animation.js",
   "sidepanel/runtime/response-view.js",
+  "sidepanel/runtime/settings-dialog.js",
   "sidepanel/runtime/state.js",
   "shared/contracts.js",
+  "shared/error-messages.js",
   "shared/response-formatting.js"
 ];
 const javascriptFiles = requiredFiles.filter((file) => file.endsWith(".js"));
@@ -215,7 +216,10 @@ async function validateManifest() {
   assert(hostPermissions.has("https://chatgpt.com/*"), "Missing chatgpt.com host permission.");
   assert(hostPermissions.has("https://chat.openai.com/*"), "Missing chat.openai.com host permission.");
   assert(!hostPermissions.has("<all_urls>"), "Required <all_urls> host access is too broad for Dichrome's store package.");
-  assert(!optionalHostPermissions.includes("<all_urls>"), "Optional <all_urls> host access is too broad for Dichrome's store package.");
+  assert(
+    optionalHostPermissions.length === 1 && optionalHostPermissions[0] === "<all_urls>",
+    "Optional host access must be limited to <all_urls> for user-triggered screenshot capture."
+  );
   assert(
     redundantOptionalHostPermissions.length === 0,
     `Optional host permissions must not duplicate required host access: ${redundantOptionalHostPermissions.join(", ")}`
@@ -263,8 +267,8 @@ async function validateStoreReviewReadiness() {
   const optionalHostPermissions = manifest.optional_host_permissions || [];
 
   assert(
-    optionalHostPermissions.length === 0,
-    `Store package must not request optional host permissions unless a review note is added for them: ${optionalHostPermissions.join(", ")}`
+    JSON.stringify(optionalHostPermissions) === JSON.stringify(["<all_urls>"]),
+    `Store package may only request optional <all_urls> for user-triggered screenshot capture: ${optionalHostPermissions.join(", ")}`
   );
 
   assert(
@@ -275,7 +279,7 @@ async function validateStoreReviewReadiness() {
   const submissionNotes = await readFile(join(root, "docs/chrome-web-store-submission.md"), "utf8");
   const privacyPolicy = await readFile(join(root, "docs/privacy-policy.md"), "utf8");
 
-  for (const requiredPhrase of ["Permission Justifications", "Remote Code Statement", "Reviewer Test Instructions"]) {
+  for (const requiredPhrase of ["Permission Justifications", "Optional Screenshot Site Access", "Remote Code Statement", "Reviewer Test Instructions"]) {
     assert(submissionNotes.includes(requiredPhrase), `Chrome Web Store notes must include: ${requiredPhrase}`);
   }
 
@@ -291,16 +295,13 @@ async function validateNoUserFacingDebugControls() {
 
   for (const phrase of [
     "Routing, automation, and debug",
-    "Local repair",
     "Dump Debug",
     "Dump debug",
     "automation target",
     "debug dump",
-    "repairSuggestions",
     "eventLog",
     "automationVisibilityMode",
-    "modelSelectionEnabled",
-    "projectRoutingEnabled"
+    "modelSelectionEnabled"
   ]) {
     assert(!sidepanelHtml.includes(phrase), `Side panel HTML must not expose debug/repair controls: ${phrase}`);
     assert(!sidepanelDom.includes(phrase), `Side panel DOM bindings must not expose debug/repair controls: ${phrase}`);
@@ -321,7 +322,9 @@ async function validateNoRemoteCodeExecution() {
     assert(!/\beval\s*\(/.test(source), `${file} must not use eval().`);
     assert(!/\bnew\s+Function\s*\(/.test(source), `${file} must not use new Function().`);
     assert(!/\bimportScripts\s*\(/.test(source), `${file} must not load script code dynamically with importScripts().`);
-    assert(!/chrome\.permissions\.request\s*\(/.test(source), `${file} must not request runtime host permissions in the store package.`);
+    if (!["sidepanel/runtime/app.js", "sidepanel/runtime/attachments.js"].includes(file)) {
+      assert(!/chrome\.permissions\.request\s*\(/.test(source), `${file} must not request runtime host permissions in the store package.`);
+    }
   }
 }
 

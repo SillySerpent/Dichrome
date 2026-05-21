@@ -189,9 +189,6 @@ export function createRequestController({
     }
 
     const attachments = await restoreAttachmentPayloads(existing);
-    const adapterHints = message.useRepairHints && existing.repairSuggestions
-      ? existing.repairSuggestions.hints
-      : [];
 
     const isFollowupRetry = existing.conversationMode === "followup";
     const retry = await startRequest({
@@ -200,7 +197,6 @@ export function createRequestController({
       selectedText: existing.selectedText,
       manualText: existing.manualText,
       attachments,
-      adapterHints,
       parentRequestId: existing.parentRequestId || null,
       conversationMode: existing.conversationMode || "new",
       expectedConversationUrl: isFollowupRetry ? existing.chatConversationUrl || null : null,

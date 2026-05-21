@@ -208,6 +208,11 @@ h2 {
   padding: 10px;
   background: var(--surface);
   box-shadow: var(--shadow);
+  transition:
+    gap 220ms cubic-bezier(0.2, 0, 0, 1),
+    padding 220ms cubic-bezier(0.2, 0, 0, 1),
+    border-color 220ms ease,
+    box-shadow 220ms ease;
 }
 
 .history-toolbar {
@@ -249,6 +254,24 @@ h2 {
   overflow-x: hidden;
   scrollbar-gutter: stable;
   overflow-anchor: none;
+  transition:
+    max-height 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.history-panel.is-collapsed {
+  gap: 0;
+  padding: 7px 10px;
+  border-color: rgba(215, 222, 212, 0.9);
+  box-shadow: 0 1px 1px rgba(23, 32, 24, 0.05);
+}
+
+.history-panel.is-collapsed .history-list {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
 }
 
 .history-item {
@@ -1216,4 +1239,96 @@ pre {
 .response-content .math-bracket {
   font-size: 1.8em;
   line-height: 1;
+}
+
+.routing-summary {
+  overflow: hidden;
+  max-width: clamp(72px, 24vw, 128px);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-overlay {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  align-items: start;
+  padding: 54px 10px 10px;
+  background: rgba(23, 32, 24, 0.25);
+  backdrop-filter: blur(3px);
+}
+
+.settings-dialog {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 460px);
+  max-height: calc(100vh - 70px);
+  margin: 0 auto;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+  padding: 14px;
+  background: var(--surface);
+  box-shadow: 0 18px 48px rgba(23, 32, 24, 0.22);
+}
+
+.settings-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.settings-header p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-row {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings-row input[type="text"],
+.settings-row select {
+  min-height: 34px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 9px;
+  color: var(--text);
+  background: var(--surface-soft);
+}
+
+.settings-toggle-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.settings-toggle-row input {
+  width: 16px;
+  height: 16px;
+}
+
+.settings-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
 }

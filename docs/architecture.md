@@ -148,10 +148,10 @@ The ChatGPT adapter looks for:
 - Assistant response: explicit `data-message-author-role="assistant"` containers first, then bounded conversation-area fallbacks.
 - File input: `input[type=file]` accepting user-selected attachment files.
 - Fresh hidden project chats: prefer ChatGPT's visible `New chat` control when available, but fall back to direct navigation from `/g/<project>/c/<conversation>` to `/g/<project>/project` when the control is hidden or responsive-layout dependent.
-- Screenshot capture: the side panel uses `chrome.tabs.captureVisibleTab` through the user-triggered active-tab capture path. The extension does not request required or optional `<all_urls>` host access, so Chrome may reject capture when the active-tab grant is unavailable or the page is browser-internal.
+- Screenshot capture: the side panel uses `chrome.tabs.captureVisibleTab` through the user-triggered active-tab capture path. If Chrome has not granted capture access for the active site, the side panel requests optional site access for that active origin only. Browser-internal pages are rejected with a clear error.
 
 Response tracking is deliberately scoped. The script selects the newest assistant message after the send action and extracts content only from that message container. It does not stream arbitrary page text. Plain text is the canonical response payload; final HTML rendering, sanitization, markdown-ish formatting, and local math rendering are centralized in `shared/response-formatting.js` and applied by the side panel.
 
 ## Diagnostics Boundary
 
-Internal debug and repair modules remain in the repository for developer diagnosis and future isolated tooling, but the normal sidebar does not expose those controls. Any future developer surface must stay separate from the user-facing product UI and must not become a fallback automation route.
+Internal debug event handling remains limited to packaged runtime status events. Obsolete fallback automation experiments have been removed from the repository and are not available as alternate routes.
