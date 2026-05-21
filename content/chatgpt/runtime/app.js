@@ -14,6 +14,7 @@
   const WAIT_RUNTIME = RUNTIME.wait || {};
   const RESPONSE_EXTRACTION = RUNTIME.responseExtraction || {};
   const NETWORK_CAPTURE_RUNTIME = RUNTIME.networkCaptureClient || {};
+  const PROJECT_HISTORY_RUNTIME = RUNTIME.projectHistory || {};
   const OFFSCREEN_BRIDGE_RUNTIME = RUNTIME.offscreenBridge || {};
   const VISIBILITY_RUNTIME = RUNTIME.visibility || {};
   const DEBUG_DUMP_RUNTIME = RUNTIME.debugDump || {};
@@ -52,6 +53,8 @@
     cancel: "CHATGPT_AUTOMATION_CANCEL",
     navigate: "CHATGPT_AUTOMATION_NAVIGATE",
     run: "CHATGPT_AUTOMATION_RUN",
+    listProjectConversations: "CHATGPT_AUTOMATION_LIST_PROJECT_CONVERSATIONS",
+    loadProjectConversation: "CHATGPT_AUTOMATION_LOAD_PROJECT_CONVERSATION",
     event: "CHATGPT_AUTOMATION_EVENT",
     debug: "CHATGPT_AUTOMATION_DEBUG",
     offscreenFrameReady: "OFFSCREEN_FRAME_READY",
@@ -114,6 +117,8 @@
   } = DOM_UTILS;
   const {
     selectLatestAssistantResponseFromConversationData,
+    selectConversationMessagesFromConversationData,
+    extractConversationTitleFromConversationData,
     shouldPreferBackendResponse,
     isLowConfidenceDomResponse,
     isFinishedBackendStatus,
@@ -157,6 +162,7 @@
   const createComposerControlMethods = ADAPTER_COMPOSER_CONTROLS.createMethods;
   const createAssistantResponseMethods = ADAPTER_ASSISTANT_RESPONSE.createMethods;
   const createNetworkCaptureClient = NETWORK_CAPTURE_RUNTIME.createClient;
+  const createProjectHistoryController = PROJECT_HISTORY_RUNTIME.createController;
   const createOffscreenBridge = OFFSCREEN_BRIDGE_RUNTIME.createBridge;
   const createVisibilityController = VISIBILITY_RUNTIME.createController;
   const createDebugTools = DEBUG_DUMP_RUNTIME.createDebugTools;
@@ -167,8 +173,10 @@
   let activeRun = null;
   let automationRunner = null;
   let debugTools = null;
+  let activeHistoryRun = null;
   let networkCaptureClient = null;
   let offscreenBridge = null;
+  let projectHistoryController = null;
   let responseObserver = null;
   let visibilityController = null;
 
@@ -258,7 +266,70 @@
       return false;
     }
 
+    if (message.type === AUTOMATION_MESSAGES.listProjectConversations) {
+      return runHistoryCommand(sendResponse, (run) => projectHistoryController.listProjectConversations({
+        project: message.project,
+        cursor: message.cursor,
+        limit: message.limit
+      }, run));
+    }
+
+    if (message.type === AUTOMATION_MESSAGES.loadProjectConversation) {
+      return runHistoryCommand(sendResponse, (run) => projectHistoryController.loadProjectConversation({
+        project: message.project,
+        conversationId: message.conversationId,
+        conversationUrl: message.conversationUrl
+      }, run));
+    }
+
     return false;
+  }
+
+  function runHistoryCommand(sendResponse, producer) {
+    if (activeRun && !activeRun.finished) {
+      sendResponse({
+        ok: false,
+        error: "ChatGPT automation is already running in this target."
+      });
+      return false;
+    }
+
+    if (activeHistoryRun && !activeHistoryRun.finished) {
+      sendResponse({
+        ok: false,
+        error: "Project history is already loading in this target."
+      });
+      return false;
+    }
+
+    activeHistoryRun = {
+      requestId: "project-history",
+      cancelled: false,
+      finished: false
+    };
+
+    Promise.resolve()
+      .then(() => producer(activeHistoryRun))
+      .then((payload) => {
+        sendResponse({
+          ok: true,
+          ...payload
+        });
+      })
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: serializeError(error)
+        });
+      })
+      .finally(() => {
+        if (activeHistoryRun?.requestId === "project-history") {
+          activeHistoryRun.finished = true;
+          activeHistoryRun = null;
+        }
+      });
+
+    return true;
   }
 
   const ChatGptDomAdapter = createAdapterClass({
@@ -277,10 +348,12 @@
     DomAdapterError,
     clickElement,
     emitState,
+    extractProjectPathSegment,
     findAncestorContainingProjectSubmit,
     findVisible,
     getElementLabel,
     isDisabled,
+    isOffscreenAutomationFrame,
     isVisible,
     isProjectNameInputCandidate,
     isProjectNavigationTarget,
@@ -385,6 +458,18 @@
       isAllowedChatGptUrl,
       isNonAutomationChatGptFrame,
       normalizeText
+    });
+    projectHistoryController = createProjectHistoryController({
+      ChatGptDomAdapter,
+      DomAdapterError,
+      extractConversationKey,
+      extractConversationTitleFromConversationData,
+      extractProjectPathSegment,
+      getChatGptAccessToken,
+      isAllowedChatGptUrl,
+      normalizeProjectOptions,
+      normalizeText,
+      selectConversationMessagesFromConversationData
     });
     debugTools = createDebugTools({
       AUTOMATION_MESSAGES,
