@@ -26,6 +26,9 @@ export function createRuntimeMessageRouter(handlers) {
         case PANEL_MESSAGES.RUN_FOLLOWUP_REQUEST:
           return handlers.startFollowupRequest(message);
 
+        case PANEL_MESSAGES.RUN_HISTORY_FOLLOWUP_REQUEST:
+          return handlers.startHistoryFollowupRequest(message);
+
         case PANEL_MESSAGES.RETRY_REQUEST:
           return handlers.retryRequest(message);
 
@@ -34,6 +37,15 @@ export function createRuntimeMessageRouter(handlers) {
 
         case PANEL_MESSAGES.OPEN_CHATGPT_TAB:
           return handlers.openChatGptTabForRequest(message.requestId);
+
+        case PANEL_MESSAGES.OPEN_PROJECT_CONVERSATION:
+          return handlers.openProjectConversation(message);
+
+        case PANEL_MESSAGES.GET_PROJECT_CONVERSATIONS:
+          return handlers.getProjectConversations(message);
+
+        case PANEL_MESSAGES.GET_PROJECT_CONVERSATION:
+          return handlers.getProjectConversation(message);
 
         case PANEL_MESSAGES.GET_LOCAL_REPAIR_SETTINGS:
           return handlers.getLocalRepairSettings();
