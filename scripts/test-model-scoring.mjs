@@ -111,6 +111,22 @@ assert(scoring.scoreModelOptionCandidate(createElement({
   label: "GPT-5.5 Instant Fast answers"
 }), "Instant"));
 
+assert(scoring.scoreProjectCandidate(createElement({
+  tagName: "DIV",
+  label: "Dichrome",
+  attributes: {
+    role: "button"
+  }
+}), "Dichrome") > 0);
+
+assert.equal(scoring.scoreProjectCandidate(createElement({
+  tagName: "BUTTON",
+  label: "Open project options for Dichrome",
+  attributes: {
+    "aria-label": "Open project options for Dichrome"
+  }
+}), "Dichrome"), 0);
+
 console.log("Model scoring tests passed.");
 
 function createElement({
