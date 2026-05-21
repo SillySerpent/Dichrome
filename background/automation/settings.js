@@ -5,6 +5,7 @@ import {
 } from "../../shared/contracts.js";
 
 const MAX_PROJECT_NAME_LENGTH = 80;
+const MAX_PROJECT_SEGMENT_LENGTH = 160;
 const MAX_MODEL_LABEL_LENGTH = 80;
 const MIN_AUTOMATION_WINDOW_WIDTH = 420;
 const MAX_AUTOMATION_WINDOW_WIDTH = 900;
@@ -23,7 +24,9 @@ export function getDefaultAutomationSettings(extensionName) {
     project: {
       enabled: true,
       name: sanitizeText(extensionName, MAX_PROJECT_NAME_LENGTH) || "Dichrome",
-      createIfMissing: true
+      createIfMissing: true,
+      segment: "",
+      url: ""
     },
     conversation: {
       startNewChat: true
@@ -54,7 +57,8 @@ export function sanitizeAutomationSettings(value, extensionName) {
     project: {
       enabled: Boolean(project.enabled ?? defaults.project.enabled),
       name: sanitizeText(project.name, MAX_PROJECT_NAME_LENGTH) || defaults.project.name,
-      createIfMissing: Boolean(project.createIfMissing ?? defaults.project.createIfMissing)
+      createIfMissing: Boolean(project.createIfMissing ?? defaults.project.createIfMissing),
+      ...sanitizeProjectTarget(project)
     },
     conversation: {
       startNewChat: Boolean(source.conversation?.startNewChat ?? defaults.conversation.startNewChat)
@@ -164,6 +168,46 @@ function sanitizeText(value, maxLength) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function sanitizeProjectTarget(project) {
+  const segment = sanitizeProjectSegment(project.segment || extractProjectSegmentFromUrl(project.url));
+  const origin = extractAllowedChatGptOrigin(project.url) || "https://chatgpt.com";
+
+  return {
+    segment,
+    url: segment ? `${origin}/g/${segment}/project` : ""
+  };
+}
+
+function sanitizeProjectSegment(value) {
+  const text = sanitizeText(value, MAX_PROJECT_SEGMENT_LENGTH);
+
+  return /^g-p-[a-z0-9-]+$/i.test(text) ? text : "";
+}
+
+function extractProjectSegmentFromUrl(value) {
+  try {
+    const match = new URL(value).pathname.match(/^\/g\/(g-p-[^/]+)/i);
+
+    return match?.[1] || "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function extractAllowedChatGptOrigin(value) {
+  try {
+    const url = new URL(value);
+
+    if (url.protocol === "https:" && (url.hostname === "chatgpt.com" || url.hostname === "chat.openai.com")) {
+      return url.origin;
+    }
+  } catch (_error) {
+    return "";
+  }
+
+  return "";
 }
 
 function clampInteger(value, min, max, fallback) {
