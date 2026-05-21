@@ -32,7 +32,17 @@ export async function getRepairSettings() {
 }
 
 export async function setAutomationSettings(settings, extensionName) {
-  const sanitized = sanitizeAutomationSettings(settings, extensionName);
+  const result = await chrome.storage.local.get(AUTOMATION_SETTINGS_KEY);
+  const existing = sanitizeAutomationSettings(
+    result[AUTOMATION_SETTINGS_KEY] || getDefaultAutomationSettings(extensionName),
+    extensionName
+  );
+  const incomingProject = settings?.project && typeof settings.project === "object" ? settings.project : {};
+  const mergedProject = preserveExistingProjectTarget(incomingProject, existing.project, extensionName);
+  const sanitized = sanitizeAutomationSettings({
+    ...settings,
+    project: mergedProject
+  }, extensionName);
 
   await chrome.storage.local.set({
     [AUTOMATION_SETTINGS_KEY]: sanitized
@@ -60,4 +70,25 @@ export async function getPublicAutomationSettings(extensionName) {
     ...settings,
     automationSession: summarizeAutomationSession(session)
   };
+}
+
+function preserveExistingProjectTarget(incomingProject, existingProject, extensionName) {
+  const incoming = sanitizeAutomationSettings({
+    project: incomingProject
+  }, extensionName).project;
+
+  if (
+    existingProject?.segment
+    && incoming.name === existingProject.name
+    && !incomingProject.segment
+    && !incomingProject.url
+  ) {
+    return {
+      ...incomingProject,
+      segment: existingProject.segment,
+      url: existingProject.url
+    };
+  }
+
+  return incomingProject;
 }
