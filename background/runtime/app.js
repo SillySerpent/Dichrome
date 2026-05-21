@@ -32,6 +32,7 @@ import {
   summarizeAutomationSession,
   updateSessionConversation
 } from "../automation/session.js";
+import { resolveProjectTarget } from "../automation/project-target.js";
 import {
   getOffscreenFrameStatus,
   handleOffscreenFramePort,
@@ -44,6 +45,7 @@ import {
 import {
   findOrCreateChatGptTab,
   getAutomationTargetType,
+  getExistingChatGptAutomationTab,
   getUsableChatGptTab,
   navigateTabToConversation,
   prepareAutomationTab,
@@ -54,7 +56,8 @@ import {
   CHATGPT_CONTENT_SCRIPT_FILES,
   getTabId,
   isChatGptUrl,
-  serializeError
+  serializeError,
+  sleep
 } from "../constants.js";
 import {
   appendEvent,
@@ -80,12 +83,13 @@ import {
   setRepairSettings
 } from "./settings-repository.js";
 import { createContextMenuController } from "./context-menu.js";
+import { buildChatOptionsForAutomationRun } from "./conversation-run-options.js";
 import { createRuntimeMessageRouter } from "./message-router.js";
+import { createProjectHistoryController } from "./project-history-controller.js";
 import { createRequestController } from "./request-controller.js";
+import { getFreshConversationUrl } from "./fresh-conversation-url.js";
 import { dumpDebugState as collectDebugDumpState } from "../debug/debug-dump-collector.js";
-import {
-  CHATGPT_AUTOMATION_MESSAGES
-} from "../../shared/contracts.js";
+import { CHATGPT_AUTOMATION_MESSAGES } from "../../shared/contracts.js";
 
 const EXTENSION_NAME = chrome.runtime.getManifest().name;
 const contextMenuController = createContextMenuController({
@@ -99,6 +103,7 @@ const contextMenuController = createContextMenuController({
 const requestController = createRequestController({
   appendEvent,
   captureVisibleTabScreenshot,
+  clearAutomationRequestActive,
   disableFocusEmulationForRequest,
   findOrCreateChatGptTab,
   getProfile,
@@ -107,9 +112,27 @@ const requestController = createRequestController({
   normalizeText,
   queryBestSourceTab,
   restoreAttachmentPayloads,
+  sendMessageToOffscreenFrame,
   sendMessageToTab,
   startRequest,
   updateRequest
+});
+const projectHistoryController = createProjectHistoryController({
+  disableFocusEmulationForRequest,
+  enableFocusEmulation,
+  findOrCreateChatGptTab,
+  getAutomationSettings: () => getResolvedAutomationSettings(),
+  getExistingChatGptAutomationTab,
+  getSourceFocusTarget,
+  injectAutomationScript,
+  navigateTabToConversation,
+  prepareAutomationTab,
+  probeOffscreenAutomationTarget,
+  queryBestSourceTab,
+  restoreSourceFocus,
+  sendMessageToOffscreenFrame,
+  sendMessageToTab,
+  setAutomationSettings: (settings) => setAutomationSettings(settings, EXTENSION_NAME)
 });
 const runtimeMessageRouter = createRuntimeMessageRouter({
   getProfiles: () => ({
@@ -122,9 +145,13 @@ const runtimeMessageRouter = createRuntimeMessageRouter({
   startScreenshotRequest: requestController.startScreenshotRequest,
   captureScreenshotAttachment: requestController.captureScreenshotAttachment,
   startFollowupRequest: requestController.startFollowupRequest,
+  startHistoryFollowupRequest: requestController.startHistoryFollowupRequest,
   retryRequest: requestController.retryRequest,
   cancelRequest: requestController.cancelRequest,
   openChatGptTabForRequest: requestController.openChatGptTabForRequest,
+  openProjectConversation: projectHistoryController.openProjectConversation,
+  getProjectConversations: projectHistoryController.getProjectConversations,
+  getProjectConversation: projectHistoryController.getProjectConversation,
   getLocalRepairSettings: async () => ({
     settings: await getRepairSettings()
   }),
@@ -133,13 +160,14 @@ const runtimeMessageRouter = createRuntimeMessageRouter({
     settings: await getPublicAutomationSettings(EXTENSION_NAME)
   }),
   getAutomationSession: async () => ({
-    automationSession: summarizeAutomationSession(await getAutomationSession())
+    automationSession: summarizeAutomationSession(await getReconciledAutomationSession())
   }),
   setChatGptAutomationSettings: (settings) => setAutomationSettings(settings, EXTENSION_NAME),
   dumpDebug: (message) => collectDebugDumpState({
     requestId: message.requestId,
     extensionName: EXTENSION_NAME,
     getAutomationSettings: () => getAutomationSettings(EXTENSION_NAME),
+    getAutomationSession: getReconciledAutomationSession,
     getRepairSettings,
     injectAutomationScript,
     sendMessageToTab
@@ -267,11 +295,11 @@ async function orchestrateRequest(requestId, {
       throw new Error("Request disappeared before orchestration started.");
     }
 
-    const automationSettings = mergeAutomationSettings(
+    const automationSettings = await resolveAutomationSettingsProjectTarget(mergeAutomationSettings(
       await getAutomationSettings(EXTENSION_NAME),
       chatOptionsOverride,
       EXTENSION_NAME
-    );
+    ));
     const visibility = automationSettings.visibility;
     const sourceFocus = getSourceFocusTarget(request.source);
     const hiddenCapability = usesHiddenAutomation(visibility)
@@ -305,13 +333,25 @@ async function orchestrateRequest(requestId, {
         sourceFocus,
         visibility
       });
-    const chatTab = await prepareAutomationTab(discoveredChatTab);
+    let chatTab = await prepareAutomationTab(discoveredChatTab);
 
     if (request.conversationMode === "followup") {
       if (request.expectedConversationUrl) {
         await navigateTabToConversation(chatTab.id, request.expectedConversationUrl);
       } else if (!preferredChatTabId || chatTab.id !== preferredChatTabId) {
         throw new Error("The previous request has no saved ChatGPT conversation URL, and its original ChatGPT tab is not available. The extension will not start a new chat for this follow-up.");
+      }
+    } else {
+      const freshConversationUrl = getFreshConversationUrl(automationSettings, chatTab.url || chatTab.pendingUrl || "");
+
+      if (freshConversationUrl) {
+        await updateRequest(requestId, (draft) => {
+          appendEvent(draft, "Preparing a fresh ChatGPT composer.");
+        });
+        chatTab = await navigateTabToConversation(chatTab.id, freshConversationUrl);
+        await updateRequest(requestId, (draft) => {
+          appendEvent(draft, "Fresh ChatGPT composer is ready.");
+        });
       }
     }
 
@@ -365,6 +405,33 @@ async function orchestrateRequest(requestId, {
   }
 }
 
+async function getResolvedAutomationSettings() {
+  return resolveAutomationSettingsProjectTarget(await getAutomationSettings(EXTENSION_NAME));
+}
+
+async function resolveAutomationSettingsProjectTarget(settings) {
+  if (!settings?.project?.enabled || !settings.project.name) {
+    return settings;
+  }
+
+  const project = await resolveProjectTarget(settings.project, {
+    getAutomationSession,
+    queryTabs: () => chrome.tabs.query({})
+  });
+
+  if (project.segment && project.segment !== settings.project.segment) {
+    await setAutomationSettings({
+      ...settings,
+      project
+    }, EXTENSION_NAME).catch(() => null);
+  }
+
+  return {
+    ...settings,
+    project
+  };
+}
+
 async function runOffscreenAutomationTarget({
   request,
   requestId,
@@ -379,7 +446,7 @@ async function runOffscreenAutomationTarget({
 
     await navigateOffscreenFrameToConversation(request.expectedConversationUrl);
   } else {
-    const freshHiddenUrl = getFreshHiddenConversationUrl(automationSettings);
+    const freshHiddenUrl = getFreshConversationUrl(automationSettings, getOffscreenFrameStatus()?.frame?.href || "");
 
     if (freshHiddenUrl) {
       await updateRequest(requestId, (draft) => {
@@ -421,41 +488,6 @@ async function runOffscreenAutomationTarget({
   }
 }
 
-function getFreshHiddenConversationUrl(automationSettings) {
-  if (automationSettings?.conversation?.startNewChat === false) {
-    return null;
-  }
-
-  const href = getOffscreenFrameStatus()?.frame?.href || "";
-
-  if (!href) {
-    return null;
-  }
-
-  try {
-    const url = new URL(href);
-
-    // Hidden-mode model changes can leave ChatGPT's client-side router with a
-    // stale /c/... conversation mounted even when the visible URL later looks
-    // project-scoped. For every non-follow-up request, force the hidden frame
-    // through the global fresh composer first; the normal project routing step
-    // inside the content adapter will then move it back into the configured
-    // project. This is slower than reusing /project in place, but prevents a
-    // model switch from continuing the previous conversation.
-    if (automationSettings?.project?.enabled) {
-      return `${url.origin}/`;
-    }
-
-    if (/\/c\//i.test(url.pathname)) {
-      return `${url.origin}/`;
-    }
-  } catch (_error) {
-    return null;
-  }
-
-  return null;
-}
-
 function buildAutomationRunRequest({
   request,
   attachments,
@@ -469,21 +501,11 @@ function buildAutomationRunRequest({
     prompt: request.prompt,
     attachments,
     adapterHints,
-    chatOptions: {
-      ...automationSettings,
-      visibility: {
-        ...automationSettings.visibility,
-        mode: visibilityModeOverride || automationSettings.visibility.mode
-      },
-      conversation: {
-        ...automationSettings.conversation,
-        mode: request.conversationMode === "followup" ? "continue" : "new",
-        startNewChat: request.conversationMode === "followup"
-          ? false
-          : automationSettings.conversation.startNewChat,
-        expectedConversationUrl: request.expectedConversationUrl || null
-      }
-    }
+    chatOptions: buildChatOptionsForAutomationRun({
+      automationSettings,
+      request,
+      visibilityModeOverride
+    })
   };
 }
 
@@ -511,6 +533,30 @@ async function handleAutomationEvent(message, sender) {
     htmlLength: typeof message.html === "string" ? message.html.length : null,
     detail: message.detail || null
   });
+
+  const existingRequest = await getRequest(requestId).catch(() => null);
+
+  if (!existingRequest) {
+    return;
+  }
+
+  if (isTerminalRequest(existingRequest)) {
+    if (
+      message.state === REQUEST_STATES.RESPONSE_COMPLETE
+      || message.state === REQUEST_STATES.ERROR_STATE
+    ) {
+      await disableFocusEmulationForRequest(requestId).catch(() => null);
+      await clearAutomationRequestActive(requestId).catch(() => null);
+    }
+
+    console.debug("[ChatGPT Relay] Ignoring automation event for terminal request", {
+      requestId,
+      existingState: existingRequest.state,
+      incomingState: message.state || null,
+      detail: message.detail || null
+    });
+    return;
+  }
 
   await updateRequest(requestId, (draft) => {
     if (sender.tab?.id) {
@@ -590,7 +636,7 @@ async function handleAutomationEvent(message, sender) {
 async function handleFocusEmulationDetached({ requestId, reason }) {
   const request = await getRequest(requestId).catch(() => null);
 
-  if (!request || request.completedAt || request.state === REQUEST_STATES.RESPONSE_COMPLETE || request.state === REQUEST_STATES.ERROR_STATE) {
+  if (!request || isTerminalRequest(request)) {
     return;
   }
 
@@ -603,7 +649,7 @@ async function handleFocusEmulationDetached({ requestId, reason }) {
 async function handleOffscreenFrameDisconnected({ requestId, reason }) {
   const request = await getRequest(requestId).catch(() => null);
 
-  if (!request || request.completedAt || request.state === REQUEST_STATES.RESPONSE_COMPLETE || request.state === REQUEST_STATES.ERROR_STATE) {
+  if (!request || isTerminalRequest(request)) {
     return;
   }
 
@@ -680,6 +726,30 @@ async function markRequestError(requestId, error) {
   });
 }
 
+function isTerminalRequest(request) {
+  return Boolean(
+    request?.completedAt
+    || request?.state === REQUEST_STATES.RESPONSE_COMPLETE
+    || request?.state === REQUEST_STATES.ERROR_STATE
+  );
+}
+
+async function getReconciledAutomationSession() {
+  const session = await getAutomationSession();
+
+  if (!session.activeRequestId) {
+    return session;
+  }
+
+  const request = await getRequest(session.activeRequestId).catch(() => null);
+
+  if (!request || isTerminalRequest(request)) {
+    return clearAutomationRequestActive(session.activeRequestId).catch(() => session);
+  }
+
+  return session;
+}
+
 async function openSidePanel(tabId) {
   if (!tabId || !chrome.sidePanel?.open) {
     return;
@@ -690,6 +760,59 @@ async function openSidePanel(tabId) {
   }).catch(() => null);
 }
 
+const MESSAGE_RETRY_CONFIG = {
+  maxAttempts: 3,
+  initialDelayMs: 200,
+  backoffMultiplier: 2,
+  maxDelayMs: 2000
+};
+
 async function sendMessageToTab(tabId, message) {
-  return chrome.tabs.sendMessage(tabId, message);
+  return sendMessageToTabWithRetry(tabId, message, MESSAGE_RETRY_CONFIG);
+}
+
+async function sendMessageToTabWithRetry(tabId, message, config = MESSAGE_RETRY_CONFIG, attemptNumber = 0) {
+  try {
+    // Ensure tab still exists
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) {
+      throw new Error("Tab no longer exists.");
+    }
+
+    // Don't wait for tab to be fully loaded on retries - just ensure it's there
+    // but wait a bit for it to recover from bfcache
+    if (attemptNumber > 0 && tab.status !== "complete") {
+      await sleep(300);
+    }
+
+    return await chrome.tabs.sendMessage(tabId, message);
+  } catch (error) {
+    const errorMessage = error?.message || String(error);
+    const isBfcacheError = errorMessage.includes("back/forward cache");
+    const isDisconnectedError = errorMessage.includes("Receiving end does not exist") ||
+                               errorMessage.includes("The message port closed before") ||
+                               errorMessage.includes("could not establish connection");
+
+    // Retry on bfcache or disconnection errors
+    if ((isBfcacheError || isDisconnectedError) && attemptNumber < config.maxAttempts) {
+      const delayMs = Math.min(
+        config.initialDelayMs * Math.pow(config.backoffMultiplier, attemptNumber),
+        config.maxDelayMs
+      );
+
+      console.info("[ChatGPT Relay] Message to tab failed, retrying in " + delayMs + "ms", {
+        tabId,
+        attempt: attemptNumber + 1,
+        maxAttempts: config.maxAttempts,
+        error: errorMessage
+      });
+
+      // Sleep before retry to allow page to recover
+      await sleep(delayMs);
+
+      return sendMessageToTabWithRetry(tabId, message, config, attemptNumber + 1);
+    }
+
+    throw error;
+  }
 }
