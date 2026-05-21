@@ -19,6 +19,17 @@
     </header>
 
     <main class="chat-shell">
+      <section class="history-panel" aria-label="Project conversations">
+        <div class="history-toolbar">
+          <div class="history-title">
+            <strong>Project history</strong>
+            <span id="historyStatus">Loading automatically</span>
+          </div>
+          <button id="historyRefreshButton" class="tiny-button" type="button">Refresh</button>
+        </div>
+        <div id="historyList" class="history-list hidden" aria-label="Project conversation list"></div>
+      </section>
+
       <section id="chatMessages" class="chat-messages" aria-label="Conversation messages">
         <div class="empty-chat">
           <strong>Start a chat</strong>
