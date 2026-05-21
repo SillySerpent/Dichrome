@@ -12,6 +12,8 @@ const defaults = getDefaultAutomationSettings("ChatGPT Page Relay Prototype");
 assert.equal(defaults.project.enabled, true);
 assert.equal(defaults.project.name, "ChatGPT Page Relay Prototype");
 assert.equal(defaults.project.createIfMissing, true);
+assert.equal(defaults.project.segment, "");
+assert.equal(defaults.project.url, "");
 assert.equal(defaults.conversation.startNewChat, true);
 assert.equal(defaults.visibility.schemaVersion, VISIBILITY_SETTINGS_VERSION);
 assert.equal(defaults.visibility.mode, VISIBILITY_MODES.HIDDEN);
@@ -45,7 +47,9 @@ assert.deepEqual(sanitized, {
   project: {
     enabled: false,
     name: "My Project",
-    createIfMissing: false
+    createIfMissing: false,
+    segment: "",
+    url: ""
   },
   conversation: {
     startNewChat: false
@@ -62,6 +66,18 @@ assert.deepEqual(sanitized, {
     requireExact: true
   }
 });
+
+const sanitizedProjectTarget = sanitizeAutomationSettings({
+  project: {
+    enabled: true,
+    name: "Dichrome",
+    createIfMissing: true,
+    url: "https://chatgpt.com/g/g-p-target-dichrome/project"
+  }
+}, "Fallback Name");
+
+assert.equal(sanitizedProjectTarget.project.segment, "g-p-target-dichrome");
+assert.equal(sanitizedProjectTarget.project.url, "https://chatgpt.com/g/g-p-target-dichrome/project");
 
 const migrated = sanitizeAutomationSettings({
   visibility: {
