@@ -27,6 +27,7 @@ This is intentionally UI-driven. It does not use the OpenAI API, does not requir
 - `shared/response-formatting.js` - response normalization, markdown-ish rendering, HTML sanitization, and deterministic local math rendering.
 - `background/service-worker.js` - small manifest-loaded entrypoint for the background runtime.
 - `background/runtime/*` - listener orchestration, runtime message routing, request control, and settings repositories.
+- `background/runtime/project-history-controller.js` - project-scoped conversation history list/load/open routing through the canonical automation target.
 - `background/debug/debug-dump-collector.js` - debug dump assembly across background, content, offscreen, and tab state.
 - `background/automation/settings.js` - stored ChatGPT project-routing, visibility, and model-selection settings.
 - `background/automation/session.js` - canonical automation target/session storage and migration from the legacy remembered tab.
@@ -40,6 +41,7 @@ This is intentionally UI-driven. It does not use the OpenAI API, does not requir
 - `background/adapter-repair.js` - optional local-model repair prompt, response parsing, and mapping validation.
 - `content/chatgpt/*` - ordered injected ChatGPT-side automation entrypoints.
 - `content/chatgpt/runtime/*` - ChatGPT-side runtime layers for contracts, messaging, URL/frame decisions, errors, adapter heuristics, response extraction, and the automation runner.
+- `content/chatgpt/runtime/history/project-history.js` - project-scoped history listing and selected conversation loading through ChatGPT's signed-in web session.
 - `sidepanel/*` - side panel HTML/CSS and entrypoint.
 - `sidepanel/runtime/*` - side panel client, DOM lookup, state helpers, response view, response animation, and app orchestration.
 - `docs/module-map.md` - maintainer map for module ownership and future extraction boundaries.
@@ -85,7 +87,7 @@ The automation is split deliberately:
 
 The ChatGPT adapter avoids whole-page scraping for response extraction. It looks for assistant message containers using semantic attributes first, then bounded conversation-area fallbacks. Once a candidate response is selected, the observer only tracks that message's content. Completion requires several signals: response stability, no visible stop-generation control, an enabled send button, and no detected error UI.
 
-The content runtime is layered under `content/chatgpt/runtime/`: `adapter/` owns ChatGPT DOM heuristics, `response/` owns response extraction and observation, `network/` owns main-world response capture, `offscreen/` owns the hidden iframe bridge, `page/` owns visibility checks, `debug/` owns content-side dumps and event payloads, and `runner/` owns the request lifecycle. `runtime/app.js` composes those modules and registers Chrome message listeners.
+The content runtime is layered under `content/chatgpt/runtime/`: `adapter/` owns ChatGPT DOM heuristics, `response/` owns response extraction and observation, `history/` owns project-scoped conversation history loading, `network/` owns main-world response capture, `offscreen/` owns the hidden iframe bridge, `page/` owns visibility checks, `debug/` owns content-side dumps and event payloads, and `runner/` owns the request lifecycle. `runtime/app.js` composes those modules and registers Chrome message listeners.
 
 The side panel stores plain text as the canonical response payload and renders final HTML through `shared/response-formatting.js`. The renderer preserves common generated formatting such as paragraphs, lists, task lists, tables, ChatGPT writing blocks, blockquotes, inline code, code blocks, strikethrough, and common local math expressions while removing scripts, forms, buttons, iframes, event attributes, and unsafe links. If a math expression cannot be parsed confidently, it is shown as escaped source in a styled fallback instead of malformed HTML.
 
@@ -114,6 +116,8 @@ Project routing is enabled by default and uses the extension name as the project
 If project routing is enabled and the project cannot be selected or created, the request fails before the prompt is sent. That is intentional because sending outside the project would create the main-history clutter this feature is meant to avoid.
 
 The project picker avoids sidebar overflow/menu controls and clicks the left side of the project navigation row. This is important because ChatGPT exposes a separate three-dot project menu beside each project.
+
+The side panel loads project history automatically for the configured project. Loading history resolves and remembers the concrete ChatGPT project id from open project tabs, saved project URLs, or the current automation target before falling back to name-based project routing with project creation disabled. It then lists conversations returned by project-scoped history endpoints, regular history responses that explicitly match that project id, or real project conversation links already exposed on the project page. It does not click guessed project-page rows and does not create a new browser tab just to load history; if hidden history loading is unavailable, it uses an existing automation target or fails clearly. Selecting a conversation fetches its backend conversation mapping, renders the newest messages first, and reveals earlier messages in batches as the side-panel chat scrolls upward. Sending while a loaded history conversation is active continues that conversation URL; pressing `New` clears the loaded conversation and starts a separate fresh chat on the next send.
 
 ## Conversation Mode
 
