@@ -9,6 +9,8 @@
     cancel: contractMessages.cancel || "CHATGPT_AUTOMATION_CANCEL",
     navigate: contractMessages.navigate || "CHATGPT_AUTOMATION_NAVIGATE",
     run: contractMessages.run || "CHATGPT_AUTOMATION_RUN",
+    listProjectConversations: contractMessages.listProjectConversations || "CHATGPT_AUTOMATION_LIST_PROJECT_CONVERSATIONS",
+    loadProjectConversation: contractMessages.loadProjectConversation || "CHATGPT_AUTOMATION_LOAD_PROJECT_CONVERSATION",
     event: contractMessages.event || "CHATGPT_AUTOMATION_EVENT",
     debug: contractMessages.debug || "CHATGPT_AUTOMATION_DEBUG",
     offscreenFrameReady: contractMessages.offscreenFrameReady || "OFFSCREEN_FRAME_READY",
