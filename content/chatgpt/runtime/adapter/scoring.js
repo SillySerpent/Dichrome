@@ -75,6 +75,7 @@
 
     return tag === "A"
       || role === "link"
+      || role === "button"
       || role === "treeitem"
       || element.hasAttribute("aria-current")
       || (tag === "BUTTON" && !isProjectOverflowControl(element));
