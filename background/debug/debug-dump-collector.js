@@ -4,7 +4,7 @@ import {
   sendMessageToOffscreenFrame
 } from "../automation/offscreen-target.js";
 import {
-  getAutomationSession,
+  getAutomationSession as readAutomationSession,
   summarizeAutomationSession
 } from "../automation/session.js";
 import { getAutomationWindowState } from "../automation/tab-target.js";
@@ -26,6 +26,7 @@ export async function dumpDebugState({
   requestId,
   extensionName,
   getAutomationSettings,
+  getAutomationSession = readAutomationSession,
   getRepairSettings,
   injectAutomationScript,
   sendMessageToTab
