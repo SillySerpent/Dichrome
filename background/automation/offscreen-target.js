@@ -101,6 +101,8 @@ export function handleOffscreenFramePort(port) {
   });
 
   if (previousPort) {
+    void notifyOffscreenFrameReplacedDuringActiveRequest();
+
     try {
       previousPort.disconnect();
     } catch (_error) {
@@ -563,5 +565,22 @@ async function notifyOffscreenFrameDisconnectedIfStillGone() {
   offscreenFrameDisconnectHandler({
     requestId: session.activeRequestId,
     reason: "Hidden internal ChatGPT frame disconnected."
+  });
+}
+
+async function notifyOffscreenFrameReplacedDuringActiveRequest() {
+  if (!offscreenFrameDisconnectHandler) {
+    return;
+  }
+
+  const session = await getAutomationSession().catch(() => null);
+
+  if (!session?.activeRequestId) {
+    return;
+  }
+
+  offscreenFrameDisconnectHandler({
+    requestId: session.activeRequestId,
+    reason: "Hidden internal ChatGPT frame reloaded during the active request."
   });
 }
