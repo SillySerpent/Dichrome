@@ -18,7 +18,7 @@ npm test
 npm run package
 ```
 
-Upload the ZIP created under `.dist/`, not the whole repository. The package script includes only runtime extension files required by Chrome:
+Upload `.dist/chrome/dichrome-<version>-chrome.zip`, not the whole repository or the Firefox ZIP. The package script includes only runtime extension files required by Chrome:
 
 - `manifest.json`
 - `background/`

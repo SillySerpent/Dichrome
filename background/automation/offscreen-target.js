@@ -24,6 +24,7 @@ import {
 } from "../../shared/contracts.js";
 
 const OFFSCREEN_DOCUMENT_PATH = "offscreen/automation-host.html";
+const FIREFOX_SIDEBAR_DOCUMENT_PATH = "sidepanel/sidepanel.html";
 const OFFSCREEN_HOST_READY_TIMEOUT_MS = CHATGPT_LOAD_TIMEOUT_MS;
 const OFFSCREEN_FRAME_BRIDGE_TIMEOUT_MS = 15000;
 const OFFSCREEN_FRAME_COMMAND_TIMEOUT_MS = 8000;
@@ -44,7 +45,7 @@ export function handleOffscreenFramePort(port) {
     return false;
   }
 
-  if (port.sender?.tab?.id) {
+  if (port.sender?.tab?.id && hasChromeOffscreenApi()) {
     port.disconnect();
     return false;
   }
@@ -120,8 +121,8 @@ export async function probeOffscreenAutomationTarget() {
     return session.offscreenCapability;
   }
 
-  if (!chrome.offscreen?.createDocument) {
-    return recordUnsupported("Chrome offscreen API is unavailable.");
+  if (!hasChromeOffscreenApi()) {
+    return probeSidebarAutomationTarget();
   }
 
   try {
@@ -181,6 +182,71 @@ export async function probeOffscreenAutomationTarget() {
   }
 }
 
+async function probeSidebarAutomationTarget() {
+  try {
+    await enableOffscreenFramePolicyOverride();
+
+    const response = await waitForOffscreenHostProbe({
+      hostTimeoutMessage: "Timed out waiting for the Firefox sidebar automation host. Open the Dichrome sidebar, then retry."
+    });
+
+    if (!response?.supported) {
+      return recordUnsupported(response?.failureReason || "ChatGPT could not be loaded inside the Firefox sidebar automation host.");
+    }
+
+    let frameStatus = await waitForOffscreenFrameBridge();
+
+    if (!frameStatus.supported && await reloadOffscreenChatGptFrame()) {
+      const reloadProbe = await waitForOffscreenHostProbe({
+        hostTimeoutMessage: "Timed out waiting for the Firefox sidebar automation host after reloading ChatGPT."
+      });
+
+      if (!reloadProbe?.supported) {
+        return recordUnsupported(reloadProbe?.failureReason || "ChatGPT could not be reloaded inside the Firefox sidebar automation host.");
+      }
+
+      frameStatus = await waitForOffscreenFrameBridge({
+        afterReload: true
+      });
+    }
+
+    if (!frameStatus.supported && shouldRetryWithBroadFramePolicy()) {
+      const fallbackPolicy = await enableBroadOffscreenFramePolicyOverride("Firefox sidebar host loaded ChatGPT but the frame bridge did not connect; broadened to all ChatGPT subframes for this extension session.");
+
+      if (fallbackPolicy.enabled && await reloadOffscreenChatGptFrame()) {
+        const fallbackProbe = await waitForOffscreenHostProbe({
+          hostTimeoutMessage: "Timed out waiting for the Firefox sidebar automation host after broadening the frame-policy override."
+        });
+
+        if (!fallbackProbe?.supported) {
+          return recordUnsupported(fallbackProbe?.failureReason || "ChatGPT could not be reloaded after broadening the frame-policy override.");
+        }
+
+        frameStatus = await waitForOffscreenFrameBridge({
+          afterReload: true,
+          afterFramePolicyFallback: true
+        });
+      }
+    }
+
+    if (!frameStatus.supported) {
+      return recordUnsupported(frameStatus.failureReason);
+    }
+
+    const capability = {
+      supported: true,
+      checkedAt: new Date().toISOString(),
+      failureReason: null
+    };
+
+    await setOffscreenCapability(capability);
+    await markAutomationTargetReady(getOffscreenTargetDescriptor());
+    return capability;
+  } catch (error) {
+    return recordUnsupported(error?.message || String(error));
+  }
+}
+
 export function getOffscreenFrameStatus() {
   return {
     connected: hasConnectedOffscreenFrame(),
@@ -198,7 +264,7 @@ export async function getOffscreenHostStatus() {
   if (response?.target !== "offscreen-automation-host") {
     return {
       connected: false,
-      failureReason: "Offscreen automation host did not respond."
+      failureReason: "Hidden internal automation host did not respond."
     };
   }
 
@@ -304,7 +370,7 @@ export function getOffscreenTargetDescriptor() {
     targetType: AUTOMATION_TARGET_TYPES.OFFSCREEN_FRAME,
     tabId: null,
     windowId: null,
-    offscreenDocumentUrl: getOffscreenDocumentUrl(),
+    offscreenDocumentUrl: getAutomationHostDocumentUrl(),
     lastKnownUrl: CHATGPT_HOME_URL
   };
 }
@@ -337,7 +403,9 @@ async function ensureOffscreenDocument() {
   await creatingOffscreenDocument;
 }
 
-async function waitForOffscreenHostProbe() {
+async function waitForOffscreenHostProbe({
+  hostTimeoutMessage = "Timed out waiting for the offscreen ChatGPT host probe."
+} = {}) {
   const startedAt = Date.now();
   let lastResponse = null;
 
@@ -368,7 +436,7 @@ async function waitForOffscreenHostProbe() {
 
   return {
     supported: false,
-    failureReason: "Timed out waiting for the offscreen ChatGPT host probe."
+    failureReason: hostTimeoutMessage
   };
 }
 
@@ -540,6 +608,18 @@ function buildOffscreenReloadUrl(value) {
   } catch (_error) {
     return CHATGPT_HOME_URL;
   }
+}
+
+function hasChromeOffscreenApi() {
+  return Boolean(chrome.offscreen?.createDocument);
+}
+
+function getAutomationHostDocumentUrl() {
+  if (hasChromeOffscreenApi()) {
+    return getOffscreenDocumentUrl();
+  }
+
+  return chrome.runtime.getURL(FIREFOX_SIDEBAR_DOCUMENT_PATH);
 }
 
 async function notifyOffscreenHostBridgeState(connected) {

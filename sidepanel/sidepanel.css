@@ -959,6 +959,24 @@ pre {
   display: none !important;
 }
 
+.firefox-automation-host {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1280px;
+  height: 900px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.firefox-automation-host iframe {
+  display: block;
+  width: 1280px;
+  height: 900px;
+  border: 0;
+}
+
 .response-content h1,
 .response-content h2,
 .response-content h3,

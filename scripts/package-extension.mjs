@@ -1,15 +1,20 @@
-import { cp, mkdir, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
+import {
+  PACKAGE_TARGETS,
+  buildTargetManifest,
+  normalizePackageTarget
+} from "./manifest-targets.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(join(root, "manifest.json"), "utf8"));
 const distRoot = join(root, ".dist");
-const packageRoot = join(distRoot, "chrome-store", "package");
-const archivePath = join(distRoot, `dichrome-${manifest.version}-chrome-store.zip`);
+const requestedTargets = process.argv.slice(2).length > 0
+  ? process.argv.slice(2).map(normalizePackageTarget)
+  : PACKAGE_TARGETS;
 const packageEntries = [
-  "manifest.json",
   "LICENSE",
   "background",
   "content",
@@ -21,38 +26,52 @@ const packageEntries = [
 
 runNodeScript("scripts/validate-extension.mjs");
 
-await rm(packageRoot, {
-  recursive: true,
-  force: true
-});
-await mkdir(packageRoot, {
-  recursive: true
-});
+for (const target of requestedTargets) {
+  await createPackage(target);
+}
 
-for (const entry of packageEntries) {
-  await cp(join(root, entry), join(packageRoot, entry), {
+async function createPackage(target) {
+  const packageRoot = join(distRoot, target, "package");
+  const archivePath = join(distRoot, target, `dichrome-${manifest.version}-${target}.zip`);
+
+  await rm(packageRoot, {
+    recursive: true,
+    force: true
+  });
+  await mkdir(packageRoot, {
     recursive: true
   });
+
+  for (const entry of packageEntries) {
+    await cp(join(root, entry), join(packageRoot, entry), {
+      recursive: true
+    });
+  }
+
+  await writeFile(
+    join(packageRoot, "manifest.json"),
+    `${JSON.stringify(buildTargetManifest(manifest, target), null, 2)}\n`
+  );
+
+  await rm(archivePath, {
+    force: true
+  });
+
+  const zipResult = spawnSync("zip", ["-qr", archivePath, "."], {
+    cwd: packageRoot,
+    encoding: "utf8"
+  });
+
+  if (zipResult.error?.code === "ENOENT") {
+    throw new Error("The zip command is required to create extension packages.");
+  }
+
+  if (zipResult.status !== 0) {
+    throw new Error(`${target} package creation failed.\n${zipResult.stderr || zipResult.stdout}`);
+  }
+
+  console.log(`Created ${relative(root, archivePath)}`);
 }
-
-await rm(archivePath, {
-  force: true
-});
-
-const zipResult = spawnSync("zip", ["-qr", archivePath, "."], {
-  cwd: packageRoot,
-  encoding: "utf8"
-});
-
-if (zipResult.error?.code === "ENOENT") {
-  throw new Error("The zip command is required to create a Chrome Web Store package.");
-}
-
-if (zipResult.status !== 0) {
-  throw new Error(`Chrome Web Store package creation failed.\n${zipResult.stderr || zipResult.stdout}`);
-}
-
-console.log(`Created ${relative(root, archivePath)}`);
 
 function runNodeScript(scriptPath) {
   const result = spawnSync(process.execPath, [join(root, scriptPath)], {

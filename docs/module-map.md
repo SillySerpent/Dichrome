@@ -1,6 +1,6 @@
 # Module Map
 
-This repository is intentionally build-free. Browser-loaded files must stay as plain JavaScript modules or classic content scripts that Chrome can load directly from `manifest.json`.
+This repository is intentionally build-free. Browser-loaded files must stay as plain JavaScript modules or classic content scripts that Chrome and Firefox can load directly from the packaged manifest.
 
 ## Shared
 
@@ -12,7 +12,7 @@ Future cross-surface constants and formatting rules belong here first. Do not du
 ## Background
 
 - `background/service-worker.js` is the manifest entrypoint and only imports `background/runtime/app.js`.
-- `background/runtime/app.js` registers Chrome listeners and coordinates request lifecycle work.
+- `background/runtime/app.js` registers extension listeners, opens the Chrome side panel or Firefox sidebar, and coordinates request lifecycle work.
 - `background/runtime/context-menu.js` owns context menu creation and selected-text request handoff.
 - `background/runtime/message-router.js` maps runtime message types to injected handlers.
 - `background/runtime/project-history-controller.js` owns panel-facing project-history list/load commands. Commands route through hidden automation and fail clearly instead of creating tabs.
@@ -21,10 +21,10 @@ Future cross-surface constants and formatting rules belong here first. Do not du
 - `background/debug-dump.js` owns internal diagnostic summarization for packaged runtime status events.
 - `background/requests/store.js` owns request records, attachment payload persistence, event appends, and panel broadcasts.
 - `background/state-machine.js` owns request profiles, prompt construction, request records, and request-state re-exports.
-- `background/automation/*` owns hidden workspace session storage, offscreen probing, frame-policy override, source-tab helpers, and automation settings migration.
+- `background/automation/*` owns hidden workspace session storage, Chrome offscreen probing, Firefox sidebar-host probing, frame-policy override, source-tab helpers, and automation settings migration.
 - `background/focus-emulation.js` is a legacy helper kept out of the normal hidden-only route until dead-path cleanup removes it.
 
-Keep Chrome API orchestration in background runtime modules. Keep target-specific behavior in `background/automation/`. Keep stored request shape changes in `background/requests/store.js` and update tests before changing storage contracts.
+Keep browser API orchestration in background runtime modules. Keep target-specific behavior in `background/automation/`. Keep stored request shape changes in `background/requests/store.js` and update tests before changing storage contracts.
 
 ## ChatGPT Content Runtime
 
@@ -75,12 +75,12 @@ Ownership:
 - `content/chatgpt/runtime/response/extraction.js` owns backend conversation-data response extraction, full conversation message normalization, low-confidence DOM response scoring, backend-vs-DOM preference, and backend completion-status detection.
 - `content/chatgpt/runtime/history/project-history.js` owns project-scoped conversation listing, selected conversation loading, project id validation, and conversion of backend conversation data into side-panel history payloads. It may read backend history data and real conversation links, but it must not click guessed project-page rows as a discovery mechanism.
 - `content/chatgpt/runtime/network/capture-client.js` owns main-world response-capture injection, capture event state, access-token caching, and network capture debug state.
-- `content/chatgpt/runtime/offscreen/bridge.js` owns hidden/offscreen iframe bridge connection, ready announcements, reconnect timers, direct-app-frame detection, extension-ancestor checks, and offscreen frame command forwarding.
+- `content/chatgpt/runtime/offscreen/bridge.js` owns hidden iframe bridge connection, ready announcements, reconnect timers, direct-app-frame detection, Chrome and Firefox extension-ancestor checks, and hidden frame command forwarding.
 - `content/chatgpt/runtime/page/visibility.js` owns hidden workspace visibility normalization and visibility assertions.
 - `content/chatgpt/runtime/debug/dump.js` owns content-side event/debug emission, conversation metadata, error payloads, and DOM debug dump assembly.
 - `content/chatgpt/runtime/response/observer.js` owns assistant response streaming, DOM/backend/network response selection, completion detection, and response completion events.
 - `content/chatgpt/runtime/runner/automation-runner.js` owns the request lifecycle from app-shell readiness through project routing, conversation setup, model selection, attachment upload, prompt send, and response observation handoff.
-- `content/chatgpt/runtime/app.js` owns top-level dependency wiring, adapter method composition, Chrome message registration, active-run/history locking, and module startup.
+- `content/chatgpt/runtime/app.js` owns top-level dependency wiring, adapter method composition, extension message registration, active-run/history locking, and module startup.
 - `content/chatgpt/90-bootstrap.js` stays a small marker/entrypoint after runtime modules have loaded.
 - `content/chatgpt/main-world-capture.js` runs in the page world and emits plain text as the canonical response payload. Final HTML rendering and sanitization belongs in the side panel through `shared/response-formatting.js`.
 
@@ -88,8 +88,9 @@ Future content-runtime changes should usually land in the concern-specific modul
 
 ## Side Panel
 
-- `sidepanel/sidepanel.js` is the HTML entrypoint and only imports `sidepanel/runtime/app.js`.
+- `sidepanel/sidepanel.js` is the HTML entrypoint and imports the Firefox automation host before `sidepanel/runtime/app.js`.
 - `sidepanel/runtime/app.js` owns panel initialization, event binding, panel state loading, request actions, project-history UI state, sign-in handoff, and top-level rendering.
+- `sidepanel/runtime/firefox-automation-host.js` owns the Firefox-only hidden ChatGPT iframe host that mirrors the Chrome offscreen host protocol through the opened sidebar page.
 - `sidepanel/runtime/settings-dialog.js` owns the routing/model settings popup form, summary label, and settings payload collection.
 - `sidepanel/runtime/attachments.js` owns screenshot permission prompts, visible-tab screenshot attachment construction, and user file attachment normalization.
 - `sidepanel/runtime/dom.js` owns DOM id lookup.
@@ -104,11 +105,12 @@ Keep side-panel DOM ids stable unless the HTML/CSS are changed in the same pass.
 ## Scripts And Tests
 
 - `scripts/validate-extension.mjs` validates required files, manifest shape, content script order, PNG signatures, and JavaScript syntax.
-- `scripts/package-extension.mjs` builds the Chrome Web Store upload ZIP from runtime extension files after validation.
+- `scripts/manifest-targets.mjs` transforms the Chrome source manifest into target-specific Chrome and Firefox manifests.
+- `scripts/package-extension.mjs` builds Chrome and Firefox ZIPs from runtime extension files after validation.
 - `scripts/test.mjs` is the test aggregator.
 - `scripts/test-contracts.mjs` guards shared constants and manifest content script order.
 - `scripts/test-response-formatting.mjs` guards response rendering, sanitizer behavior, structured writing/task-list/table cases, and math fallback behavior.
 - `scripts/test-content-runtime-url.mjs` guards ChatGPT URL allow/reject logic.
-- Other `scripts/test-*.mjs` files cover settings, request records, automation session storage, offscreen frame policy, and offscreen target behavior.
+- Other `scripts/test-*.mjs` files cover settings, request records, automation session storage, target manifests, offscreen frame policy, Firefox sidebar hosting, bridge origin checks, and hidden target behavior.
 
-Add narrowly scoped Node tests when extracting pure logic. Add manual smoke-test notes when behavior depends on Chrome, ChatGPT UI state, login state, or offscreen document behavior.
+Add narrowly scoped Node tests when extracting pure logic. Add manual smoke-test notes when behavior depends on browser APIs, ChatGPT UI state, login state, Chrome offscreen document behavior, or Firefox sidebar-host behavior.

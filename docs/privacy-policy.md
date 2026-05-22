@@ -14,7 +14,7 @@ Dichrome may handle the following data when the user invokes a feature:
 
 - Prompts typed by the user into the side-panel composer.
 - Selected text from the active webpage when the user chooses a Dichrome context-menu action or uses selected text in the side panel.
-- Visible-tab screenshots when the user presses the screenshot attachment control and Chrome grants capture access for the active tab.
+- Visible-tab screenshots when the user presses the screenshot attachment control and the browser grants capture access for the active tab.
 - Uploaded or attached files selected by the user, including image previews and file metadata such as name, MIME type, and size.
 - Generated ChatGPT response text and response metadata needed to display request status, errors, and results in the side panel.
 - Local extension settings, including project-routing settings, model label preference, exact-match preference, and hidden workspace session summary.
@@ -40,13 +40,13 @@ Dichrome does not send user data to a developer-operated server, does not sell u
 
 ## Storage and retention
 
-Automation settings are stored in Chrome extension local storage. Request state, recent request history, and attachment payloads are stored in Chrome extension session storage when available, with local storage used only as a browser fallback. Recent request history is bounded by the extension's configured history limit.
+Automation settings are stored in browser extension local storage. Request state, recent request history, and attachment payloads are stored in browser extension session storage when available, with local storage used only as a browser fallback. Recent request history is bounded by the extension's configured history limit.
 
-Users can clear stored extension data by removing the extension or clearing the extension's site/app data in Chrome.
+Users can clear stored extension data by removing the extension or clearing the extension's site/app data in their browser.
 
 ## Permissions
 
-Dichrome requests Chrome permissions only for its assistant-routing workflow. Required ChatGPT host permissions are used to interact with ChatGPT through the user's signed-in browser session. Optional site access may be requested only when the user presses the screenshot attachment control on a normal webpage.
+Dichrome requests browser extension permissions only for its assistant-routing workflow. Required ChatGPT host permissions are used to interact with ChatGPT through the user's signed-in browser session. Optional site access may be requested only when the user presses the screenshot attachment control on a normal webpage.
 
 Dichrome does not use optional site access for background browsing-history collection, analytics, advertising, or unrelated website modification.
 

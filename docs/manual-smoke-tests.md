@@ -1,6 +1,10 @@
 # Manual Smoke Tests
 
-Run `npm run check`, `npm test`, and `npm run package` before manual testing. Load the current unpacked extension after code changes so Chrome sees the new manifest and content script order.
+Run `npm run check`, `npm test`, and `npm run package` before manual testing. Load the current unpacked extension after code changes so the browser sees the new target manifest and content script order.
+
+For Chrome or Chromium, load this repository directory through `chrome://extensions`. For Firefox, run `npm run package:firefox`, open `about:debugging#/runtime/this-firefox`, choose Load Temporary Add-on, and select `.dist/firefox/package/manifest.json`.
+
+Run the core hidden-internal, logged-out, project-history, project-routing, follow-up, model-selection, attachment, and formatting checks in both Chrome/Chromium and Firefox before claiming cross-browser compatibility.
 
 ## Hidden Internal
 
@@ -52,7 +56,7 @@ Run `npm run check`, `npm test`, and `npm run package` before manual testing. Lo
 ## Attachments And Screenshot
 
 1. Open a normal webpage with visible content.
-2. Open Dichrome from the toolbar or context menu so Chrome grants active-tab access for the source tab.
+2. Open Dichrome from the toolbar or context menu so the browser grants active-tab access for the source tab.
 3. Attach a local file and attach a visible screenshot.
 4. Confirm successful attachments send through ChatGPT's file input.
 5. Try an oversized or unsupported file and confirm the sidebar does not present the attachment as successfully sent.

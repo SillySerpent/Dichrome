@@ -8,16 +8,18 @@ Hidden internal mode is the highest-risk path in this extension. These invariant
 - ChatGPT content scripts must keep `run_at: "document_start"`.
 - ChatGPT content scripts must keep `all_frames: true`.
 - Manifest content script order must match `CHATGPT_CONTENT_SCRIPT_FILES` in `shared/contracts.js`.
-- The offscreen iframe bridge port name must match `OFFSCREEN_FRAME_PORT_NAME` in `shared/contracts.js`.
+- The hidden iframe bridge port name must match `OFFSCREEN_FRAME_PORT_NAME` in `shared/contracts.js`.
 - `content/chatgpt/main-world-capture.js` must remain web-accessible to ChatGPT pages.
+- The Firefox target manifest must use `sidebar_action` and must not include Chrome-only `side_panel`, `sidePanel`, `offscreen`, or `minimum_chrome_version` entries.
 
-## Offscreen Frame Selection
+## Hidden Frame Selection
 
-- A normal top-level ChatGPT tab must not open the offscreen frame bridge.
+- A normal top-level ChatGPT tab must not open the hidden frame bridge.
 - Nested utility frames must not claim the bridge.
 - ChatGPT frames under `/backend-api/`, `/api/`, `/auth/`, and paths containing `/sentinel/` must be rejected as automation frames.
-- The accepted hidden frame is the direct ChatGPT app iframe hosted by the extension offscreen document.
-- The frame bridge must reconnect after port disconnects because MV3 can restart the service worker while the offscreen document survives.
+- The accepted hidden frame is the direct ChatGPT app iframe hosted by the extension-owned Chrome offscreen document or Firefox sidebar host.
+- The frame bridge must accept both `chrome-extension://` and `moz-extension://` extension ancestors.
+- The frame bridge must reconnect after port disconnects because MV3 can restart the background runtime while the host document survives.
 - Stale frame ports must not let late disconnects fail the current connected frame.
 
 ## Frame Policy Override
@@ -25,6 +27,7 @@ Hidden internal mode is the highest-risk path in this extension. These invariant
 - The frame-policy override is session-scoped and only exists to test local hidden iframe automation.
 - The narrow non-tab ChatGPT subframe rule must be attempted first.
 - If Chrome rejects the non-tab rule, the fallback rule must remain scoped to ChatGPT subframes.
+- Firefox uses the same ChatGPT subframe header override for the sidebar-hosted hidden iframe.
 - The rule must be removed when hidden automation is closed or when hidden support is recorded as unsupported.
 
 ## Hidden-Only Routing
@@ -36,7 +39,7 @@ Hidden internal mode is the highest-risk path in this extension. These invariant
 
 ## Visibility
 
-- Offscreen-frame mode uses its own internal visibility mode because offscreen documents cannot be focused.
+- Offscreen-frame mode uses its own internal visibility mode because Chrome offscreen documents and Firefox sidebar-hosted internal iframes should not be treated as user-focused ChatGPT tabs.
 - A hidden workspace visibility failure should produce an actionable sign-in/setup or unavailable-workspace error.
 
 ## Request And Conversation Behavior
