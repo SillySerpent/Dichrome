@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { CHATGPT_CONTENT_SCRIPT_FILES } from "../shared/contracts.js";
+import { buildTargetManifest } from "./manifest-targets.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const requiredFiles = [
@@ -92,7 +93,11 @@ const requiredFiles = [
   "scripts/test-sidepanel-layout-css.mjs",
   "scripts/test-contracts.mjs",
   "scripts/test-response-formatting.mjs",
+  "scripts/test-manifest-targets.mjs",
+  "scripts/test-firefox-automation-host.mjs",
+  "scripts/test-offscreen-bridge-origin.mjs",
   "scripts/package-extension.mjs",
+  "scripts/manifest-targets.mjs",
   "sidepanel/sidepanel.html",
   "sidepanel/sidepanel.css",
   "sidepanel/sidepanel.js",
@@ -101,6 +106,7 @@ const requiredFiles = [
   "sidepanel/runtime/client.js",
   "sidepanel/runtime/conversation-thread.js",
   "sidepanel/runtime/dom.js",
+  "sidepanel/runtime/firefox-automation-host.js",
   "sidepanel/runtime/project-history-state.js",
   "sidepanel/runtime/response-animation.js",
   "sidepanel/runtime/response-view.js",
@@ -146,7 +152,12 @@ const moduleScriptFiles = [
   "scripts/test-automation-session.mjs",
   "scripts/test-request-records.mjs",
   "scripts/test-contracts.mjs",
-  "scripts/test-response-formatting.mjs"
+  "scripts/test-response-formatting.mjs",
+  "scripts/manifest-targets.mjs",
+  "sidepanel/runtime/firefox-automation-host.js",
+  "scripts/test-manifest-targets.mjs",
+  "scripts/test-firefox-automation-host.mjs",
+  "scripts/test-offscreen-bridge-origin.mjs"
 ];
 
 await validateManifest();
@@ -227,6 +238,48 @@ async function validateManifest() {
   assert(
     manifest.content_security_policy?.extension_pages?.includes("frame-src https://chatgpt.com https://chat.openai.com"),
     "Extension CSP must allow ChatGPT offscreen iframe probe hosts."
+  );
+
+  validateFirefoxManifest(buildTargetManifest(manifest, "firefox"));
+}
+
+function validateFirefoxManifest(manifest) {
+  assert(manifest.manifest_version === 3, "Firefox manifest_version must be 3.");
+  assert(manifest.name === "Dichrome", "Firefox manifest name must match the extension brand.");
+  assert(!("minimum_chrome_version" in manifest), "Firefox manifest must not include minimum_chrome_version.");
+  assert(!manifest.side_panel, "Firefox manifest must not include Chrome side_panel.");
+  assert(manifest.sidebar_action?.default_panel === "sidepanel/sidepanel.html", "Firefox sidebar panel path is wrong.");
+  assert(manifest.sidebar_action?.default_title === "Open Dichrome", "Firefox sidebar title must match the extension brand.");
+  assert(manifest.sidebar_action?.open_at_install === false, "Firefox sidebar must not open automatically at install.");
+  assert(manifest.background?.scripts?.[0] === "background/service-worker.js", "Firefox background script path is wrong.");
+  assert(!manifest.background?.service_worker, "Firefox manifest must not include Chrome background service_worker.");
+  assert(manifest.background?.type === "module", "Firefox background script must be an ES module.");
+  assert(manifest.browser_specific_settings?.gecko?.id === "dichrome@local", "Firefox manifest must declare a stable Gecko id.");
+
+  const permissions = new Set(manifest.permissions || []);
+
+  for (const permission of ["activeTab", "contextMenus", "declarativeNetRequestWithHostAccess", "scripting", "storage", "tabs"]) {
+    assert(permissions.has(permission), `Firefox manifest missing permission: ${permission}`);
+  }
+
+  for (const chromeOnlyPermission of ["offscreen", "sidePanel"]) {
+    assert(!permissions.has(chromeOnlyPermission), `Firefox manifest must not include Chrome-only permission: ${chromeOnlyPermission}`);
+  }
+
+  const chatGptContentScript = manifest.content_scripts?.find((script) => {
+    return script.matches?.includes("https://chatgpt.com/*") && script.matches?.includes("https://chat.openai.com/*");
+  });
+
+  assert(chatGptContentScript, "Firefox manifest missing ChatGPT content script matches.");
+  assert(chatGptContentScript.all_frames === true, "Firefox ChatGPT content script must run in all frames.");
+  assert(chatGptContentScript.run_at === "document_start", "Firefox ChatGPT content script must run at document_start.");
+  assert(
+    JSON.stringify(chatGptContentScript.js) === JSON.stringify(CHATGPT_CONTENT_SCRIPT_FILES),
+    "Firefox ChatGPT content script order must match shared contract order."
+  );
+  assert(
+    manifest.content_security_policy?.extension_pages?.includes("frame-src https://chatgpt.com https://chat.openai.com"),
+    "Firefox manifest CSP must allow ChatGPT iframe hosts."
   );
 }
 

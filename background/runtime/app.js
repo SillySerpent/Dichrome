@@ -653,13 +653,16 @@ async function getReconciledAutomationSession() {
 }
 
 async function openSidePanel(tabId) {
-  if (!tabId || !chrome.sidePanel?.open) {
+  if (tabId && chrome.sidePanel?.open) {
+    await chrome.sidePanel.open({
+      tabId
+    }).catch(() => null);
     return;
   }
 
-  await chrome.sidePanel.open({
-    tabId
-  }).catch(() => null);
+  if (chrome.sidebarAction?.open) {
+    await chrome.sidebarAction.open().catch(() => null);
+  }
 }
 
 const MESSAGE_RETRY_CONFIG = {

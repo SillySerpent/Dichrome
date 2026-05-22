@@ -37,6 +37,13 @@ globalThis.chrome = {
       return null;
     }
   },
+  offscreen: {
+    async createDocument() {},
+    async closeDocument() {},
+    Reason: {
+      IFRAME_SCRIPTING: "IFRAME_SCRIPTING"
+    }
+  },
   storage: {
     local: storageApi,
     session: storageApi
@@ -91,9 +98,15 @@ function createMockPort({
 
 const {
   getOffscreenFrameStatus,
+  getOffscreenTargetDescriptor,
   handleOffscreenFramePort,
   sendMessageToOffscreenFrame
 } = await import("../background/automation/offscreen-target.js");
+
+assert.equal(
+  getOffscreenTargetDescriptor().offscreenDocumentUrl,
+  "chrome-extension://test-extension/offscreen/automation-host.html"
+);
 
 const tabPort = createMockPort({
   tabId: 7
@@ -166,5 +179,12 @@ assert.deepEqual(await commandPromise, {
 
 secondPort.disconnect();
 assert.equal(getOffscreenFrameStatus().connected, false);
+
+delete globalThis.chrome.offscreen;
+globalThis.chrome.runtime.getURL = (path) => `moz-extension://test-extension/${path}`;
+assert.equal(
+  getOffscreenTargetDescriptor().offscreenDocumentUrl,
+  "moz-extension://test-extension/sidepanel/sidepanel.html"
+);
 
 console.log("Offscreen target tests passed.");

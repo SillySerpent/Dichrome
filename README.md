@@ -1,6 +1,6 @@
 # Dichrome
 
-Local-first Chrome/Chromium extension for routing selected webpage text into an already-open assistant workspace, then reflecting the assistant response in an extension side panel.
+Local-first Chrome/Chromium and Firefox extension for routing selected webpage text into an already-open assistant workspace, then reflecting the assistant response in an extension side panel.
 
 This is intentionally UI-driven. It does not use the OpenAI API and does not require a hosted backend. Dichrome depends on the user's signed-in ChatGPT browser session and uses packaged extension code to drive the visible ChatGPT web UI.
 
@@ -22,7 +22,7 @@ This is intentionally UI-driven. It does not use the OpenAI API and does not req
 
 ## Files
 
-- `manifest.json` - MV3 manifest, permissions, side panel entry, ChatGPT host permissions, offscreen permission, and the DNR host-access permission used for hidden iframe frame-policy overrides.
+- `manifest.json` - Chrome MV3 source manifest, permissions, side-panel entry, ChatGPT host permissions, offscreen permission, and the DNR host-access permission used for hidden iframe frame-policy overrides.
 - `shared/contracts.js` - shared request states, message strings, hidden workspace constants, content script order, and response-rendering allowlists.
 - `shared/response-formatting.js` - response normalization, markdown-ish rendering, HTML sanitization, and deterministic local math rendering.
 - `shared/error-messages.js` - centralized user-facing error titles, details, and action labels.
@@ -33,7 +33,7 @@ This is intentionally UI-driven. It does not use the OpenAI API and does not req
 - `background/automation/settings.js` - stored ChatGPT project-routing, visibility, and model-selection settings.
 - `background/automation/session.js` - hidden workspace session storage and migration away from legacy remembered visible-tab data.
 - `background/automation/tab-target.js` - legacy visible-tab helpers kept out of the normal product route until a later dead-path pass removes them.
-- `background/automation/offscreen-target.js` - hidden offscreen target capability probe, frame bridge, and failure reason tracking.
+- `background/automation/offscreen-target.js` - hidden internal target capability probe, frame bridge, Chrome offscreen host routing, Firefox sidebar host routing, and failure reason tracking.
 - `background/automation/offscreen-frame-policy.js` - session-scoped ChatGPT subframe header override for local hidden-internal probing.
 - `background/automation/source-focus.js` - source-tab selection, source-focus restoration, and screenshot capture helpers.
 - `background/requests/store.js` - request history, attachment payload storage, event appends, and panel update broadcasts.
@@ -43,20 +43,31 @@ This is intentionally UI-driven. It does not use the OpenAI API and does not req
 - `content/chatgpt/runtime/*` - ChatGPT-side runtime layers for contracts, messaging, URL/frame decisions, errors, adapter heuristics, response extraction, and the automation runner.
 - `content/chatgpt/runtime/history/project-history.js` - project-scoped history listing and selected conversation loading through ChatGPT's signed-in web session.
 - `sidepanel/*` - side panel HTML/CSS and entrypoint.
-- `sidepanel/runtime/*` - side panel client, DOM lookup, state helpers, attachment handling, response view, response animation, settings dialog, and app orchestration.
+- `sidepanel/runtime/*` - side panel client, DOM lookup, state helpers, attachment handling, Firefox internal frame host, response view, response animation, settings dialog, and app orchestration.
 - `docs/module-map.md` - maintainer map for module ownership and future extraction boundaries.
 - `docs/hidden-internal-invariants.md` - hidden internal mode behaviors that must not regress.
 - `docs/manual-smoke-tests.md` - manual validation scenarios for browser-dependent behavior.
-- `assets/icon.svg` and `icons/*` - source and generated Chrome toolbar icons.
+- `assets/icon.svg` and `icons/*` - source and generated browser toolbar icons.
 - `scripts/validate-extension.mjs` - dependency-free static validation.
+- `scripts/manifest-targets.mjs` - Chrome and Firefox manifest transforms used by validation and packaging.
 - `scripts/generate-icons.mjs` - dependency-free icon generator.
 
 ## Load Locally
+
+Chrome/Chromium:
 
 1. Open `chrome://extensions`.
 2. Enable Developer mode.
 3. Choose Load unpacked.
 4. Select this repository directory.
+5. Sign in to ChatGPT in a normal browser tab before testing selection relay.
+
+Firefox:
+
+1. Run `npm run package:firefox`.
+2. Open `about:debugging#/runtime/this-firefox`.
+3. Choose Load Temporary Add-on.
+4. Select `.dist/firefox/package/manifest.json`.
 5. Sign in to ChatGPT in a normal browser tab before testing selection relay.
 
 ## Validation
@@ -70,13 +81,20 @@ npm test
 
 No install step is required; both scripts only use Node built-ins.
 
-Create a Chrome Web Store upload ZIP after validation:
+Create browser upload ZIPs after validation:
 
 ```bash
 npm run package
 ```
 
-The ZIP is written under `.dist/` and contains only the runtime extension files needed by Chrome.
+The Chrome ZIP is written to `.dist/chrome/dichrome-<version>-chrome.zip`. The Firefox ZIP is written to `.dist/firefox/dichrome-<version>-firefox.zip`.
+
+Build one browser package at a time when needed:
+
+```bash
+npm run package:chrome
+npm run package:firefox
+```
 
 Regenerate icons after editing `assets/icon.svg` or `scripts/generate-icons.mjs`:
 
@@ -95,15 +113,15 @@ The automation is split deliberately:
 
 The ChatGPT adapter avoids whole-page scraping for response extraction. It looks for assistant message containers using semantic attributes first, then bounded conversation-area fallbacks. Once a candidate response is selected, the observer only tracks that message's content. Completion requires several signals: response stability, no visible stop-generation control, an enabled send button, and no detected error UI.
 
-The content runtime is layered under `content/chatgpt/runtime/`: `adapter/` owns ChatGPT DOM heuristics, `response/` owns response extraction and observation, `history/` owns project-scoped conversation history loading, `network/` owns main-world response capture, `offscreen/` owns the hidden iframe bridge, `page/` owns visibility checks, `debug/` owns content-side dumps and event payloads, and `runner/` owns the request lifecycle. `runtime/app.js` composes those modules and registers Chrome message listeners.
+The content runtime is layered under `content/chatgpt/runtime/`: `adapter/` owns ChatGPT DOM heuristics, `response/` owns response extraction and observation, `history/` owns project-scoped conversation history loading, `network/` owns main-world response capture, `offscreen/` owns the hidden iframe bridge shared by Chrome offscreen and Firefox sidebar hosts, `page/` owns visibility checks, `debug/` owns content-side dumps and event payloads, and `runner/` owns the request lifecycle. `runtime/app.js` composes those modules and registers extension message listeners.
 
 The side panel stores plain text as the canonical response payload and renders final HTML through `shared/response-formatting.js`. The renderer preserves common generated formatting such as paragraphs, lists, task lists, tables, ChatGPT writing blocks, blockquotes, inline code, code blocks, strikethrough, and common local math expressions while removing scripts, forms, buttons, iframes, event attributes, and unsafe links. If a math expression cannot be parsed confidently, it is shown as escaped source in a styled fallback instead of malformed HTML.
 
 ## Automation Target Mode
 
-`Hidden internal` is the default mode. It first installs a session-scoped `declarativeNetRequest` rule for ChatGPT subframe responses, then creates a Chrome offscreen document that hosts a ChatGPT iframe. The rule removes `X-Frame-Options` and `Content-Security-Policy` from ChatGPT subframe responses so Dichrome can test true hidden iframe automation. The rule is scoped to non-tab ChatGPT subframe requests when Chrome accepts `tabIds: [chrome.tabs.TAB_ID_NONE]`; if that scoped rule is rejected, or if it installs but the offscreen ChatGPT bridge still never connects, the extension falls back to a ChatGPT-subframe-only rule. The rule is removed when hidden automation is closed or when the probe records hidden automation as unsupported.
+`Hidden internal` is the default mode. It first installs a session-scoped `declarativeNetRequest` rule for ChatGPT subframe responses. Chrome then creates an offscreen document that hosts a ChatGPT iframe. Firefox does not provide Chrome's offscreen API, so the Firefox build uses the opened extension sidebar as the extension-owned hidden iframe host. The rule removes `X-Frame-Options` and `Content-Security-Policy` from ChatGPT subframe responses so Dichrome can test hidden iframe automation. The rule is scoped to non-tab ChatGPT subframe requests when Chrome accepts `tabIds: [chrome.tabs.TAB_ID_NONE]`; if that scoped rule is rejected, or if it installs but the ChatGPT bridge still never connects, the extension falls back to a ChatGPT-subframe-only rule. The rule is removed when hidden automation is closed or when the probe records hidden automation as unsupported.
 
-The ChatGPT automation content script is registered for all ChatGPT frames at `document_start`; when Chrome can inject it into that offscreen iframe, the frame opens a runtime port back to the service worker and accepts automation commands through that port. The frame bridge reconnects if the MV3 service worker restarts while the offscreen document survives, and the background probe reloads the iframe once with a cache-busting probe URL if the host reports that ChatGPT loaded but the bridge still did not connect.
+The ChatGPT automation content script is registered for all ChatGPT frames at `document_start`; when the browser can inject it into the extension-hosted ChatGPT iframe, the frame opens a runtime port back to the background runtime and accepts automation commands through that port. The frame bridge reconnects if the background runtime restarts while the host document survives, and the background probe reloads the iframe once with a cache-busting probe URL if the host reports that ChatGPT loaded but the bridge still did not connect.
 
 If ChatGPT blocks cookies, frame-script injection, account/session access, or background streaming after that recovery path, Dichrome fails the request with a user-facing error instead of opening or controlling a visible ChatGPT automation tab. The side panel offers an explicit `Open ChatGPT to sign in` action for authentication/setup only.
 
@@ -133,7 +151,7 @@ When a model label is requested, model-selection failure stops the request befor
 
 ## Screenshot Status
 
-The side panel includes a visible-screenshot attachment request. It uses `chrome.tabs.captureVisibleTab`, so Chrome requires either an active-tab capture grant or host access for the visible page. Dichrome requests optional site access only when the user presses `Screenshot`, narrows the prompt to the active origin when possible, and rejects browser-internal pages with a clear error. It captures the visible viewport, not a stitched full-page screenshot. Full-page screenshot support would need a separate scroll-and-stitch flow.
+The side panel includes a visible-screenshot attachment request. It uses the browser `tabs.captureVisibleTab` API, so the browser requires either an active-tab capture grant or host access for the visible page. Dichrome requests optional site access only when the user presses `Screenshot`, narrows the prompt to the active origin when possible, and rejects browser-internal pages with a clear error. It captures the visible viewport, not a stitched full-page screenshot. Full-page screenshot support would need a separate scroll-and-stitch flow.
 
 ## Chrome Web Store Review
 
@@ -146,5 +164,5 @@ Chrome Web Store submission notes, permission justifications, reviewer test step
 - Login screens, account gates, and modal dialogs require the explicit sign-in handoff.
 - Multiple simultaneous requests are isolated by request id, but the hidden workspace can only run one automation at a time.
 - Attachment upload through the ChatGPT web UI is best effort and depends on the page exposing a file input compatible with scripted `FileList` assignment.
-- Screenshot capture depends on a browser-granted active-tab capture path and may fail on browser-internal pages or when Chrome does not provide a current active-tab grant.
-- Fully hidden automation depends on Chrome offscreen iframe capability, the local session-scoped frame-policy override, ChatGPT account/session behavior in an embedded frame, and successful content-script execution inside the ChatGPT iframe. If any of those are blocked, the request fails with an actionable sidebar error.
+- Screenshot capture depends on a browser-granted active-tab capture path and may fail on browser-internal pages or when the browser does not provide a current active-tab grant.
+- Fully hidden automation depends on Chrome offscreen iframe capability or the Firefox sidebar host, the local session-scoped frame-policy override, ChatGPT account/session behavior in an embedded frame, and successful content-script execution inside the ChatGPT iframe. If any of those are blocked, the request fails with an actionable sidebar error.

@@ -4,13 +4,13 @@
 
 Dichrome has these extension surfaces:
 
-- Background service worker: deterministic orchestration, state machine transitions, message dispatch, and hidden workspace command routing.
-- Automation modules: settings migration, hidden workspace session storage, offscreen capability probing, source-tab lookup, and screenshot capture helpers.
+- Background runtime: deterministic orchestration, state machine transitions, message dispatch, side panel/sidebar opening, and hidden workspace command routing.
+- Automation modules: settings migration, hidden workspace session storage, Chrome offscreen capability probing, Firefox sidebar-host probing, source-tab lookup, and screenshot capture helpers.
 - Request modules: request history, attachment payload storage, serialized panel updates, and normalized error metadata.
 - ChatGPT content script: page-local DOM adapter, project routing, model selection, prompt insertion, send action, response observer, and internal snapshot collection.
 - Side panel: project history, streaming response display, composer, attachments, retry/cancel, model choice, and explicit sign-in handoff.
 
-The source webpage does not receive an always-on content script. Selection text comes from the Chrome context menu event or a user-triggered active-tab read.
+The source webpage does not receive an always-on content script. Selection text comes from the browser context menu event or a user-triggered active-tab read.
 
 ## State Machine
 
@@ -70,13 +70,13 @@ Legacy stored visible-tab session data is ignored during migration. The only nor
 }
 ```
 
-`mode: "hidden"` probes `chrome.offscreen` with an extension-bundled host page and a ChatGPT iframe. Before creating or reusing the offscreen document, the worker installs a session `declarativeNetRequest` rule through `background/automation/offscreen-frame-policy.js`. The rule removes `X-Frame-Options` and `Content-Security-Policy` from ChatGPT `sub_frame` responses. Chrome gets the narrowest rule first: `requestDomains: ["chatgpt.com", "chat.openai.com"]`, `resourceTypes: ["sub_frame"]`, and `tabIds: [chrome.tabs.TAB_ID_NONE]`; if that non-tab scope is rejected, or if it installs but no offscreen frame bridge appears after reload, the broader rule still stays limited to ChatGPT subframes.
+`mode: "hidden"` probes an extension-owned host page with a ChatGPT iframe. Chrome uses `chrome.offscreen` and `offscreen/automation-host.html`. Firefox does not expose Chrome's offscreen API, so the Firefox build uses `sidepanel/runtime/firefox-automation-host.js` to create the same hidden iframe inside the opened extension sidebar. Before creating or reusing the host, the worker installs a session `declarativeNetRequest` rule through `background/automation/offscreen-frame-policy.js`. The rule removes `X-Frame-Options` and `Content-Security-Policy` from ChatGPT `sub_frame` responses. Chrome gets the narrowest rule first: `requestDomains: ["chatgpt.com", "chat.openai.com"]`, `resourceTypes: ["sub_frame"]`, and `tabIds: [chrome.tabs.TAB_ID_NONE]`; if that non-tab scope is rejected, or if it installs but no hidden frame bridge appears after reload, the broader rule still stays limited to ChatGPT subframes.
 
-The ChatGPT content script is registered with `all_frames: true` and `document_start`; if Chrome can inject it into the offscreen ChatGPT iframe, that frame opens a long-lived runtime port to the service worker. The worker sends automation commands through that port instead of using a visible tab as the normal route.
+The ChatGPT content script is registered with `all_frames: true` and `document_start`; if the browser can inject it into the extension-hosted ChatGPT iframe, that frame opens a long-lived runtime port to the background runtime. The worker sends automation commands through that port instead of using a visible tab as the normal route.
 
-The bridge is deliberately reconnectable. MV3 can restart the background service worker while Chrome keeps the offscreen document alive, which invalidates the worker's in-memory `Port` reference even though the ChatGPT iframe remains loaded. The frame content script reconnects after `Port` disconnects, the worker replaces stale frame ports without letting stale disconnects fail active commands, notifies the offscreen host about bridge connect/disconnect state, and the probe reloads the iframe once with a cache-busted URL when the host load event succeeds but no frame bridge appears.
+The bridge is deliberately reconnectable. MV3 can restart the background runtime while the Chrome offscreen document or Firefox sidebar host remains alive, which invalidates the worker's in-memory `Port` reference even though the ChatGPT iframe remains loaded. The frame content script reconnects after `Port` disconnects, the worker replaces stale frame ports without letting stale disconnects fail active commands, notifies the host about bridge connect/disconnect state, and the probe reloads the iframe once with a cache-busted URL when the host load event succeeds but no frame bridge appears.
 
-Chrome offscreen documents cannot directly load arbitrary remote pages as the document URL, so the remote ChatGPT page must still live inside the extension-hosted iframe. The frame-policy override only targets embedding headers; it does not guarantee third-party cookie/session access, ChatGPT app compatibility inside an iframe, frame-script execution, or background streaming. If probing fails, the worker records the failure reason and returns a normalized error. A visible ChatGPT page is allowed only for explicit user-triggered authentication/setup.
+Chrome offscreen documents cannot directly load arbitrary remote pages as the document URL, and Firefox uses the sidebar page as the host, so the remote ChatGPT page must still live inside an extension-hosted iframe. The frame-policy override only targets embedding headers; it does not guarantee third-party cookie/session access, ChatGPT app compatibility inside an iframe, frame-script execution, or background streaming. If probing fails, the worker records the failure reason and returns a normalized error. A visible ChatGPT page is allowed only for explicit user-triggered authentication/setup.
 
 ## Project Routing
 
@@ -116,7 +116,7 @@ Requests store conversation metadata:
 
 The content script emits conversation URL/key metadata on conversation-ready, prompt-sent, streaming, and complete events. A follow-up uses the hidden workspace as the target. If the old conversation URL cannot be reopened in the hidden workspace, the request fails instead of silently starting a new chat.
 
-Project history uses a separate panel command path from request history. The side panel starts a history refresh automatically after settings load, and the manual control is only a refresh affordance. The background worker sends list/load commands to the hidden workspace and first resolves/persists the concrete ChatGPT project id from saved project URLs or the current hidden session. History list/load commands are read-only with respect to browser tab creation: they use the hidden offscreen frame or fail clearly.
+Project history uses a separate panel command path from request history. The side panel starts a history refresh automatically after settings load, and the manual control is only a refresh affordance. The background worker sends list/load commands to the hidden workspace and first resolves/persists the concrete ChatGPT project id from saved project URLs or the current hidden session. History list/load commands are read-only with respect to browser tab creation: they use the hidden internal frame or fail clearly.
 
 The content runtime uses the project id directly when available; otherwise it falls back to name-based project routing with `createIfMissing: false`. History only returns conversations scoped to that project id, including backend project/history results, regular history results that explicitly match the project id, and real project conversation links already exposed on the project page. It does not click guessed project-page rows to discover a conversation id because ChatGPT may treat those clicks as normal navigation. Selecting a history conversation loads the backend conversation mapping and the side panel renders recent messages first, expanding earlier messages in fixed batches when the reader scrolls upward. Sending from a loaded history conversation starts a follow-up request against that conversation URL; pressing `New` clears the loaded history conversation so the next send starts fresh.
 
@@ -148,7 +148,7 @@ The ChatGPT adapter looks for:
 - Assistant response: explicit `data-message-author-role="assistant"` containers first, then bounded conversation-area fallbacks.
 - File input: `input[type=file]` accepting user-selected attachment files.
 - Fresh hidden project chats: prefer ChatGPT's visible `New chat` control when available, but fall back to direct navigation from `/g/<project>/c/<conversation>` to `/g/<project>/project` when the control is hidden or responsive-layout dependent.
-- Screenshot capture: the side panel uses `chrome.tabs.captureVisibleTab` through the user-triggered active-tab capture path. If Chrome has not granted capture access for the active site, the side panel requests optional site access for that active origin only. Browser-internal pages are rejected with a clear error.
+- Screenshot capture: the side panel uses `tabs.captureVisibleTab` through the user-triggered active-tab capture path. If the browser has not granted capture access for the active site, the side panel requests optional site access for that active origin only. Browser-internal pages are rejected with a clear error.
 
 Response tracking is deliberately scoped. The script selects the newest assistant message after the send action and extracts content only from that message container. It does not stream arbitrary page text. Plain text is the canonical response payload; final HTML rendering, sanitization, markdown-ish formatting, and local math rendering are centralized in `shared/response-formatting.js` and applied by the side panel.
 

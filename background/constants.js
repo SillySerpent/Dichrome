@@ -35,7 +35,22 @@ export function isChatGptUrl(value) {
 }
 
 export function isExtensionUrl(value) {
-  return value.startsWith(`chrome-extension://${chrome.runtime.id}/`);
+  try {
+    const extensionOrigin = parseExtensionOrigin(chrome.runtime.getURL(""));
+    if (!extensionOrigin) {
+      return false;
+    }
+
+    return value === extensionOrigin || value.startsWith(`${extensionOrigin}/`);
+  } catch (_error) {
+    return false;
+  }
+}
+
+function parseExtensionOrigin(value) {
+  const match = /^(chrome-extension|moz-extension):\/\/[^/]+/.exec(String(value || ""));
+
+  return match ? match[0] : "";
 }
 
 export function getTabId(tabLike) {
