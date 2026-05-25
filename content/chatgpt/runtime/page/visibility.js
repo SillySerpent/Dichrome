@@ -38,14 +38,14 @@
       });
 
       throw new VisibilityStateError(
-        `ChatGPT stayed hidden during ${stage}. Background streaming requires Chrome debugger focus emulation; close DevTools for the ChatGPT tab and retry, or switch routing mode to Focus ChatGPT.`
+        `The hidden ChatGPT workspace stayed unavailable during ${stage}. Open ChatGPT to sign in, then retry from Dichrome.`
       );
     }
 
     function getAutomationVisibilityMode(request) {
       const mode = request?.chatOptions?.visibility?.mode;
 
-      if (mode === VISIBILITY_MODES.OFFSCREEN_FRAME || mode === VISIBILITY_MODES.SIDECAR || mode === VISIBILITY_MODES.FOCUSED || mode === VISIBILITY_MODES.HIDDEN || mode === VISIBILITY_MODES.SINGLE_TAB) {
+      if (mode === VISIBILITY_MODES.OFFSCREEN_FRAME || mode === VISIBILITY_MODES.HIDDEN) {
         return mode;
       }
 
@@ -53,7 +53,7 @@
     }
 
     function requiresEmulatedVisibility(mode) {
-      return mode === VISIBILITY_MODES.HIDDEN || mode === VISIBILITY_MODES.SINGLE_TAB || mode === VISIBILITY_MODES.SIDECAR;
+      return mode === VISIBILITY_MODES.HIDDEN;
     }
 
     return Object.freeze({

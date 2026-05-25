@@ -33,7 +33,7 @@
       }));
 
       emitState(request.id, REQUEST_STATES.CHATGPT_TAB_READY, {
-        detail: "ChatGPT tab automation script is ready."
+        detail: "Hidden ChatGPT workspace script is ready."
       });
 
       await adapter.waitForAppShell(run);

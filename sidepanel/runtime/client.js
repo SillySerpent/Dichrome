@@ -5,7 +5,9 @@ export async function sendMessage(type, payload = {}) {
   });
 
   if (!response?.ok) {
-    throw new Error(response?.error || `Message failed: ${type}`);
+    const error = new Error(response?.error || `Message failed: ${type}`);
+    error.errorCode = response?.errorCode || "";
+    throw error;
   }
 
   return response;

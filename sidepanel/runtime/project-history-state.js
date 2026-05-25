@@ -1,7 +1,17 @@
 export const PROJECT_HISTORY_STORAGE_KEY = "dichrome.projectHistoryState";
+export const PROJECT_HISTORY_STATUS = Object.freeze({
+  IDLE: "idle",
+  LOADING: "loading",
+  LOADED: "loaded",
+  EMPTY: "empty",
+  ERROR: "error",
+  LOGGED_OUT: "logged-out",
+  PENDING_AUTH: "pending-auth"
+});
 
 export function createProjectHistoryState() {
   return {
+    status: PROJECT_HISTORY_STATUS.IDLE,
     loaded: false,
     loadingList: false,
     loadingConversationId: "",
@@ -31,6 +41,7 @@ export function loadPersistedProjectHistoryState(state, storage = localStorage) 
     }
 
     state.loaded = Boolean(persisted.loaded);
+    state.status = state.loaded ? PROJECT_HISTORY_STATUS.LOADED : PROJECT_HISTORY_STATUS.IDLE;
     state.project = persisted.project || null;
     state.conversations = Array.isArray(persisted.conversations) ? persisted.conversations : [];
     state.nextCursor = persisted.nextCursor ?? null;
@@ -44,6 +55,17 @@ export function loadPersistedProjectHistoryState(state, storage = localStorage) 
   } catch {
     // Ignore malformed persisted state.
   }
+}
+
+export function setProjectHistoryStatus(state, status) {
+  state.status = Object.values(PROJECT_HISTORY_STATUS).includes(status)
+    ? status
+    : PROJECT_HISTORY_STATUS.IDLE;
+  state.loaded = state.status === PROJECT_HISTORY_STATUS.LOADED
+    || state.status === PROJECT_HISTORY_STATUS.EMPTY
+    || Boolean(state.loaded && state.status === PROJECT_HISTORY_STATUS.LOADING);
+  state.loadingList = state.status === PROJECT_HISTORY_STATUS.LOADING;
+  state.pending = state.status === PROJECT_HISTORY_STATUS.PENDING_AUTH;
 }
 
 export function persistProjectHistoryState(state, storage = localStorage) {

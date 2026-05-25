@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { CHATGPT_CONTENT_SCRIPT_FILES } from "../shared/contracts.js";
+import { buildTargetManifest } from "./manifest-targets.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const requiredFiles = [
@@ -18,7 +19,6 @@ const requiredFiles = [
   "background/runtime/project-history-controller.js",
   "background/runtime/request-controller.js",
   "background/runtime/settings-repository.js",
-  "background/debug/debug-dump-collector.js",
   "background/automation/offscreen-target.js",
   "background/automation/offscreen-frame-policy.js",
   "background/automation/project-target.js",
@@ -30,7 +30,6 @@ const requiredFiles = [
   "background/focus-emulation.js",
   "background/requests/store.js",
   "background/state-machine.js",
-  "background/adapter-repair.js",
   "content/chatgpt/00-namespace.js",
   "content/chatgpt/runtime/contracts.js",
   "content/chatgpt/runtime/messaging/messages.js",
@@ -60,6 +59,8 @@ const requiredFiles = [
   "docs/hidden-internal-invariants.md",
   "docs/manual-smoke-tests.md",
   "docs/module-map.md",
+  "docs/chrome-web-store-submission.md",
+  "docs/privacy-policy.md",
   "offscreen/automation-host.html",
   "offscreen/automation-host.js",
   "icons/icon-16.png",
@@ -92,25 +93,42 @@ const requiredFiles = [
   "scripts/test-sidepanel-layout-css.mjs",
   "scripts/test-contracts.mjs",
   "scripts/test-response-formatting.mjs",
+  "scripts/test-manifest-targets.mjs",
+  "scripts/test-firefox-automation-host.mjs",
+  "scripts/test-offscreen-bridge-origin.mjs",
+  "scripts/package-extension.mjs",
+  "scripts/manifest-targets.mjs",
   "sidepanel/sidepanel.html",
   "sidepanel/sidepanel.css",
   "sidepanel/sidepanel.js",
   "sidepanel/runtime/app.js",
+  "sidepanel/runtime/attachments.js",
   "sidepanel/runtime/client.js",
   "sidepanel/runtime/conversation-thread.js",
   "sidepanel/runtime/dom.js",
+  "sidepanel/runtime/firefox-automation-host.js",
   "sidepanel/runtime/project-history-state.js",
   "sidepanel/runtime/response-animation.js",
   "sidepanel/runtime/response-view.js",
+  "sidepanel/runtime/settings-dialog.js",
   "sidepanel/runtime/state.js",
   "shared/contracts.js",
+  "shared/error-messages.js",
   "shared/response-formatting.js"
 ];
 const javascriptFiles = requiredFiles.filter((file) => file.endsWith(".js"));
+const extensionRuntimeRoots = [
+  "background",
+  "content",
+  "offscreen",
+  "shared",
+  "sidepanel"
+];
 const moduleScriptFiles = [
   ...javascriptFiles,
   "scripts/validate-extension.mjs",
   "scripts/generate-icons.mjs",
+  "scripts/package-extension.mjs",
   "scripts/test-settings.mjs",
   "scripts/test-content-runtime-url.mjs",
   "scripts/test-content-response-extraction.mjs",
@@ -134,13 +152,21 @@ const moduleScriptFiles = [
   "scripts/test-automation-session.mjs",
   "scripts/test-request-records.mjs",
   "scripts/test-contracts.mjs",
-  "scripts/test-response-formatting.mjs"
+  "scripts/test-response-formatting.mjs",
+  "scripts/manifest-targets.mjs",
+  "sidepanel/runtime/firefox-automation-host.js",
+  "scripts/test-manifest-targets.mjs",
+  "scripts/test-firefox-automation-host.mjs",
+  "scripts/test-offscreen-bridge-origin.mjs"
 ];
 
 await validateManifest();
 await validateFilesExist();
 await validateRepositoryHygiene();
 await validateLayeredContentRuntime();
+await validateStoreReviewReadiness();
+await validateNoUserFacingDebugControls();
+await validateNoRemoteCodeExecution();
 await validatePngFiles();
 validateJavaScriptSyntax();
 
@@ -152,6 +178,8 @@ async function validateManifest() {
 
   assert(manifest.manifest_version === 3, "manifest_version must be 3.");
   assert(manifest.name === "Dichrome", "manifest name must match the extension brand.");
+  assert(typeof manifest.description === "string" && manifest.description.trim(), "manifest description is required.");
+  assert(manifest.description.length <= 132, "manifest description must be no more than 132 characters.");
   assert(manifest.action?.default_title === "Open Dichrome", "action title must match the extension brand.");
   assert(Number(manifest.minimum_chrome_version) >= 116, "minimum_chrome_version must be 116 or newer for sidePanel.open.");
   assert(manifest.background?.service_worker === "background/service-worker.js", "background service worker path is wrong.");
@@ -182,9 +210,11 @@ async function validateManifest() {
 
   const permissions = new Set(manifest.permissions || []);
 
-  for (const permission of ["activeTab", "contextMenus", "debugger", "declarativeNetRequestWithHostAccess", "offscreen", "scripting", "sidePanel", "storage", "tabs", "windows"]) {
+  for (const permission of ["activeTab", "contextMenus", "declarativeNetRequestWithHostAccess", "offscreen", "scripting", "sidePanel", "storage", "tabs"]) {
     assert(permissions.has(permission), `Missing permission: ${permission}`);
   }
+  assert(!permissions.has("debugger"), "Debugger permission must not return for hidden-internal-only builds.");
+  assert(!permissions.has("windows"), "Windows permission must not return unless a visible automation route is reintroduced.");
 
   const hostPermissions = new Set(manifest.host_permissions || []);
   const optionalHostPermissions = manifest.optional_host_permissions || [];
@@ -196,7 +226,11 @@ async function validateManifest() {
 
   assert(hostPermissions.has("https://chatgpt.com/*"), "Missing chatgpt.com host permission.");
   assert(hostPermissions.has("https://chat.openai.com/*"), "Missing chat.openai.com host permission.");
-  assert(optionalHostPermissions.includes("<all_urls>"), "Visible screenshot capture must declare optional <all_urls> host access.");
+  assert(!hostPermissions.has("<all_urls>"), "Required <all_urls> host access is too broad for Dichrome's store package.");
+  assert(
+    optionalHostPermissions.length === 1 && optionalHostPermissions[0] === "<all_urls>",
+    "Optional host access must be limited to <all_urls> for user-triggered screenshot capture."
+  );
   assert(
     redundantOptionalHostPermissions.length === 0,
     `Optional host permissions must not duplicate required host access: ${redundantOptionalHostPermissions.join(", ")}`
@@ -204,6 +238,48 @@ async function validateManifest() {
   assert(
     manifest.content_security_policy?.extension_pages?.includes("frame-src https://chatgpt.com https://chat.openai.com"),
     "Extension CSP must allow ChatGPT offscreen iframe probe hosts."
+  );
+
+  validateFirefoxManifest(buildTargetManifest(manifest, "firefox"));
+}
+
+function validateFirefoxManifest(manifest) {
+  assert(manifest.manifest_version === 3, "Firefox manifest_version must be 3.");
+  assert(manifest.name === "Dichrome", "Firefox manifest name must match the extension brand.");
+  assert(!("minimum_chrome_version" in manifest), "Firefox manifest must not include minimum_chrome_version.");
+  assert(!manifest.side_panel, "Firefox manifest must not include Chrome side_panel.");
+  assert(manifest.sidebar_action?.default_panel === "sidepanel/sidepanel.html", "Firefox sidebar panel path is wrong.");
+  assert(manifest.sidebar_action?.default_title === "Open Dichrome", "Firefox sidebar title must match the extension brand.");
+  assert(manifest.sidebar_action?.open_at_install === false, "Firefox sidebar must not open automatically at install.");
+  assert(manifest.background?.scripts?.[0] === "background/service-worker.js", "Firefox background script path is wrong.");
+  assert(!manifest.background?.service_worker, "Firefox manifest must not include Chrome background service_worker.");
+  assert(manifest.background?.type === "module", "Firefox background script must be an ES module.");
+  assert(manifest.browser_specific_settings?.gecko?.id === "dichrome@local", "Firefox manifest must declare a stable Gecko id.");
+
+  const permissions = new Set(manifest.permissions || []);
+
+  for (const permission of ["activeTab", "contextMenus", "declarativeNetRequestWithHostAccess", "scripting", "storage", "tabs"]) {
+    assert(permissions.has(permission), `Firefox manifest missing permission: ${permission}`);
+  }
+
+  for (const chromeOnlyPermission of ["offscreen", "sidePanel"]) {
+    assert(!permissions.has(chromeOnlyPermission), `Firefox manifest must not include Chrome-only permission: ${chromeOnlyPermission}`);
+  }
+
+  const chatGptContentScript = manifest.content_scripts?.find((script) => {
+    return script.matches?.includes("https://chatgpt.com/*") && script.matches?.includes("https://chat.openai.com/*");
+  });
+
+  assert(chatGptContentScript, "Firefox manifest missing ChatGPT content script matches.");
+  assert(chatGptContentScript.all_frames === true, "Firefox ChatGPT content script must run in all frames.");
+  assert(chatGptContentScript.run_at === "document_start", "Firefox ChatGPT content script must run at document_start.");
+  assert(
+    JSON.stringify(chatGptContentScript.js) === JSON.stringify(CHATGPT_CONTENT_SCRIPT_FILES),
+    "Firefox ChatGPT content script order must match shared contract order."
+  );
+  assert(
+    manifest.content_security_policy?.extension_pages?.includes("frame-src https://chatgpt.com https://chat.openai.com"),
+    "Firefox manifest CSP must allow ChatGPT iframe hosts."
   );
 }
 
@@ -239,6 +315,72 @@ async function validateLayeredContentRuntime() {
   );
 }
 
+async function validateStoreReviewReadiness() {
+  const manifest = JSON.parse(await readFile(join(root, "manifest.json"), "utf8"));
+  const optionalHostPermissions = manifest.optional_host_permissions || [];
+
+  assert(
+    JSON.stringify(optionalHostPermissions) === JSON.stringify(["<all_urls>"]),
+    `Store package may only request optional <all_urls> for user-triggered screenshot capture: ${optionalHostPermissions.join(", ")}`
+  );
+
+  assert(
+    !/experimental|prototype|unpacked/i.test(manifest.description),
+    "Manifest description must be store-facing and must not describe the extension as an experimental unpacked prototype."
+  );
+
+  const submissionNotes = await readFile(join(root, "docs/chrome-web-store-submission.md"), "utf8");
+  const privacyPolicy = await readFile(join(root, "docs/privacy-policy.md"), "utf8");
+
+  for (const requiredPhrase of ["Permission Justifications", "Optional Screenshot Site Access", "Remote Code Statement", "Reviewer Test Instructions"]) {
+    assert(submissionNotes.includes(requiredPhrase), `Chrome Web Store notes must include: ${requiredPhrase}`);
+  }
+
+  for (const requiredPhrase of ["Data handled by the extension", "Data sharing", "Storage and retention"]) {
+    assert(privacyPolicy.includes(requiredPhrase), `Privacy policy draft must include: ${requiredPhrase}`);
+  }
+}
+
+async function validateNoUserFacingDebugControls() {
+  const sidepanelHtml = await readFile(join(root, "sidepanel/sidepanel.html"), "utf8");
+  const sidepanelDom = await readFile(join(root, "sidepanel/runtime/dom.js"), "utf8");
+  const sidepanelApp = await readFile(join(root, "sidepanel/runtime/app.js"), "utf8");
+
+  for (const phrase of [
+    "Routing, automation, and debug",
+    "Dump Debug",
+    "Dump debug",
+    "automation target",
+    "debug dump",
+    "eventLog",
+    "automationVisibilityMode",
+    "modelSelectionEnabled"
+  ]) {
+    assert(!sidepanelHtml.includes(phrase), `Side panel HTML must not expose debug/repair controls: ${phrase}`);
+    assert(!sidepanelDom.includes(phrase), `Side panel DOM bindings must not expose debug/repair controls: ${phrase}`);
+  }
+
+  for (const forbiddenCall of ["DUMP_DEBUG", "SET_LOCAL_REPAIR_SETTINGS", "GET_LOCAL_REPAIR_SETTINGS", "GET_AUTOMATION_SESSION"]) {
+    assert(!sidepanelApp.includes(forbiddenCall), `Side panel app must not call internal debug/repair route: ${forbiddenCall}`);
+  }
+}
+
+async function validateNoRemoteCodeExecution() {
+  const runtimeFiles = await listFiles(extensionRuntimeRoots);
+  const javascriptRuntimeFiles = runtimeFiles.filter((file) => file.endsWith(".js"));
+
+  for (const file of javascriptRuntimeFiles) {
+    const source = await readFile(join(root, file), "utf8");
+
+    assert(!/\beval\s*\(/.test(source), `${file} must not use eval().`);
+    assert(!/\bnew\s+Function\s*\(/.test(source), `${file} must not use new Function().`);
+    assert(!/\bimportScripts\s*\(/.test(source), `${file} must not load script code dynamically with importScripts().`);
+    if (!["sidepanel/runtime/app.js", "sidepanel/runtime/attachments.js"].includes(file)) {
+      assert(!/chrome\.permissions\.request\s*\(/.test(source), `${file} must not request runtime host permissions in the store package.`);
+    }
+  }
+}
+
 async function validatePngFiles() {
   for (const file of ["icons/icon-16.png", "icons/icon-32.png", "icons/icon-48.png", "icons/icon-128.png"]) {
     const bytes = await readFile(join(root, file));
@@ -258,6 +400,31 @@ function validateJavaScriptSyntax() {
       throw new Error(`Syntax check failed for ${file}\n${result.stderr || result.stdout}`);
     }
   }
+}
+
+async function listFiles(entries) {
+  const files = [];
+
+  for (const entry of entries) {
+    const dirEntries = await readdir(join(root, entry), {
+      withFileTypes: true
+    });
+
+    for (const dirEntry of dirEntries) {
+      const relativePath = `${entry}/${dirEntry.name}`;
+
+      if (dirEntry.isDirectory()) {
+        files.push(...await listFiles([relativePath]));
+        continue;
+      }
+
+      if (dirEntry.isFile()) {
+        files.push(relativePath);
+      }
+    }
+  }
+
+  return files;
 }
 
 function assert(condition, message) {

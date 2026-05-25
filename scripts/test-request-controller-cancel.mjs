@@ -19,11 +19,11 @@ const requests = new Map([
     chatTabId: null,
     events: []
   }],
-  ["tab-request", {
-    id: "tab-request",
+  ["legacy-visible-request", {
+    id: "legacy-visible-request",
     profileLabel: "Custom Text Prompt",
     state: REQUEST_STATES.CHATGPT_TAB_READY,
-    automationTargetType: "single-tab",
+    automationTargetType: "legacy-visible-tab",
     chatTabId: 77,
     events: []
   }],
@@ -116,26 +116,20 @@ assert.equal(requests.get("offscreen-request").error, "Cancelled by user.");
 assert.ok(requests.get("offscreen-request").completedAt);
 assert.equal(requests.get("offscreen-request").events.at(-1).detail, "Request cancelled.");
 
-await controller.cancelRequest("tab-request");
+await controller.cancelRequest("legacy-visible-request");
 
-assert.deepEqual(tabMessages, [{
-  tabId: 77,
-  message: {
-    type: "CHATGPT_AUTOMATION_CANCEL",
-    requestId: "tab-request"
-  }
-}]);
+assert.deepEqual(tabMessages, []);
 assert.equal(offscreenMessages.length, 1);
-assert.deepEqual(disabledFocusRequests, ["offscreen-request", "tab-request"]);
-assert.deepEqual(clearedRequests, ["offscreen-request", "tab-request"]);
-assert.equal(requests.get("tab-request").state, REQUEST_STATES.ERROR_STATE);
-assert.equal(requests.get("tab-request").error, "Cancelled by user.");
+assert.deepEqual(disabledFocusRequests, ["offscreen-request", "legacy-visible-request"]);
+assert.deepEqual(clearedRequests, ["offscreen-request", "legacy-visible-request"]);
+assert.equal(requests.get("legacy-visible-request").state, REQUEST_STATES.ERROR_STATE);
+assert.equal(requests.get("legacy-visible-request").error, "Cancelled by user.");
 
 await controller.cancelRequest("completed-request");
 
 assert.equal(offscreenMessages.length, 2);
 assert.equal(updatedRequests.includes("completed-request"), false);
-assert.deepEqual(clearedRequests, ["offscreen-request", "tab-request", "completed-request"]);
+assert.deepEqual(clearedRequests, ["offscreen-request", "legacy-visible-request", "completed-request"]);
 assert.equal(requests.get("completed-request").state, REQUEST_STATES.RESPONSE_COMPLETE);
 
 console.log("Request controller cancel tests passed.");

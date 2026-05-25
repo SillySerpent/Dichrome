@@ -9,6 +9,7 @@ __pycache__/
 .DS_Store
 
 # Runtime outputs
+.dist/
 logs/
 !logs/.gitkeep
 run/

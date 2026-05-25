@@ -181,7 +181,11 @@
     }
 
     function hasExtensionAncestor() {
-      const extensionOrigin = `chrome-extension://${chrome.runtime.id}`;
+      const extensionOrigin = getExtensionOrigin();
+
+      if (!extensionOrigin) {
+        return false;
+      }
 
       try {
         const ancestorOrigins = window.location?.ancestorOrigins;
@@ -198,6 +202,17 @@
       const referrer = document.referrer || "";
 
       return referrer === extensionOrigin || referrer.startsWith(`${extensionOrigin}/`);
+    }
+
+    function getExtensionOrigin() {
+      try {
+        const extensionUrl = chrome.runtime.getURL("");
+        const match = /^(chrome-extension|moz-extension):\/\/[^/]+/.exec(extensionUrl);
+
+        return match ? match[0] : "";
+      } catch (_error) {
+        return "";
+      }
     }
 
     function collectFrameInfo() {

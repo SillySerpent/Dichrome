@@ -6,6 +6,9 @@
   "scripts": {
     "check": "node scripts/validate-extension.mjs",
     "icons": "node scripts/generate-icons.mjs",
+    "package": "node scripts/package-extension.mjs",
+    "package:chrome": "node scripts/package-extension.mjs chrome",
+    "package:firefox": "node scripts/package-extension.mjs firefox",
     "test": "node scripts/test.mjs"
   }
 }

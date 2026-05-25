@@ -87,8 +87,7 @@ const controller = createRequestController({
 });
 
 await controller.retryRequest({
-  requestId: "new-request",
-  useRepairHints: false
+  requestId: "new-request"
 });
 
 assert.equal(startCalls[0].conversationMode, "new");
@@ -99,8 +98,7 @@ assert.equal(startCalls[0].chatOptionsOverride.conversation.startNewChat, true);
 assert.equal(startCalls[0].chatOptionsOverride.conversation.expectedConversationUrl, null);
 
 await controller.retryRequest({
-  requestId: "followup-request",
-  useRepairHints: false
+  requestId: "followup-request"
 });
 
 assert.equal(startCalls[1].conversationMode, "followup");

@@ -2,25 +2,26 @@ import {
   AUTOMATION_TARGET_TYPES,
   CHATGPT_AUTOMATION_MESSAGES,
   REQUEST_STATES,
+  REQUEST_ERROR_CODES,
   VISIBILITY_MODES,
   isTerminalState
 } from "../../shared/contracts.js";
-import { isChatGptUrl } from "../constants.js";
+import {
+  CHATGPT_HOME_URL,
+  isChatGptUrl
+} from "../constants.js";
 
 export function createRequestController({
   appendEvent,
   captureVisibleTabScreenshot,
   clearAutomationRequestActive = async () => null,
   disableFocusEmulationForRequest,
-  findOrCreateChatGptTab,
   getProfile,
   getRequest,
-  getSourceFocusTarget,
   normalizeText,
   queryBestSourceTab,
   restoreAttachmentPayloads,
   sendMessageToOffscreenFrame = async () => null,
-  sendMessageToTab,
   startRequest,
   updateRequest
 }) {
@@ -106,8 +107,8 @@ export function createRequestController({
       throw new Error("Follow-up prompt is empty.");
     }
 
-    if (!existing.chatConversationUrl && !existing.chatTabId) {
-      throw new Error("The active conversation has no saved ChatGPT conversation target. Start a new chat instead.");
+    if (!existing.chatConversationUrl) {
+      throw new Error("The active conversation has no saved hidden workspace URL. Start a new chat instead.");
     }
 
     return startRequest({
@@ -120,7 +121,6 @@ export function createRequestController({
       conversationMode: "followup",
       expectedConversationUrl: existing.chatConversationUrl || null,
       expectedConversationKey: existing.chatConversationKey || null,
-      preferredChatTabId: existing.chatTabId || null,
       chatOptionsOverride: {
         project: {
           enabled: false
@@ -168,7 +168,6 @@ export function createRequestController({
       conversationMode: "followup",
       expectedConversationUrl: conversation.url || null,
       expectedConversationKey: conversation.key || null,
-      preferredChatTabId: null,
       chatOptionsOverride: {
         project: {
           enabled: false
@@ -190,9 +189,6 @@ export function createRequestController({
     }
 
     const attachments = await restoreAttachmentPayloads(existing);
-    const adapterHints = message.useRepairHints && existing.repairSuggestions
-      ? existing.repairSuggestions.hints
-      : [];
 
     const isFollowupRetry = existing.conversationMode === "followup";
     const retry = await startRequest({
@@ -201,12 +197,10 @@ export function createRequestController({
       selectedText: existing.selectedText,
       manualText: existing.manualText,
       attachments,
-      adapterHints,
       parentRequestId: existing.parentRequestId || null,
       conversationMode: existing.conversationMode || "new",
       expectedConversationUrl: isFollowupRetry ? existing.chatConversationUrl || null : null,
       expectedConversationKey: isFollowupRetry ? existing.chatConversationKey || null : null,
-      preferredChatTabId: existing.chatTabId || null,
       chatOptionsOverride: isFollowupRetry
         ? {
           project: {
@@ -258,6 +252,7 @@ export function createRequestController({
     await updateRequest(requestId, (draft) => {
       draft.state = REQUEST_STATES.ERROR_STATE;
       draft.error = "Cancelled by user.";
+      draft.errorCode = REQUEST_ERROR_CODES.CHATGPT_UNAVAILABLE;
       draft.completedAt = new Date().toISOString();
       appendEvent(draft, "Request cancelled.");
     });
@@ -266,11 +261,6 @@ export function createRequestController({
   }
 
   async function deliverAutomationCancel(request, cancelMessage) {
-    if (request.chatTabId) {
-      await sendMessageToTab(request.chatTabId, cancelMessage).catch(() => null);
-      return;
-    }
-
     if (
       request.automationTargetType === AUTOMATION_TARGET_TYPES.OFFSCREEN_FRAME
       || request.automationVisibilityMode === VISIBILITY_MODES.HIDDEN
@@ -279,17 +269,14 @@ export function createRequestController({
     }
   }
 
-  async function openChatGptTabForRequest(requestId) {
-    const request = requestId ? await getRequest(requestId) : null;
-    const sourceFocus = getSourceFocusTarget(request?.source);
-    const tabId = request?.chatTabId || (await findOrCreateChatGptTab({ sourceFocus })).id;
-
-    await chrome.tabs.update(tabId, {
+  async function openChatGptAuth() {
+    const tab = await chrome.tabs.create({
+      url: CHATGPT_HOME_URL,
       active: true
     });
 
     return {
-      tabId
+      tabId: tab.id
     };
   }
 
@@ -301,7 +288,7 @@ export function createRequestController({
     startHistoryFollowupRequest,
     retryRequest,
     cancelRequest,
-    openChatGptTabForRequest
+    openChatGptAuth
   });
 }
 

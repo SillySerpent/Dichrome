@@ -59,15 +59,15 @@ localStore.set(AUTOMATION_WINDOW_STATE_KEY, {
 
 const migrated = await getAutomationSession();
 
-assert.equal(migrated.targetType, AUTOMATION_TARGET_TYPES.SINGLE_TAB);
-assert.equal(migrated.tabId, 42);
-assert.equal(migrated.windowId, 7);
+assert.equal(migrated.targetType, null);
+assert.equal(migrated.tabId, null);
+assert.equal(migrated.windowId, null);
+assert.equal(migrated.lastKnownUrl, "legacy-visible-tab-ignored");
 assert.deepEqual(localStore.get(AUTOMATION_SESSION_KEY), migrated);
 
 await markAutomationTargetReady({
-  targetType: AUTOMATION_TARGET_TYPES.SINGLE_TAB,
-  tabId: 100,
-  windowId: 200,
+  targetType: AUTOMATION_TARGET_TYPES.OFFSCREEN_FRAME,
+  offscreenDocumentUrl: "chrome-extension://test-extension/offscreen/automation-host.html",
   lastKnownUrl: "https://chatgpt.com/c/thread"
 });
 await updateSessionConversation({
@@ -78,14 +78,15 @@ await markAutomationRequestActive("request-1");
 
 const active = await getAutomationSession();
 
-assert.equal(active.tabId, 100);
-assert.equal(active.windowId, 200);
+assert.equal(active.tabId, null);
+assert.equal(active.windowId, null);
+assert.equal(active.offscreenDocumentUrl, "chrome-extension://test-extension/offscreen/automation-host.html");
 assert.equal(active.currentConversationUrl, "https://chatgpt.com/c/thread");
 assert.equal(active.currentConversationKey, "thread");
 assert.equal(active.activeRequestId, "request-1");
 
 await clearAutomationTabIfMatches(999);
-assert.equal((await getAutomationSession()).tabId, 100);
+assert.equal((await getAutomationSession()).tabId, null);
 
 await clearAutomationRequestActive("different-request");
 assert.equal((await getAutomationSession()).activeRequestId, "request-1");
@@ -98,7 +99,7 @@ const cleared = await getAutomationSession();
 
 assert.equal(cleared.tabId, null);
 assert.equal(cleared.windowId, null);
-assert.equal(cleared.lastKnownUrl, "tab-removed");
+assert.equal(cleared.lastKnownUrl, "https://chatgpt.com/c/thread");
 
 await setOffscreenCapability({
   supported: false,

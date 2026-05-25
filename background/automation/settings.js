@@ -110,52 +110,39 @@ export function usesHiddenAutomation(visibility) {
 }
 
 export function usesSingleTabAutomation(visibility) {
-  const mode = getVisibilityMode(visibility);
-
-  return mode === VISIBILITY_MODES.HIDDEN || mode === VISIBILITY_MODES.SINGLE_TAB;
+  return false;
 }
 
 export function usesSidecarWindow(visibility) {
-  const mode = getVisibilityMode(visibility);
-
-  return mode === VISIBILITY_MODES.SIDECAR || mode === VISIBILITY_MODES.FOCUSED;
+  return false;
 }
 
 export function usesFocusedAutomation(visibility) {
-  return getVisibilityMode(visibility) === VISIBILITY_MODES.FOCUSED;
+  return false;
 }
 
 export function usesFocusEmulation(visibility) {
-  const mode = getVisibilityMode(visibility);
-
-  return mode === VISIBILITY_MODES.HIDDEN
-    || mode === VISIBILITY_MODES.SINGLE_TAB
-    || mode === VISIBILITY_MODES.SIDECAR;
+  return false;
 }
 
 function migrateVisibilitySettings(visibility, defaults) {
   if (visibility.schemaVersion === VISIBILITY_SETTINGS_VERSION) {
-    return visibility;
+    return {
+      ...visibility,
+      mode: VISIBILITY_MODES.HIDDEN
+    };
   }
-
-  const legacyMode = visibility.mode === "seamless" ? VISIBILITY_MODES.HIDDEN : visibility.mode;
-  const mode = sanitizeVisibilityMode(legacyMode, null)
-    || (visibility.focusDuringRun === true ? VISIBILITY_MODES.FOCUSED : VISIBILITY_MODES.HIDDEN);
 
   return {
     ...defaults,
-    mode,
+    mode: VISIBILITY_MODES.HIDDEN,
     windowWidth: visibility.windowWidth,
     windowHeight: visibility.windowHeight
   };
 }
 
 function sanitizeVisibilityMode(value, fallback) {
-  if (Object.values(VISIBILITY_MODES).includes(value)) {
-    return value;
-  }
-
-  return fallback;
+  return VISIBILITY_MODES.HIDDEN;
 }
 
 function sanitizeText(value, maxLength) {

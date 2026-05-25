@@ -5,33 +5,43 @@ import {
   PANEL_MESSAGES,
   PROJECT_CONVERSATION_HISTORY_LIMIT,
   PROJECT_CONVERSATION_MESSAGE_BATCH_SIZE,
+  REQUEST_ERROR_CODES,
   VISIBILITY_MODES
 } from "../../shared/contracts.js";
+import { getErrorPresentation } from "../../shared/error-messages.js";
 import {
   normalizeResponseHtml,
   normalizeResponseText,
   renderMarkdownToHtml
 } from "../../shared/response-formatting.js";
+import {
+  captureVisibleScreenshotAttachment,
+  createFileAttachments,
+  formatBytes,
+  removeAttachmentFromList
+} from "./attachments.js";
 import { sendMessage } from "./client.js";
 import { dom } from "./dom.js";
 import {
   createProjectHistoryState,
   loadPersistedProjectHistoryState,
   normalizeHistoryProjectKey,
-  persistProjectHistoryState
+  persistProjectHistoryState,
+  PROJECT_HISTORY_STATUS,
+  setProjectHistoryStatus
 } from "./project-history-state.js";
 import {
   getUnreflectedLiveRequestsForHistory
 } from "./conversation-thread.js";
 import { createResponseAnimation } from "./response-animation.js";
 import { createResponseView } from "./response-view.js";
+import { createSettingsDialog } from "./settings-dialog.js";
 import {
   isRunningRequest,
   isStreamingState
 } from "./state.js";
 
 const MAX_CONTEXT_PREVIEW_LENGTH = 700;
-const MAX_FILE_ATTACHMENT_BYTES = 32 * 1024 * 1024;
 const SELECTION_REFRESH_DELAY_MS = 180;
 const CHAT_THREAD_AUTOSCROLL_BOTTOM_THRESHOLD_PX = 64;
 const CHAT_THREAD_HISTORY_TOP_THRESHOLD_PX = 72;
@@ -39,12 +49,14 @@ const HISTORY_LIST_BOTTOM_THRESHOLD_PX = 48;
 const PROJECT_HISTORY_AUTO_LOAD_DELAY_MS = 120;
 const PROJECT_HISTORY_AUTO_RETRY_DELAY_MS = 4000;
 const PROJECT_HISTORY_AUTO_RETRY_MAX_DELAY_MS = 30000;
+const DEFAULT_PROJECT_NAME = chrome.runtime?.getManifest?.().name || "Dichrome";
 
-let profiles = [];
 let panelState = {
   activeRequestId: null,
   requests: []
 };
+let automationSettingsState = null;
+let workspaceReadinessState = { ready: false, checked: false, message: "Preparing hidden ChatGPT workspace...", errorCode: null };
 
 let outgoingRequestPending = null;
 let composerSendInFlight = false;
@@ -54,6 +66,7 @@ let selectedContext = null;
 let dismissedSelectionKey = "";
 let selectionRefreshTimer = null;
 let composerReadingMode = true;
+let projectHistoryReadingMode = true;
 let projectHistoryAutoLoadTimer = null;
 let projectHistoryAutoRetryCount = 0;
 let projectHistoryLoadPromise = null;
@@ -71,6 +84,13 @@ const responseAnimation = createResponseAnimation({
   resetAutoScroll: responseView.resetAutoScroll,
   setHtml: responseView.setHtml
 });
+const settingsDialog = createSettingsDialog({
+  dom,
+  defaultProjectName: DEFAULT_PROJECT_NAME,
+  getAutomationSettings: () => automationSettingsState,
+  getWorkspaceReadiness: () => workspaceReadinessState,
+  normalizePublicAutomationSettings
+});
 
 document.addEventListener("DOMContentLoaded", () => {
   void initialize();
@@ -80,7 +100,6 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === PANEL_MESSAGES.PANEL_STATE_UPDATED) {
     panelState = message.panelState;
     render();
-    void refreshAutomationTargetStatus();
     return;
   }
 });
@@ -89,11 +108,10 @@ async function initialize() {
   bindEvents();
   loadPersistedProjectHistoryState(projectHistoryState);
   await Promise.all([
-    loadProfiles(),
     loadPanelState(),
-    loadRepairSettings(),
     loadAutomationSettings()
   ]);
+  await loadWorkspaceReadiness({ silent: true });
   await maybeRefreshSelectedContext({ force: true });
   render();
   scheduleProjectHistoryAutoLoad({
@@ -107,6 +125,7 @@ function bindEvents() {
     void runPanelAction(async () => {
       await Promise.all([
         loadPanelState(),
+        loadWorkspaceReadiness({ silent: true }),
         maybeRefreshSelectedContext({ force: true })
       ]);
       render();
@@ -117,7 +136,36 @@ function bindEvents() {
     startNewConversationDraft();
   });
 
+  dom.settingsButton.addEventListener("click", () => {
+    settingsDialog.open();
+  });
+
+  dom.settingsCloseButton.addEventListener("click", () => {
+    settingsDialog.close();
+  });
+
+  dom.settingsCancelButton.addEventListener("click", () => {
+    settingsDialog.close();
+  });
+
+  dom.settingsOverlay.addEventListener("click", (event) => {
+    if (event.target === dom.settingsOverlay) {
+      settingsDialog.close();
+    }
+  });
+
+  dom.settingsSaveButton.addEventListener("click", () => {
+    void runPanelAction(() => saveAutomationSettings({ silent: false, closeAfterSave: true }));
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !dom.settingsOverlay.classList.contains("hidden")) {
+      settingsDialog.close();
+    }
+  });
+
   dom.historyRefreshButton.addEventListener("click", () => {
+    markProjectHistoryInterest();
     void runPanelAction(() => loadProjectConversations({
       reset: true
     }));
@@ -127,11 +175,13 @@ function bindEvents() {
     const conversationButton = event.target?.closest?.("[data-history-conversation-id]");
 
     if (conversationButton) {
+      markProjectHistoryInterest();
       void runPanelAction(() => loadProjectConversation(conversationButton.dataset.historyConversationId));
       return;
     }
 
     if (event.target?.closest?.("[data-history-load-more]")) {
+      markProjectHistoryInterest();
       void runPanelAction(() => loadProjectConversations({
         reset: false
       }));
@@ -251,6 +301,10 @@ function bindEvents() {
     dom.composerPanel.addEventListener(eventName, markComposerInterest);
   }
 
+  for (const eventName of ["focusin", "pointerdown", "pointerenter"]) {
+    dom.historyPanel?.addEventListener(eventName, markProjectHistoryInterest);
+  }
+
   for (const eventName of ["focusin", "pointerdown", "pointerenter", "wheel", "scroll"]) {
     dom.chatMessages.addEventListener(eventName, markReaderInterest, {
       passive: eventName === "wheel" || eventName === "scroll"
@@ -284,34 +338,8 @@ function bindEvents() {
     void runPanelAction(() => retryActiveRequest(false));
   });
 
-  dom.followupButton.addEventListener("click", () => {
-    void runPanelAction(sendComposerRequest);
-  });
-
-  dom.debugDumpButton.addEventListener("click", () => {
-    void runPanelAction(dumpDebugState);
-  });
-
   dom.openChatGptButton.addEventListener("click", () => {
-    const request = projectHistoryState.activeConversation
-      ? getActiveProjectConversationRequest()
-      : getActiveRequest();
-
-    if (request) {
-      void runPanelAction(() => sendMessage(PANEL_MESSAGES.OPEN_CHATGPT_TAB, {
-        requestId: request.id
-      }));
-      return;
-    }
-
-    if (projectHistoryState.activeConversation) {
-      void runPanelAction(() => sendMessage(PANEL_MESSAGES.OPEN_PROJECT_CONVERSATION, {
-        conversation: {
-          id: projectHistoryState.activeConversation.id,
-          url: projectHistoryState.activeConversation.url
-        }
-      }));
-    }
+    void runPanelAction(() => sendMessage(PANEL_MESSAGES.OPEN_CHATGPT_AUTH));
   });
 
   dom.cancelButton.addEventListener("click", () => {
@@ -326,27 +354,6 @@ function bindEvents() {
     }
   });
 
-  dom.saveRepairButton.addEventListener("click", () => {
-    void runPanelAction(saveRepairSettings);
-  });
-
-  dom.saveAutomationButton.addEventListener("click", () => {
-    void runPanelAction(() => saveAutomationSettings());
-  });
-
-  dom.modelLabel.addEventListener("input", () => {
-    syncModelSelectionEnabledFromLabel();
-    void saveAutomationSettings({ silent: true });
-  });
-
-  dom.modelLabel.addEventListener("change", () => {
-    syncModelSelectionEnabledFromLabel();
-    void saveAutomationSettings({ silent: true });
-  });
-
-  dom.modelRequireExact.addEventListener("change", () => {
-    void saveAutomationSettings({ silent: true });
-  });
 
   window.addEventListener("focus", () => {
     scheduleSelectedContextRefresh({ force: true });
@@ -361,53 +368,81 @@ function bindEvents() {
   responseView.bindInteractions();
 }
 
-async function loadProfiles() {
-  const response = await sendMessage(PANEL_MESSAGES.GET_PROFILES);
-  profiles = response.profiles || [];
-
-  const customProfile = profiles.find((profile) => profile.id === "custom_text") || profiles[0];
-  dom.profileSelect.replaceChildren(...profiles.map((profile) => {
-    const option = document.createElement("option");
-    option.value = profile.id;
-    option.textContent = profile.label;
-
-    return option;
-  }));
-
-  if (customProfile) {
-    dom.profileSelect.value = customProfile.id;
-  }
-}
-
 async function loadPanelState() {
   const response = await sendMessage(PANEL_MESSAGES.GET_PANEL_STATE);
   panelState = response.panelState || panelState;
-}
-
-async function loadRepairSettings() {
-  const response = await sendMessage(PANEL_MESSAGES.GET_LOCAL_REPAIR_SETTINGS);
-  const settings = response.settings || {};
-
-  dom.repairEnabled.checked = Boolean(settings.enabled);
-  dom.repairModel.value = settings.model || "llama3.2:3b";
-  dom.repairUrl.value = settings.ollamaUrl || "http://localhost:11434/api/generate";
 }
 
 async function loadAutomationSettings() {
   const response = await sendMessage(PANEL_MESSAGES.GET_CHATGPT_AUTOMATION_SETTINGS);
   const settings = response.settings || {};
 
-  dom.projectRoutingEnabled.checked = Boolean(settings.project?.enabled);
-  dom.projectName.value = settings.project?.name || "Dichrome";
-  dom.projectCreateIfMissing.checked = settings.project?.createIfMissing !== false;
-  if (dom.startNewChat) {
-    dom.startNewChat.checked = false;
+  automationSettingsState = normalizePublicAutomationSettings(settings);
+  settingsDialog.render();
+}
+
+
+async function loadWorkspaceReadiness({ silent = false } = {}) {
+  workspaceReadinessState = {
+    ...workspaceReadinessState,
+    checked: false,
+    message: "Preparing hidden ChatGPT workspace...",
+    errorCode: null
+  };
+
+  try {
+    const response = await sendMessage(PANEL_MESSAGES.CHECK_CHATGPT_WORKSPACE);
+    workspaceReadinessState = {
+      ready: Boolean(response.ready),
+      checked: true,
+      message: response.message || (response.ready ? "Hidden ChatGPT workspace is ready." : "Hidden ChatGPT workspace is not ready."),
+      errorCode: response.errorCode || null
+    };
+  } catch (error) {
+    const presentation = getErrorPresentation(error.errorCode, error.message || String(error));
+    workspaceReadinessState = {
+      ready: false,
+      checked: true,
+      message: `${presentation.title} ${presentation.detail}`.trim(),
+      errorCode: error.errorCode || REQUEST_ERROR_CODES.CHATGPT_UNAVAILABLE
+    };
   }
-  dom.automationVisibilityMode.value = normalizeVisibilityMode(settings.visibility?.mode);
-  dom.modelSelectionEnabled.checked = Boolean(settings.model?.enabled);
-  setModelLabelValue(settings.model?.label || "");
-  dom.modelRequireExact.checked = Boolean(settings.model?.requireExact);
-  renderAutomationTargetStatus(settings.automationSession || null);
+
+  if (!silent) {
+    setTransientStatus(workspaceReadinessState.ready ? "Hidden workspace ready." : workspaceReadinessState.message);
+  }
+}
+
+function normalizePublicAutomationSettings(settings = {}) {
+  const source = settings && typeof settings === "object" ? settings : {};
+  const project = source.project && typeof source.project === "object" ? source.project : {};
+  const model = source.model && typeof source.model === "object" ? source.model : {};
+
+  return {
+    project: {
+      enabled: project.enabled !== false,
+      name: String(project.name || DEFAULT_PROJECT_NAME).trim() || DEFAULT_PROJECT_NAME,
+      createIfMissing: project.createIfMissing !== false,
+      segment: String(project.segment || ""),
+      url: String(project.url || "")
+    },
+    conversation: {
+      startNewChat: false
+    },
+    visibility: {
+      schemaVersion: VISIBILITY_SETTINGS_VERSION,
+      mode: VISIBILITY_MODES.HIDDEN
+    },
+    model: {
+      enabled: Boolean(model.enabled || model.label),
+      label: String(model.label || "").trim(),
+      requireExact: Boolean(model.requireExact)
+    }
+  };
+}
+
+function getCurrentProjectSettings() {
+  return normalizePublicAutomationSettings(automationSettingsState || {}).project;
 }
 
 function scheduleProjectHistoryAutoLoad({ force = false, reset = false, delayMs = PROJECT_HISTORY_AUTO_LOAD_DELAY_MS } = {}) {
@@ -449,13 +484,13 @@ async function maybeAutoLoadProjectHistory({ force = false, reset = false } = {}
 }
 
 function shouldLoadProjectHistoryAutomatically() {
-  return Boolean(dom.projectRoutingEnabled.checked && dom.projectName.value.trim());
+  const project = getCurrentProjectSettings();
+
+  return Boolean(workspaceReadinessState.ready && project.enabled && project.name);
 }
 
 function getCurrentProjectHistoryKey() {
-  return normalizeHistoryProjectKey({
-    name: dom.projectName.value
-  });
+  return normalizeHistoryProjectKey(getCurrentProjectSettings());
 }
 
 function getLoadedProjectHistoryKey() {
@@ -479,60 +514,76 @@ async function loadProjectConversations({ reset = false } = {}) {
   projectHistoryState.pending = false;
   projectHistoryState.pendingSource = "";
   projectHistoryState.error = "";
-  renderHistoryPanel();
+  setProjectHistoryStatus(projectHistoryState, PROJECT_HISTORY_STATUS.LOADING);
+  renderHistoryPanel({
+    preserveScroll: true
+  });
 
   projectHistoryLoadPromise = (async () => {
-  try {
-    const response = await sendMessage(PANEL_MESSAGES.GET_PROJECT_CONVERSATIONS, {
-      cursor: reset ? 0 : projectHistoryState.nextCursor || 0,
-      limit: PROJECT_CONVERSATION_HISTORY_LIMIT
-    });
+    try {
+      const response = await sendMessage(PANEL_MESSAGES.GET_PROJECT_CONVERSATIONS, {
+        cursor: reset ? 0 : projectHistoryState.nextCursor || 0,
+        limit: PROJECT_CONVERSATION_HISTORY_LIMIT
+      });
 
-    if (response.pending) {
-      projectHistoryState.project = response.project || projectHistoryState.project;
-      projectHistoryState.pending = true;
-      projectHistoryState.pendingSource = response.source || "pending";
-      const retryDelay = Math.min(
-        PROJECT_HISTORY_AUTO_RETRY_MAX_DELAY_MS,
-        PROJECT_HISTORY_AUTO_RETRY_DELAY_MS * Math.max(1, 2 ** projectHistoryAutoRetryCount)
-      );
-      projectHistoryAutoRetryCount += 1;
-      window.clearTimeout(projectHistoryAutoLoadTimer);
-      projectHistoryAutoLoadTimer = window.setTimeout(() => {
-        projectHistoryAutoLoadTimer = null;
-        void runPanelAction(() => maybeAutoLoadProjectHistory({
-          force: true,
-          reset: true
-        }));
-      }, retryDelay);
-      return;
-    }
-
-    const incoming = Array.isArray(response.conversations) ? response.conversations : [];
-    const existing = reset ? [] : projectHistoryState.conversations;
-    const byId = new Map(existing.map((conversation) => [conversation.id, conversation]));
-
-    for (const conversation of incoming) {
-      if (conversation?.id) {
-        byId.set(conversation.id, conversation);
+      if (response.pending) {
+        projectHistoryState.project = response.project || projectHistoryState.project;
+        projectHistoryState.pendingSource = response.source || "pending";
+        setProjectHistoryStatus(projectHistoryState, PROJECT_HISTORY_STATUS.PENDING_AUTH);
+        const retryDelay = Math.min(
+          PROJECT_HISTORY_AUTO_RETRY_MAX_DELAY_MS,
+          PROJECT_HISTORY_AUTO_RETRY_DELAY_MS * Math.max(1, 2 ** projectHistoryAutoRetryCount)
+        );
+        projectHistoryAutoRetryCount += 1;
+        window.clearTimeout(projectHistoryAutoLoadTimer);
+        projectHistoryAutoLoadTimer = window.setTimeout(() => {
+          projectHistoryAutoLoadTimer = null;
+          void runPanelAction(() => maybeAutoLoadProjectHistory({
+            force: true,
+            reset: true
+          }));
+        }, retryDelay);
+        return;
       }
-    }
 
-    projectHistoryAutoRetryCount = 0;
-    projectHistoryState.loaded = true;
-    projectHistoryState.pending = false;
-    projectHistoryState.pendingSource = "";
-    projectHistoryState.project = response.project || projectHistoryState.project;
-    projectHistoryState.conversations = Array.from(byId.values());
-    projectHistoryState.nextCursor = response.nextCursor ?? null;
-  } catch (error) {
-    projectHistoryState.error = error.message || String(error);
-    throw error;
-  } finally {
-    projectHistoryState.loadingList = false;
-    projectHistoryLoadPromise = null;
-    renderHistoryPanel();
-  }
+      const incoming = Array.isArray(response.conversations) ? response.conversations : [];
+      const existing = reset ? [] : projectHistoryState.conversations;
+      const byId = new Map(existing.map((conversation) => [conversation.id, conversation]));
+
+      for (const conversation of incoming) {
+        if (conversation?.id) {
+          byId.set(conversation.id, conversation);
+        }
+      }
+
+      projectHistoryAutoRetryCount = 0;
+      projectHistoryState.project = response.project || projectHistoryState.project;
+      projectHistoryState.conversations = Array.from(byId.values());
+      projectHistoryState.nextCursor = response.nextCursor ?? null;
+      setProjectHistoryStatus(
+        projectHistoryState,
+        projectHistoryState.conversations.length
+          ? PROJECT_HISTORY_STATUS.LOADED
+          : PROJECT_HISTORY_STATUS.EMPTY
+      );
+    } catch (error) {
+      const presentation = getErrorPresentation(error.errorCode, error.message || String(error));
+      projectHistoryState.error = `${presentation.title} ${presentation.detail}`.trim();
+      setProjectHistoryStatus(
+        projectHistoryState,
+        error.errorCode === REQUEST_ERROR_CODES.AUTH_REQUIRED
+          ? PROJECT_HISTORY_STATUS.LOGGED_OUT
+          : PROJECT_HISTORY_STATUS.ERROR
+      );
+      throw error;
+    } finally {
+      projectHistoryState.loadingList = false;
+      projectHistoryLoadPromise = null;
+      renderHistoryPanel({
+        preserveScroll: true,
+        scrollAnchor: reset ? "preserve" : "append"
+      });
+    }
   })();
 
   return projectHistoryLoadPromise;
@@ -547,7 +598,9 @@ async function loadProjectConversation(conversationId) {
 
   projectHistoryState.loadingConversationId = conversationId;
   projectHistoryState.error = "";
-  renderHistoryPanel();
+  renderHistoryPanel({
+    preserveScroll: true
+  });
 
   try {
     const response = await sendMessage(PANEL_MESSAGES.GET_PROJECT_CONVERSATION, {
@@ -563,16 +616,22 @@ async function loadProjectConversation(conversationId) {
       PROJECT_CONVERSATION_MESSAGE_BATCH_SIZE
     );
     chatThreadScrollState.autoScroll = true;
+    projectHistoryReadingMode = true;
     responseAnimation.stop();
     responseView.resetAutoScroll();
     render();
     setTransientStatus(`Loaded ${conversation.title}`);
   } catch (error) {
     projectHistoryState.error = error.message || String(error);
+    if (error.errorCode === REQUEST_ERROR_CODES.AUTH_REQUIRED) {
+      setProjectHistoryStatus(projectHistoryState, PROJECT_HISTORY_STATUS.LOGGED_OUT);
+    }
     throw error;
   } finally {
     projectHistoryState.loadingConversationId = "";
-    renderHistoryPanel();
+    renderHistoryPanel({
+      preserveScroll: true
+    });
   }
 }
 
@@ -601,19 +660,6 @@ function normalizeLoadedProjectConversation(value) {
     messageCount: Number.isFinite(Number(source.messageCount)) ? Number(source.messageCount) : messages.length,
     loadedAt: source.loadedAt || new Date().toISOString()
   };
-}
-
-function setModelLabelValue(label) {
-  const normalized = String(label || "").trim();
-
-  if (normalized && !Array.from(dom.modelLabel.options).some((option) => option.value === normalized)) {
-    const option = document.createElement("option");
-    option.value = normalized;
-    option.textContent = normalized;
-    dom.modelLabel.appendChild(option);
-  }
-
-  dom.modelLabel.value = normalized;
 }
 
 async function sendComposerRequest() {
@@ -690,7 +736,7 @@ function canContinueActiveConversation(request) {
     return false;
   }
 
-  return Boolean(request.chatConversationUrl || request.chatConversationKey || request.chatTabId);
+  return Boolean(request.chatConversationUrl || request.chatConversationKey);
 }
 
 function canContinueActiveProjectConversation() {
@@ -709,6 +755,7 @@ function clearComposerAfterSend() {
 
 function startNewConversationDraft() {
   composerReadingMode = false;
+  projectHistoryReadingMode = true;
   chatThreadScrollState.autoScroll = true;
   forceNewConversationDraft = true;
   pendingAttachments = [];
@@ -728,46 +775,25 @@ function startNewConversationDraft() {
 }
 
 async function attachVisibleScreenshot() {
-  await ensureScreenshotCapturePermission();
-  const response = await sendMessage(PANEL_MESSAGES.CAPTURE_SCREENSHOT_ATTACHMENT);
-  const screenshot = response.attachment;
-
-  if (!screenshot) {
-    throw new Error("Screenshot capture returned no attachment.");
-  }
-
-  addAttachment({
-    ...screenshot,
-    previewUrl: screenshot.dataUrl
-  });
-  setTransientStatus("Screenshot attached. Review it, add text if needed, then press Send.");
+  const attachment = await captureVisibleScreenshotAttachment();
+  addAttachment(attachment);
+  setTransientStatus("Screenshot attached.");
 }
 
 async function attachFilesFromInput(fileList) {
-  const files = Array.from(fileList || []);
+  const { attachments, rejected } = await createFileAttachments(fileList);
 
-  if (!files.length) {
-    return;
+  for (const message of rejected) {
+    setTransientStatus(message);
   }
 
-  for (const file of files) {
-    if (file.size > MAX_FILE_ATTACHMENT_BYTES) {
-      throw new Error(`${file.name} is too large for the side-panel attachment buffer.`);
-    }
-
-    const dataUrl = await readFileAsDataUrl(file);
-    addAttachment({
-      id: createLocalId(),
-      kind: file.type.startsWith("image/") ? "image" : "file",
-      name: file.name || "attachment",
-      mimeType: file.type || "application/octet-stream",
-      sizeBytes: file.size,
-      dataUrl,
-      previewUrl: file.type.startsWith("image/") ? dataUrl : ""
-    });
+  for (const attachment of attachments) {
+    addAttachment(attachment);
   }
 
-  setTransientStatus(`${files.length} file${files.length === 1 ? "" : "s"} attached.`);
+  if (attachments.length) {
+    setTransientStatus(`${attachments.length} attachment${attachments.length === 1 ? "" : "s"} added.`);
+  }
 }
 
 function addAttachment(attachment) {
@@ -790,7 +816,7 @@ function addAttachment(attachment) {
 
 function removeAttachment(attachmentId) {
   markComposerInterest();
-  pendingAttachments = pendingAttachments.filter((attachment) => attachment.id !== attachmentId);
+  pendingAttachments = removeAttachmentFromList(pendingAttachments, attachmentId);
   renderAttachments();
   updateComposerSendState();
 }
@@ -835,20 +861,6 @@ function renderAttachments() {
 
     chip.append(body, remove);
     dom.attachmentsTray.append(chip);
-  }
-}
-
-async function ensureScreenshotCapturePermission() {
-  if (!chrome.permissions?.request) {
-    return;
-  }
-
-  const granted = await chrome.permissions.request({
-    origins: ["<all_urls>"]
-  });
-
-  if (!granted) {
-    throw new Error("Visible screenshot capture needs All Sites access. Grant the permission prompt, then retry.");
   }
 }
 
@@ -943,7 +955,7 @@ function applyQuickAction(action) {
   updateComposerSendState();
 }
 
-async function retryActiveRequest(useRepairHints) {
+async function retryActiveRequest() {
   const request = projectHistoryState.activeConversation
     ? getActiveProjectConversationRequest()
     : getActiveRequest();
@@ -954,103 +966,33 @@ async function retryActiveRequest(useRepairHints) {
 
   await saveAutomationSettings({ silent: true });
   await sendMessage(PANEL_MESSAGES.RETRY_REQUEST, {
-    requestId: request.id,
-    useRepairHints
+    requestId: request.id
   });
   await loadPanelState();
   render();
 }
 
-async function saveRepairSettings() {
-  const response = await sendMessage(PANEL_MESSAGES.SET_LOCAL_REPAIR_SETTINGS, {
-    settings: {
-      enabled: dom.repairEnabled.checked,
-      model: dom.repairModel.value,
-      ollamaUrl: dom.repairUrl.value
-    }
-  });
-  const settings = response.settings;
-
-  dom.repairEnabled.checked = Boolean(settings.enabled);
-  dom.repairModel.value = settings.model;
-  dom.repairUrl.value = settings.ollamaUrl;
-  setTransientStatus("Local repair settings saved.");
-}
-
-async function dumpDebugState() {
-  const request = projectHistoryState.activeConversation
-    ? getActiveProjectConversationRequest()
-    : getActiveRequest();
-  const response = await sendMessage(PANEL_MESSAGES.DUMP_DEBUG, {
-    requestId: request?.id || null
-  });
-
-  console.log("[Dichrome] Side panel debug dump", response.dump);
-  setTransientStatus("Debug dump written to console.");
-}
-
-async function saveAutomationSettings({ silent = false } = {}) {
+async function saveAutomationSettings({ silent = false, closeAfterSave = false } = {}) {
   const response = await sendMessage(PANEL_MESSAGES.SET_CHATGPT_AUTOMATION_SETTINGS, {
-    settings: collectAutomationSettingsFromForm()
+    settings: settingsDialog.collect()
   });
-  const settings = response.settings;
-
-  dom.projectRoutingEnabled.checked = Boolean(settings.project.enabled);
-  dom.projectName.value = settings.project.name;
-  dom.projectCreateIfMissing.checked = Boolean(settings.project.createIfMissing);
-  if (dom.startNewChat) {
-    dom.startNewChat.checked = false;
-  }
-  dom.automationVisibilityMode.value = normalizeVisibilityMode(settings.visibility.mode);
-  dom.modelSelectionEnabled.checked = Boolean(settings.model.enabled);
-  setModelLabelValue(settings.model.label);
-  dom.modelRequireExact.checked = Boolean(settings.model.requireExact);
-  renderAutomationTargetStatus(settings.automationSession || null);
+  automationSettingsState = normalizePublicAutomationSettings(response.settings || {});
+  settingsDialog.render();
 
   if (!silent) {
+    projectHistoryState.loaded = false;
+    projectHistoryState.conversations = [];
+    projectHistoryState.nextCursor = null;
     setTransientStatus("Settings saved.");
+    await loadWorkspaceReadiness({ silent: true });
     scheduleProjectHistoryAutoLoad({
       force: true,
       reset: true
     });
   }
-}
 
-function collectAutomationSettingsFromForm() {
-  const modelLabel = dom.modelLabel.value.trim();
-
-  return {
-    project: {
-      enabled: dom.projectRoutingEnabled.checked,
-      name: dom.projectName.value,
-      createIfMissing: dom.projectCreateIfMissing.checked
-    },
-    conversation: {
-      // Conversation creation is now controlled per message by the sidebar's
-      // active conversation state. Model/effort changes must never mutate this.
-      startNewChat: false
-    },
-    visibility: {
-      schemaVersion: VISIBILITY_SETTINGS_VERSION,
-      mode: normalizeVisibilityMode(dom.automationVisibilityMode.value)
-    },
-    model: {
-      enabled: Boolean(dom.modelSelectionEnabled.checked || modelLabel),
-      label: modelLabel,
-      requireExact: dom.modelRequireExact.checked
-    }
-  };
-}
-
-function syncModelSelectionEnabledFromLabel() {
-  dom.modelSelectionEnabled.checked = Boolean(dom.modelLabel.value.trim());
-}
-
-async function refreshAutomationTargetStatus() {
-  const response = await sendMessage(PANEL_MESSAGES.GET_AUTOMATION_SESSION).catch(() => null);
-
-  if (response?.automationSession) {
-    renderAutomationTargetStatus(response.automationSession);
+  if (closeAfterSave) {
+    settingsDialog.close();
   }
 }
 
@@ -1076,17 +1018,14 @@ function render() {
 
   const isRunning = isRunningRequest(displayedRequest);
   dom.statusLine.textContent = displayedRequest
-    ? `${displayedRequest.profileLabel} - ${formatState(displayedRequest.state)}`
+    ? formatRequestStatus(displayedRequest)
     : historyConversation
       ? `History - ${historyConversation.title}`
       : forceNewConversationDraft
         ? "New chat draft"
         : "Ready";
-  dom.profileLabel.textContent = displayedRequest?.profileLabel || (historyConversation ? "Project history" : "-");
-  dom.sourceLabel.textContent = displayedRequest?.source?.title || displayedRequest?.source?.url || historyConversation?.projectName || "-";
-  dom.selectedText.textContent = displayedRequest?.selectedText || "";
-  dom.selectedBlock.classList.toggle("hidden", !displayedRequest?.selectedText);
 
+  settingsDialog.updateSummary();
   renderHistoryPanel();
 
   if (historyConversation) {
@@ -1098,47 +1037,69 @@ function render() {
   }
 
   if (displayedRequest?.error) {
-    dom.errorBlock.textContent = displayedRequest.error;
-    dom.errorBlock.classList.remove("hidden");
+    renderErrorBlock(displayedRequest);
   } else {
     dom.errorBlock.textContent = "";
     dom.errorBlock.classList.add("hidden");
   }
 
   const hasRequest = Boolean(displayedRequest);
+  const needsAuth = isAuthRequired(displayedRequest)
+    || projectHistoryState.status === PROJECT_HISTORY_STATUS.LOGGED_OUT
+    || projectHistoryState.status === PROJECT_HISTORY_STATUS.PENDING_AUTH;
 
   dom.retryButton.disabled = !hasRequest;
-  dom.followupButton.disabled = true;
-  dom.openChatGptButton.disabled = !hasRequest && !historyConversation;
+  dom.openChatGptButton.disabled = !needsAuth;
+  dom.openChatGptButton.classList.toggle("hidden", !needsAuth);
   dom.cancelButton.disabled = !isRunning;
 
-  renderRepairSuggestions(displayedRequest);
-  renderEvents(displayedRequest);
   updateComposerSendState();
 }
 
-function renderHistoryPanel() {
-  const projectName = projectHistoryState.project?.name || dom.projectName?.value || "Project";
+function renderHistoryPanel({ preserveScroll = true, scrollAnchor = "preserve" } = {}) {
+  const previousScrollTop = dom.historyList.scrollTop;
+  const previousScrollHeight = dom.historyList.scrollHeight;
+  const projectName = projectHistoryState.project?.name || getCurrentProjectSettings().name || "Project";
   const activeTitle = projectHistoryState.activeConversation?.title || "";
 
-  if (projectHistoryState.loadingList) {
-    dom.historyStatus.textContent = `Loading ${projectName}...`;
-  } else if (projectHistoryState.pending) {
-    dom.historyStatus.textContent = `Preparing hidden ChatGPT history for ${projectName}...`;
-  } else if (projectHistoryState.error) {
-    dom.historyStatus.textContent = projectHistoryState.error;
-  } else if (activeTitle) {
-    dom.historyStatus.textContent = activeTitle;
-  } else if (projectHistoryState.loaded) {
-    dom.historyStatus.textContent = `${projectHistoryState.conversations.length} conversation${projectHistoryState.conversations.length === 1 ? "" : "s"} in ${projectName}`;
-  } else {
-    dom.historyStatus.textContent = `Loading ${projectName} history`;
+  if (!workspaceReadinessState.ready && getCurrentProjectSettings().enabled) {
+    dom.historyStatus.textContent = workspaceReadinessState.checked
+      ? workspaceReadinessState.message
+      : "Preparing hidden ChatGPT workspace";
+    dom.historyRefreshButton.disabled = false;
+    dom.historyList.replaceChildren();
+    dom.historyList.classList.add("hidden");
+    updateProjectHistoryCollapseState();
+    persistProjectHistoryState(projectHistoryState);
+    return;
+  }
+
+  switch (projectHistoryState.status) {
+    case PROJECT_HISTORY_STATUS.LOADING:
+      dom.historyStatus.textContent = `Loading ${projectName} history`;
+      break;
+    case PROJECT_HISTORY_STATUS.PENDING_AUTH:
+    case PROJECT_HISTORY_STATUS.LOGGED_OUT:
+      dom.historyStatus.textContent = `Sign in to ChatGPT to load ${projectName} history`;
+      break;
+    case PROJECT_HISTORY_STATUS.ERROR:
+      dom.historyStatus.textContent = projectHistoryState.error || `Could not load ${projectName} history`;
+      break;
+    case PROJECT_HISTORY_STATUS.EMPTY:
+      dom.historyStatus.textContent = `No conversations in ${projectName}`;
+      break;
+    case PROJECT_HISTORY_STATUS.LOADED:
+      dom.historyStatus.textContent = activeTitle
+        || `${projectHistoryState.conversations.length} conversation${projectHistoryState.conversations.length === 1 ? "" : "s"} in ${projectName}`;
+      break;
+    default:
+      dom.historyStatus.textContent = `Loading ${projectName} history`;
   }
 
   dom.historyRefreshButton.disabled = projectHistoryState.loadingList;
   dom.historyRefreshButton.textContent = "Refresh";
   dom.historyList.replaceChildren();
-  dom.historyList.classList.toggle("hidden", !projectHistoryState.loaded && !projectHistoryState.loadingList);
+  dom.historyList.classList.toggle("hidden", !projectHistoryState.conversations.length);
 
   for (const conversation of projectHistoryState.conversations) {
     const button = document.createElement("button");
@@ -1176,7 +1137,21 @@ function renderHistoryPanel() {
     dom.historyList.append(loadMore);
   }
 
+  updateProjectHistoryCollapseState();
   persistProjectHistoryState(projectHistoryState);
+
+  if (!preserveScroll || dom.historyPanel?.classList.contains("is-collapsed")) {
+    return;
+  }
+
+  if (scrollAnchor === "append") {
+    const delta = dom.historyList.scrollHeight - previousScrollHeight;
+    dom.historyList.scrollTop = Math.max(0, previousScrollTop + delta);
+    return;
+  }
+
+  const maxScrollTop = Math.max(0, dom.historyList.scrollHeight - dom.historyList.clientHeight);
+  dom.historyList.scrollTop = Math.min(previousScrollTop, maxScrollTop);
 }
 
 function renderProjectConversationThread(conversation, activeRequest) {
@@ -1426,9 +1401,16 @@ function markComposerInterest() {
   updateComposerCollapseState();
 }
 
+function markProjectHistoryInterest() {
+  projectHistoryReadingMode = false;
+  updateProjectHistoryCollapseState();
+}
+
 function markReaderInterest() {
   composerReadingMode = true;
+  projectHistoryReadingMode = true;
   updateComposerCollapseState();
+  updateProjectHistoryCollapseState();
 }
 
 function updateComposerCollapseState() {
@@ -1447,6 +1429,21 @@ function updateComposerCollapseState() {
     && !request?.error;
 
   dom.composerPanel.classList.toggle("is-collapsed", shouldCollapse);
+}
+
+function updateProjectHistoryCollapseState() {
+  const activeElement = document.activeElement;
+  const hasHistoryFocus = Boolean(activeElement && dom.historyPanel?.contains(activeElement));
+  const shouldCollapse = projectHistoryReadingMode
+    && projectHistoryState.conversations.length > 0
+    && projectHistoryState.status === PROJECT_HISTORY_STATUS.LOADED
+    && !hasHistoryFocus
+    && !projectHistoryState.loadingList
+    && !projectHistoryState.loadingConversationId
+    && !projectHistoryState.error
+    && !projectHistoryState.pending;
+
+  dom.historyPanel?.classList.toggle("is-collapsed", shouldCollapse);
 }
 
 function markOutgoingRequestPending(label) {
@@ -1482,21 +1479,15 @@ function restoreChatThreadScroll(previousScrollTop, shouldStickToBottom) {
 
 function renderPendingOutgoingState(request) {
   dom.statusLine.textContent = outgoingRequestPending?.label || "Preparing request...";
-  dom.profileLabel.textContent = "-";
-  dom.sourceLabel.textContent = request?.source?.title || request?.source?.url || "-";
-  dom.selectedText.textContent = "";
-  dom.selectedBlock.classList.add("hidden");
   responseAnimation.stop();
   responseView.resetAutoScroll();
   responseView.setHtml("", { forceScroll: true });
   dom.errorBlock.textContent = "";
   dom.errorBlock.classList.add("hidden");
   dom.retryButton.disabled = true;
-  dom.followupButton.disabled = true;
   dom.openChatGptButton.disabled = true;
+  dom.openChatGptButton.classList.add("hidden");
   dom.cancelButton.disabled = true;
-  dom.repairSuggestions.replaceChildren();
-  dom.eventLog.replaceChildren();
 }
 
 function renderResponse(request) {
@@ -1520,45 +1511,6 @@ function renderResponse(request) {
   }
 
   responseAnimation.startOrUpdate(requestId, text);
-}
-
-function renderRepairSuggestions(request) {
-  dom.repairSuggestions.replaceChildren();
-
-  const hints = request?.repairSuggestions?.hints || [];
-
-  if (!hints.length) {
-    return;
-  }
-
-  for (const hint of hints) {
-    const card = document.createElement("div");
-    card.className = "repair-card";
-    const title = document.createElement("strong");
-    title.textContent = `${hint.target} - ${hint.strategy} (${Math.round(hint.confidence * 100)}%)`;
-    const body = document.createElement("div");
-    body.textContent = [
-      hint.selector ? `selector: ${hint.selector}` : "",
-      hint.ariaLabelIncludes ? `aria: ${hint.ariaLabelIncludes}` : "",
-      hint.placeholderIncludes ? `placeholder: ${hint.placeholderIncludes}` : "",
-      hint.textIncludes ? `text: ${hint.textIncludes}` : "",
-      hint.rationale || ""
-    ].filter(Boolean).join(" | ");
-    card.append(title, body);
-    dom.repairSuggestions.append(card);
-  }
-}
-
-function renderEvents(request) {
-  dom.eventLog.replaceChildren();
-
-  const events = request?.events || [];
-
-  for (const event of events.slice().reverse()) {
-    const item = document.createElement("li");
-    item.textContent = `${formatTime(event.at)} - ${event.detail}`;
-    dom.eventLog.append(item);
-  }
 }
 
 function getActiveRequest() {
@@ -1631,6 +1583,7 @@ async function runPanelAction(action) {
   } catch (error) {
     outgoingRequestPending = null;
     setTransientStatus(error.message || String(error));
+    render();
   }
 }
 
@@ -1644,33 +1597,53 @@ function setTransientStatus(text) {
   }, 2800);
 }
 
+function renderErrorBlock(request) {
+  const presentation = getErrorPresentation(request.errorCode, request.rawError || request.error || "");
+
+  dom.errorBlock.replaceChildren();
+  const title = document.createElement("strong");
+  title.textContent = presentation.title;
+  const detail = document.createElement("span");
+  detail.textContent = presentation.detail;
+  dom.errorBlock.append(title, detail);
+
+  if (presentation.rawMessage) {
+    const technical = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Technical detail";
+    const body = document.createElement("span");
+    body.textContent = presentation.rawMessage;
+    technical.append(summary, body);
+    dom.errorBlock.append(technical);
+  }
+
+  dom.errorBlock.classList.remove("hidden");
+}
+
+function formatRequestStatus(request) {
+  if (!request) {
+    return "Ready";
+  }
+
+  const state = formatState(request.state);
+
+  if (request.errorCode === REQUEST_ERROR_CODES.AUTH_REQUIRED) {
+    return "Sign in required";
+  }
+
+  return state;
+}
+
+function isAuthRequired(request) {
+  return request?.errorCode === REQUEST_ERROR_CODES.AUTH_REQUIRED;
+}
+
 function formatState(state) {
+  if (state === "CHATGPT_TAB_READY") {
+    return "hidden workspace ready";
+  }
+
   return String(state || "IDLE").toLowerCase().replace(/_/g, " ");
-}
-
-function normalizeVisibilityMode(value) {
-  if (value === VISIBILITY_MODES.HIDDEN || value === VISIBILITY_MODES.SINGLE_TAB || value === VISIBILITY_MODES.SIDECAR || value === VISIBILITY_MODES.FOCUSED) {
-    return value;
-  }
-
-  return VISIBILITY_MODES.HIDDEN;
-}
-
-function renderAutomationTargetStatus(session) {
-  if (!dom.automationTargetStatus) {
-    return;
-  }
-
-  if (!session?.targetType) {
-    dom.automationTargetStatus.textContent = "Automation target: not created yet.";
-    return;
-  }
-
-  const fallback = session.offscreenCapability && !session.offscreenCapability.supported
-    ? ` (${session.offscreenCapability.failureReason || "hidden internal unavailable"})`
-    : "";
-
-  dom.automationTargetStatus.textContent = `Automation target: ${session.targetType}${fallback}`;
 }
 
 function formatHistoryMeta(conversation) {
@@ -1697,24 +1670,6 @@ function formatCompactDate(value) {
   });
 }
 
-function formatTime(value) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-}
-
 function truncateText(text, maxLength) {
   const normalized = String(text || "").trim();
 
@@ -1736,15 +1691,6 @@ function createSelectionKey(text) {
   return normalizeSelectionText(text).slice(0, 1000);
 }
 
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error(`Failed to read ${file.name}.`));
-    reader.readAsDataURL(file);
-  });
-}
-
 function createLocalId() {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
@@ -1753,20 +1699,3 @@ function createLocalId() {
   return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function formatBytes(value) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number) || number <= 0) {
-    return "";
-  }
-
-  if (number < 1024) {
-    return `${number} B`;
-  }
-
-  if (number < 1024 * 1024) {
-    return `${Math.round(number / 1024)} KB`;
-  }
-
-  return `${(number / (1024 * 1024)).toFixed(1)} MB`;
-}

@@ -24,6 +24,11 @@ assertRuleIncludes(".attachments-tray", ["width: 100%", "overflow-x: hidden"]);
 assertRuleIncludes(".attachment-chip", ["width: 100%", "flex: 0 1 100%", "contain: layout paint"]);
 assertRuleIncludes(".request-actions", ["display: grid", "grid-template-columns: auto auto auto minmax(0, 1fr)"]);
 assertRuleIncludes(".request-actions .status-line", ["min-width: 0", "text-align: right"]);
+assertRuleIncludes(".history-panel", ["border-radius: 8px", "padding: 10px", "transition:"]);
+assertRuleIncludes(".history-panel.is-collapsed", ["padding: 7px 10px", "gap: 0"]);
+assertRuleIncludes(".history-panel.is-collapsed .history-list", ["max-height: 0", "opacity: 0", "transform: translateY(-4px)"]);
+assertRuleIncludes(".history-list", ["max-height: clamp(180px, 28vh, 260px)", "scrollbar-gutter: stable", "overflow-anchor: none", "transition:"]);
+assertRuleIncludes(".history-item", ["min-height: 54px", "border-radius: 8px", "grid-template-columns: minmax(0, 1fr) auto"]);
 assertRuleIncludes(".response-copy-wrapper", ["display: grid"]);
 assertRuleIncludes(".response-copy-wrapper", ["position: relative"]);
 assertRuleIncludes(".response-copy-toolbar", ["position: absolute", "right: 18px", "justify-content: flex-end", "opacity: 0", "pointer-events: none", "user-select: none"]);
@@ -54,6 +59,13 @@ assert(
   "Composer collapse must be controlled by read/write intent state."
 );
 assert(
+  app.includes("let projectHistoryReadingMode = true;")
+    && app.includes("function markProjectHistoryInterest()")
+    && app.includes("function updateProjectHistoryCollapseState()")
+    && app.includes('dom.historyPanel?.classList.toggle("is-collapsed", shouldCollapse)'),
+  "Project history collapse must be controlled by the same reader/history intent state."
+);
+assert(
   app.includes("const chatThreadScrollState =") && app.includes("function restoreChatThreadScroll("),
   "Chat history rendering must preserve scroll position when the reader is inspecting older messages."
 );
@@ -74,12 +86,18 @@ assert(
   "Side panel title must use Dichrome."
 );
 assert(
-  html.includes('class="visually-hidden">Mode</span>') && html.includes('aria-label="Mode"'),
-  "Mode control must keep an accessible label without taking visible row space."
+  html.includes('id="settingsOverlay"')
+    && html.includes('Routing and model settings')
+    && html.includes('aria-label="Preferred model"'),
+  "Routing and model settings must live in the separate settings dialog."
 );
 assert(
-  !/(ChatGPT Relay|Message ChatGPT|Open ChatGPT|ChatGPT routing|Focus ChatGPT|GPT)/.test(html),
-  "Side panel visible text must not reference GPT branding."
+  html.includes("Open ChatGPT to sign in"),
+  "Side panel must keep a clear user-triggered ChatGPT sign-in handoff."
+);
+assert(
+  !/(ChatGPT Relay|Message ChatGPT|ChatGPT routing|Focus ChatGPT|Routing, automation, and debug|Dump Debug|automation target|debug dump|event log)/i.test(html),
+  "Side panel visible text must not expose old branding or debug/repair internals."
 );
 assert(iconSvg.includes("Dichrome icon"), "Source icon must use Dichrome branding.");
 

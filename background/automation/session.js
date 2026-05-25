@@ -200,14 +200,12 @@ function normalizeLegacyAutomationWindowState(value) {
 
   return {
     ...createDefaultAutomationSession(),
-    targetType: AUTOMATION_TARGET_TYPES.SINGLE_TAB,
-    tabId: value.tabId,
-    windowId: Number.isInteger(value.windowId) ? value.windowId : null
+    lastKnownUrl: "legacy-visible-tab-ignored"
   };
 }
 
 function normalizeTargetType(value) {
-  if (Object.values(AUTOMATION_TARGET_TYPES).includes(value)) {
+  if (value === AUTOMATION_TARGET_TYPES.OFFSCREEN_FRAME) {
     return value;
   }
 
