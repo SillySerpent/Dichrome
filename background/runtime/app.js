@@ -148,6 +148,7 @@ chrome.runtime.onStartup?.addListener(() => {
 
 chrome.action.onClicked.addListener((tab) => {
   void openSidePanel(tab?.id);
+  void rememberSourceTab(tab).catch(() => null);
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {

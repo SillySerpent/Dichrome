@@ -59,6 +59,7 @@ const requiredFiles = [
   "docs/hidden-internal-invariants.md",
   "docs/manual-smoke-tests.md",
   "docs/module-map.md",
+  "docs/setup-and-usage.md",
   "docs/chrome-web-store-submission.md",
   "docs/privacy-policy.md",
   "offscreen/automation-host.html",
@@ -85,6 +86,9 @@ const requiredFiles = [
   "scripts/test-fresh-conversation-url.mjs",
   "scripts/test-request-controller-conversation-routing.mjs",
   "scripts/test-request-controller-cancel.mjs",
+  "scripts/test-source-focus-screenshot.mjs",
+  "scripts/test-request-controller-screenshot-source.mjs",
+  "scripts/test-sidepanel-open-order.mjs",
   "scripts/test-dom-utils-click.mjs",
   "scripts/test-model-scoring.mjs",
   "scripts/test-main-world-capture.mjs",
@@ -141,6 +145,9 @@ const moduleScriptFiles = [
   "scripts/test-fresh-conversation-url.mjs",
   "scripts/test-request-controller-conversation-routing.mjs",
   "scripts/test-request-controller-cancel.mjs",
+  "scripts/test-source-focus-screenshot.mjs",
+  "scripts/test-request-controller-screenshot-source.mjs",
+  "scripts/test-sidepanel-open-order.mjs",
   "scripts/test-dom-utils-click.mjs",
   "scripts/test-model-scoring.mjs",
   "scripts/test-main-world-capture.mjs",
@@ -218,22 +225,13 @@ async function validateManifest() {
 
   const hostPermissions = new Set(manifest.host_permissions || []);
   const optionalHostPermissions = manifest.optional_host_permissions || [];
-  const redundantOptionalHostPermissions = optionalHostPermissions.filter((optionalHostPermission) => {
-    return Array.from(hostPermissions).some((hostPermission) => {
-      return hostPermission === optionalHostPermission || hostPermission === "<all_urls>";
-    });
-  });
 
+  assert(hostPermissions.has("<all_urls>"), "Visible screenshot capture must declare required <all_urls> host access.");
   assert(hostPermissions.has("https://chatgpt.com/*"), "Missing chatgpt.com host permission.");
   assert(hostPermissions.has("https://chat.openai.com/*"), "Missing chat.openai.com host permission.");
-  assert(!hostPermissions.has("<all_urls>"), "Required <all_urls> host access is too broad for Dichrome's store package.");
   assert(
-    optionalHostPermissions.length === 1 && optionalHostPermissions[0] === "<all_urls>",
-    "Optional host access must be limited to <all_urls> for user-triggered screenshot capture."
-  );
-  assert(
-    redundantOptionalHostPermissions.length === 0,
-    `Optional host permissions must not duplicate required host access: ${redundantOptionalHostPermissions.join(", ")}`
+    optionalHostPermissions.length === 0,
+    `Visible screenshot capture uses required host access, not runtime optional prompts: ${optionalHostPermissions.join(", ")}`
   );
   assert(
     manifest.content_security_policy?.extension_pages?.includes("frame-src https://chatgpt.com https://chat.openai.com"),
@@ -317,11 +315,16 @@ async function validateLayeredContentRuntime() {
 
 async function validateStoreReviewReadiness() {
   const manifest = JSON.parse(await readFile(join(root, "manifest.json"), "utf8"));
+  const hostPermissions = manifest.host_permissions || [];
   const optionalHostPermissions = manifest.optional_host_permissions || [];
 
   assert(
-    JSON.stringify(optionalHostPermissions) === JSON.stringify(["<all_urls>"]),
-    `Store package may only request optional <all_urls> for user-triggered screenshot capture: ${optionalHostPermissions.join(", ")}`
+    hostPermissions.includes("<all_urls>"),
+    "Store package must disclose required <all_urls> host access for deterministic visible screenshot capture."
+  );
+  assert(
+    optionalHostPermissions.length === 0,
+    `Store package should not request runtime optional screenshot host prompts: ${optionalHostPermissions.join(", ")}`
   );
 
   assert(
@@ -332,7 +335,7 @@ async function validateStoreReviewReadiness() {
   const submissionNotes = await readFile(join(root, "docs/chrome-web-store-submission.md"), "utf8");
   const privacyPolicy = await readFile(join(root, "docs/privacy-policy.md"), "utf8");
 
-  for (const requiredPhrase of ["Permission Justifications", "Optional Screenshot Site Access", "Remote Code Statement", "Reviewer Test Instructions"]) {
+  for (const requiredPhrase of ["Permission Justifications", "Screenshot Site Access", "Remote Code Statement", "Reviewer Test Instructions"]) {
     assert(submissionNotes.includes(requiredPhrase), `Chrome Web Store notes must include: ${requiredPhrase}`);
   }
 

@@ -1,28 +1,29 @@
 import {
-  PANEL_MESSAGES,
-  REQUEST_ERROR_CODES
+  PANEL_MESSAGES
 } from "../../shared/contracts.js";
 import { sendMessage } from "./client.js";
 
 const MAX_FILE_ATTACHMENT_BYTES = 32 * 1024 * 1024;
 
 export async function captureVisibleScreenshotAttachment() {
-  await ensureScreenshotHostAccess();
-  const response = await sendMessage(PANEL_MESSAGES.CAPTURE_VISIBLE_TAB_SCREENSHOT);
+  const sourceTab = await queryActiveSourceTab().catch(() => null);
+  const response = await sendMessage(PANEL_MESSAGES.CAPTURE_SCREENSHOT_ATTACHMENT, {
+    sourceTab
+  });
+  const attachment = response.attachment;
 
-  if (!response?.screenshot) {
+  if (!attachment?.dataUrl) {
     throw new Error("Screenshot capture returned no image data.");
   }
 
   return {
-    id: createLocalId(),
-    kind: "image",
+    ...attachment,
+    id: attachment.id || createLocalId(),
+    kind: attachment.kind || "image",
     source: "screenshot",
-    name: "Visible tab screenshot",
-    mimeType: "image/png",
-    sizeBytes: response.sizeBytes || response.screenshot.length,
-    dataUrl: response.screenshot,
-    previewUrl: response.screenshot
+    name: attachment.name || "Visible tab screenshot",
+    mimeType: attachment.mimeType || "image/png",
+    previewUrl: attachment.previewUrl || attachment.dataUrl
   };
 }
 
@@ -58,54 +59,32 @@ export function removeAttachmentFromList(attachments, attachmentId) {
   return (attachments || []).filter((attachment) => attachment.id !== attachmentId);
 }
 
-async function ensureScreenshotHostAccess() {
-  if (!chrome.permissions?.request || !chrome.tabs?.query) {
-    return;
+async function queryActiveSourceTab() {
+  if (!chrome.tabs?.query) {
+    return null;
   }
 
-  const [tab] = await chrome.tabs.query({
+  const [lastFocusedTab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true
+  });
+
+  if (isPotentialSourceTab(lastFocusedTab)) {
+    return lastFocusedTab;
+  }
+
+  const [currentWindowTab] = await chrome.tabs.query({
     active: true,
     currentWindow: true
   });
-  const originPattern = getHostPermissionPattern(tab?.url || "");
 
-  if (!originPattern) {
-    const error = new Error("Screenshots cannot be captured from browser-internal pages. Open a normal webpage and try again.");
-    error.errorCode = REQUEST_ERROR_CODES.UPLOAD_REJECTED;
-    throw error;
-  }
-
-  const alreadyGranted = await chrome.permissions.contains({
-    origins: [originPattern]
-  });
-
-  if (alreadyGranted) {
-    return;
-  }
-
-  const granted = await chrome.permissions.request({
-    origins: [originPattern]
-  });
-
-  if (!granted) {
-    const error = new Error("Chrome site access is required to attach a screenshot from this page.");
-    error.errorCode = REQUEST_ERROR_CODES.UPLOAD_REJECTED;
-    throw error;
-  }
+  return isPotentialSourceTab(currentWindowTab) ? currentWindowTab : null;
 }
 
-function getHostPermissionPattern(value) {
-  try {
-    const url = new URL(value);
+function isPotentialSourceTab(tab) {
+  const url = tab?.url || tab?.pendingUrl || "";
 
-    if (!/^https?:$/.test(url.protocol)) {
-      return "";
-    }
-
-    return `${url.protocol}//${url.host}/*`;
-  } catch (_error) {
-    return "";
-  }
+  return Boolean(tab?.id && tab?.windowId && url && !/^chrome-extension:/i.test(url) && !/^https:\/\/(chatgpt\.com|chat\.openai\.com)\//i.test(url));
 }
 
 function readFileAsDataUrl(file) {

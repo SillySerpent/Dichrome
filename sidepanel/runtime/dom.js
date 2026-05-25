@@ -9,7 +9,6 @@ export const dom = {
   historyList: document.getElementById("historyList"),
   manualText: document.getElementById("manualText"),
   sendManualButton: document.getElementById("sendManualButton"),
-  screenshotButton: document.getElementById("screenshotButton"),
   composerScreenshotButton: document.getElementById("composerScreenshotButton"),
   attachFileButton: document.getElementById("attachFileButton"),
   composerAttachButton: document.getElementById("composerAttachButton"),

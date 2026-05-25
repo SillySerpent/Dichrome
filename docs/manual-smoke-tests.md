@@ -56,11 +56,14 @@ Run the core hidden-internal, logged-out, project-history, project-routing, foll
 ## Attachments And Screenshot
 
 1. Open a normal webpage with visible content.
-2. Open Dichrome from the toolbar or context menu so the browser grants active-tab access for the source tab.
+2. Open Dichrome from the toolbar or context menu on that source tab.
 3. Attach a local file and attach a visible screenshot.
-4. Confirm successful attachments send through ChatGPT's file input.
-5. Try an oversized or unsupported file and confirm the sidebar does not present the attachment as successfully sent.
-6. Confirm ChatGPT upload-limit or rejection messages surface as user-readable errors.
+4. Confirm an image chip appears in the composer attachment tray.
+5. Confirm successful attachments send through ChatGPT's file input.
+6. Open another normal website in the same window and repeat the screenshot flow without a runtime host-permission prompt.
+7. Try a restricted browser page such as `chrome://extensions` and confirm any failure clearly explains that the browser blocks restricted surfaces.
+8. Try an oversized or unsupported file and confirm the sidebar does not present the attachment as successfully sent.
+9. Confirm ChatGPT upload-limit or rejection messages surface as user-readable errors.
 
 ## Usage Limits
 

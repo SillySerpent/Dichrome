@@ -9,7 +9,13 @@ import {
 } from "../constants.js";
 import { createRequestId } from "../state-machine.js";
 
-export async function queryBestSourceTab() {
+export async function queryBestSourceTab(preferredTab = null) {
+  const resolvedPreferredTab = await resolvePreferredSourceTab(preferredTab);
+
+  if (resolvedPreferredTab) {
+    return resolvedPreferredTab;
+  }
+
   const [lastFocusedTab] = await chrome.tabs.query({
     active: true,
     lastFocusedWindow: true
@@ -29,6 +35,26 @@ export async function queryBestSourceTab() {
   }
 
   return getRememberedSourceTab();
+}
+
+async function resolvePreferredSourceTab(preferredTab) {
+  if (!isUsableSourceTab(preferredTab)) {
+    return null;
+  }
+
+  const preferredTabId = getTabId(preferredTab);
+
+  if (!preferredTabId) {
+    return preferredTab;
+  }
+
+  try {
+    const currentTab = await chrome.tabs.get(preferredTabId);
+
+    return isUsableSourceTab(currentTab) ? currentTab : null;
+  } catch (_error) {
+    return null;
+  }
 }
 
 export async function rememberSourceTab(tab) {
@@ -81,17 +107,30 @@ export async function restoreSourceFocus(sourceFocus, automationWindowId) {
 }
 
 export async function captureVisibleTabScreenshot(windowId, sourceTab = null) {
+  await ensureVisibleTabCaptureHostAccess();
+
+  const sourceTabId = getTabId(sourceTab);
+  const captureWindowId = sourceTab?.windowId ?? windowId;
+
+  if (sourceTabId || captureWindowId) {
+    await focusSourceTarget({
+      tabId: sourceTabId,
+      windowId: captureWindowId
+    });
+    await sleep(120);
+  }
+
   let dataUrl;
 
   try {
-    dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
+    dataUrl = await chrome.tabs.captureVisibleTab(captureWindowId, {
       format: "png"
     });
   } catch (error) {
     const sourceUrl = sourceTab?.url || sourceTab?.pendingUrl || "";
     const target = sourceUrl ? ` for ${sourceUrl}` : "";
 
-    throw new Error(`Visible screenshot capture failed${target}. Open Dichrome from the toolbar or context menu on the source tab immediately before retrying so Chrome can provide an activeTab grant. Chrome may still block browser-internal pages such as chrome://newtab. ${serializeError(error)}`);
+    throw new Error(`Visible screenshot capture failed${target}. Reload the unpacked extension if the manifest just changed, then retry. Chrome can still block restricted browser pages such as chrome://, the Chrome Web Store, or other extension pages. ${serializeError(error)}`);
   }
 
   const sizeBytes = Math.ceil((dataUrl.length * 3) / 4);
@@ -104,6 +143,20 @@ export async function captureVisibleTabScreenshot(windowId, sourceTab = null) {
     dataUrl,
     sizeBytes
   };
+}
+
+async function ensureVisibleTabCaptureHostAccess() {
+  if (!chrome.permissions?.contains) {
+    return;
+  }
+
+  const hasAllSitesAccess = await chrome.permissions.contains({
+    origins: ["<all_urls>"]
+  });
+
+  if (!hasAllSitesAccess) {
+    throw new Error("Visible screenshot capture needs All Sites access. Reload the unpacked extension so the required host permission is active, then retry.");
+  }
 }
 
 export function isUsableSourceTab(tab) {

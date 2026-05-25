@@ -148,7 +148,7 @@ The ChatGPT adapter looks for:
 - Assistant response: explicit `data-message-author-role="assistant"` containers first, then bounded conversation-area fallbacks.
 - File input: `input[type=file]` accepting user-selected attachment files.
 - Fresh hidden project chats: prefer ChatGPT's visible `New chat` control when available, but fall back to direct navigation from `/g/<project>/c/<conversation>` to `/g/<project>/project` when the control is hidden or responsive-layout dependent.
-- Screenshot capture: the side panel uses `tabs.captureVisibleTab` through the user-triggered active-tab capture path. If the browser has not granted capture access for the active site, the side panel requests optional site access for that active origin only. Browser-internal pages are rejected with a clear error.
+- Screenshot capture: the manifest requests required `<all_urls>` host access so `tabs.captureVisibleTab` does not depend on a transient `activeTab` grant or side-panel runtime permission prompt for normal web pages. The background worker activates the resolved source tab immediately before capture because the browser captures the active visible tab in the requested window. Browser-internal pages are rejected with a clear error when the browser blocks capture.
 
 Response tracking is deliberately scoped. The script selects the newest assistant message after the send action and extracts content only from that message container. It does not stream arbitrary page text. Plain text is the canonical response payload; final HTML rendering, sanitization, markdown-ish formatting, and local math rendering are centralized in `shared/response-formatting.js` and applied by the side panel.
 

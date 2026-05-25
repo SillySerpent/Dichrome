@@ -35,32 +35,33 @@ Do not upload repository notes, screenshots, scratch files, generated debug dump
 
 | Permission | Why Dichrome needs it |
 | --- | --- |
-| `activeTab` | Reads selected text from the active source tab after a user action and may allow screenshot capture of the current visible tab without persistent host access. |
+| `activeTab` | Supports explicit user-invoked active-tab workflows such as selected-text handoff from the current source tab. |
 | `contextMenus` | Adds explicit user-invoked selection actions: ask, define, and summarize. |
 | `declarativeNetRequestWithHostAccess` | Installs session-scoped rules limited to ChatGPT subframe responses for the hidden internal ChatGPT workspace. The rules are not used for arbitrary websites. |
 | `offscreen` | Hosts the extension-owned offscreen document that contains the hidden ChatGPT iframe used by internal automation. |
 | `scripting` | Runs packaged scripts on ChatGPT pages and reads selected text from the active source tab after user action. |
 | `sidePanel` | Provides the main extension UI. |
 | `storage` | Stores user settings, recent request state, bounded request history, and hidden workspace session metadata. |
-| `tabs` | Finds the active source tab, captures the visible tab after user action, and opens ChatGPT only when the user chooses the sign-in/setup handoff. |
+| `tabs` | Finds and activates the source tab for user-triggered screenshot capture, reads tab metadata for request context, and opens ChatGPT only when the user chooses the sign-in/setup handoff. |
 
 ## Host Permissions
 
 | Host permission | Why Dichrome needs it |
 | --- | --- |
+| `<all_urls>` | Lets the user-triggered screenshot button capture visible normal web tabs consistently without a transient `activeTab` grant or repeated per-site prompts. It is not used for background page crawling, analytics, advertising, or unrelated website modification. |
 | `https://chatgpt.com/*` | Runs packaged content scripts in ChatGPT and communicates with ChatGPT through the user's signed-in browser session. |
 | `https://chat.openai.com/*` | Supports legacy ChatGPT host redirects and existing sessions. |
 
-## Optional Screenshot Site Access
+## Screenshot Site Access
 
-The manifest includes `optional_host_permissions: ["<all_urls>"]` solely so the side-panel screenshot button can request access to the active website at the moment the user asks to attach a screenshot.
+The manifest includes required `<all_urls>` host access so the side-panel screenshot button can capture visible normal web tabs consistently at the moment the user asks to attach a screenshot.
 
 Implementation constraints:
 
-- Access is requested from the side panel only after the user presses `Screenshot`.
-- The request is narrowed to the active page's origin, for example `https://example.com/*`, rather than immediately granting every site.
+- Screenshot capture is initiated only after the user presses `Screenshot`.
+- The background worker activates the resolved source tab immediately before calling `tabs.captureVisibleTab`.
 - Browser-internal pages such as `chrome://`, extension pages, and developer tools pages are rejected with a clear error.
-- The permission is used for visible viewport screenshot capture and selected-text workflows only. It is not used for background page crawling, analytics, advertising, or unrelated browsing-history collection.
+- The permission is used for visible viewport screenshot capture and source-tab context only. It is not used for background page crawling, analytics, advertising, or unrelated browsing-history collection.
 
 ## Remote Code Statement
 
@@ -97,7 +98,7 @@ Use `docs/privacy-policy.md` as the source for the public privacy policy page. T
 5. Open `Settings`, change the ChatGPT project routing target, save, and confirm the history panel reflects the configured project.
 6. Type a follow-up in the side panel and confirm it continues the active conversation.
 7. Press `New`, send a message, and confirm it starts a separate conversation.
-8. Press `Screenshot` on a normal webpage, approve the site-access prompt if shown, and confirm the screenshot is attached rather than auto-sent.
+8. Press `Screenshot` on a normal webpage and confirm the screenshot is attached rather than auto-sent.
 9. Sign out of ChatGPT and retry a request.
 10. Confirm the side panel shows a clear sign-in message and that `Open ChatGPT to sign in` opens ChatGPT only for authentication/setup.
 
@@ -124,6 +125,6 @@ Before submission, manually test these cases in a clean Chrome profile and docum
 ## Known Review Risks To Disclose Clearly
 
 - `declarativeNetRequestWithHostAccess` is high-sensitivity and must be justified as part of the hidden internal ChatGPT workspace design.
-- Optional `<all_urls>` host access is present for user-triggered active-site screenshot capture and should be described narrowly.
+- Required `<all_urls>` host access is present for deterministic user-triggered visible-tab screenshot capture and should be described narrowly.
 - Hidden internal mode depends on ChatGPT allowing a signed-in session inside an extension-hosted iframe. If that fails, the extension shows an actionable error instead of silently failing or opening uncontrolled tabs.
 - The extension depends on the user's existing ChatGPT account and browser session. The listing should say Dichrome is not affiliated with ChatGPT/OpenAI and requires the user to sign in to ChatGPT separately.

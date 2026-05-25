@@ -22,7 +22,7 @@ This is intentionally UI-driven. It does not use the OpenAI API and does not req
 
 ## Files
 
-- `manifest.json` - Chrome MV3 source manifest, permissions, side-panel entry, ChatGPT host permissions, offscreen permission, and the DNR host-access permission used for hidden iframe frame-policy overrides.
+- `manifest.json` - Chrome MV3 source manifest, permissions, side-panel entry, all-sites screenshot host access, ChatGPT host permissions, offscreen permission, and the DNR host-access permission used for hidden iframe frame-policy overrides.
 - `shared/contracts.js` - shared request states, message strings, hidden workspace constants, content script order, and response-rendering allowlists.
 - `shared/response-formatting.js` - response normalization, markdown-ish rendering, HTML sanitization, and deterministic local math rendering.
 - `shared/error-messages.js` - centralized user-facing error titles, details, and action labels.
@@ -44,6 +44,7 @@ This is intentionally UI-driven. It does not use the OpenAI API and does not req
 - `content/chatgpt/runtime/history/project-history.js` - project-scoped history listing and selected conversation loading through ChatGPT's signed-in web session.
 - `sidepanel/*` - side panel HTML/CSS and entrypoint.
 - `sidepanel/runtime/*` - side panel client, DOM lookup, state helpers, attachment handling, Firefox internal frame host, response view, response animation, settings dialog, and app orchestration.
+- `docs/setup-and-usage.md` - setup, permission, and day-to-day usage instructions.
 - `docs/module-map.md` - maintainer map for module ownership and future extraction boundaries.
 - `docs/hidden-internal-invariants.md` - hidden internal mode behaviors that must not regress.
 - `docs/manual-smoke-tests.md` - manual validation scenarios for browser-dependent behavior.
@@ -60,7 +61,8 @@ Chrome/Chromium:
 2. Enable Developer mode.
 3. Choose Load unpacked.
 4. Select this repository directory.
-5. Sign in to ChatGPT in a normal browser tab before testing selection relay.
+5. Accept the extension permissions. Dichrome requests all-sites host access so visible screenshot capture works on normal web tabs without a temporary `activeTab` grant.
+6. Sign in to ChatGPT in a normal browser tab before testing selection relay.
 
 Firefox:
 
@@ -69,6 +71,8 @@ Firefox:
 3. Choose Load Temporary Add-on.
 4. Select `.dist/firefox/package/manifest.json`.
 5. Sign in to ChatGPT in a normal browser tab before testing selection relay.
+
+See `docs/setup-and-usage.md` for the full setup and operator workflow.
 
 ## Validation
 
@@ -151,7 +155,7 @@ When a model label is requested, model-selection failure stops the request befor
 
 ## Screenshot Status
 
-The side panel includes a visible-screenshot attachment request. It uses the browser `tabs.captureVisibleTab` API, so the browser requires either an active-tab capture grant or host access for the visible page. Dichrome requests optional site access only when the user presses `Screenshot`, narrows the prompt to the active origin when possible, and rejects browser-internal pages with a clear error. It captures the visible viewport, not a stitched full-page screenshot. Full-page screenshot support would need a separate scroll-and-stitch flow.
+The side panel includes a visible-screenshot attachment request. It uses the browser `tabs.captureVisibleTab` API, so the manifest requests required `<all_urls>` host access instead of relying on a transient `activeTab` grant or a side-panel runtime permission prompt. Before capture, the background worker activates the resolved source tab so the browser captures the intended visible viewport. It captures the visible viewport, not a stitched full-page screenshot. Browsers can still block restricted surfaces such as `chrome://` pages, the Chrome Web Store, and other extension pages. Full-page screenshot support would need a separate scroll-and-stitch flow.
 
 ## Chrome Web Store Review
 
@@ -164,5 +168,5 @@ Chrome Web Store submission notes, permission justifications, reviewer test step
 - Login screens, account gates, and modal dialogs require the explicit sign-in handoff.
 - Multiple simultaneous requests are isolated by request id, but the hidden workspace can only run one automation at a time.
 - Attachment upload through the ChatGPT web UI is best effort and depends on the page exposing a file input compatible with scripted `FileList` assignment.
-- Screenshot capture depends on a browser-granted active-tab capture path and may fail on browser-internal pages or when the browser does not provide a current active-tab grant.
+- Screenshot capture uses required `<all_urls>` host access for deterministic visible-page screenshots on normal web tabs, but browsers may still block browser-internal pages, store pages, or other extension pages.
 - Fully hidden automation depends on Chrome offscreen iframe capability or the Firefox sidebar host, the local session-scoped frame-policy override, ChatGPT account/session behavior in an embedded frame, and successful content-script execution inside the ChatGPT iframe. If any of those are blocked, the request fails with an actionable sidebar error.

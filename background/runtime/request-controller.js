@@ -33,7 +33,7 @@ export function createRequestController({
       throw new Error(`Profile ${profileId} cannot be used with manual text.`);
     }
 
-    const sourceTab = await queryBestSourceTab();
+    const sourceTab = await queryBestSourceTab(message.sourceTab);
     const attachments = normalizeIncomingAttachments(message.attachments);
     const selectedText = normalizeText(message.selectedText || "");
     const manualText = buildComposerPrompt({
@@ -58,8 +58,8 @@ export function createRequestController({
     });
   }
 
-  async function startScreenshotRequest(message) {
-    const sourceTab = await queryBestSourceTab();
+  async function startScreenshotRequest(message = {}) {
+    const sourceTab = await queryBestSourceTab(message.sourceTab);
 
     if (!sourceTab?.windowId) {
       throw new Error("No source tab is available for screenshot capture.");
@@ -76,8 +76,8 @@ export function createRequestController({
   }
 
 
-  async function captureScreenshotAttachment() {
-    const sourceTab = await queryBestSourceTab();
+  async function captureScreenshotAttachment(message = {}) {
+    const sourceTab = await queryBestSourceTab(message.sourceTab);
 
     if (!sourceTab?.windowId) {
       throw new Error("No source tab is available for screenshot capture.");

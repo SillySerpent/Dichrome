@@ -15,6 +15,7 @@
     "tabs"
   ],
   "host_permissions": [
+    "<all_urls>",
     "https://chatgpt.com/*",
     "https://chat.openai.com/*"
   ],
@@ -90,8 +91,5 @@
         "https://chat.openai.com/*"
       ]
     }
-  ],
-  "optional_host_permissions": [
-    "<all_urls>"
   ]
 }

@@ -230,10 +230,6 @@ function bindEvents() {
     markComposerInterest();
   });
 
-  dom.screenshotButton?.addEventListener("click", () => {
-    void runPanelAction(attachVisibleScreenshot);
-  });
-
   dom.composerScreenshotButton.addEventListener("click", () => {
     void runPanelAction(attachVisibleScreenshot);
   });
@@ -1698,4 +1694,3 @@ function createLocalId() {
 
   return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
-
