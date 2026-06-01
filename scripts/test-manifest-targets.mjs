@@ -10,6 +10,7 @@ assert.equal(chromeManifest.background.service_worker, "background/service-worke
 assert.equal(chromeManifest.side_panel.default_path, "sidepanel/sidepanel.html");
 assert.ok(chromeManifest.permissions.includes("offscreen"));
 assert.ok(chromeManifest.permissions.includes("sidePanel"));
+assert.equal(chromeManifest.commands["toggle-dichrome-side-panel"].suggested_key, "Alt+Shift+D");
 
 assert.equal(firefoxManifest.background.scripts[0], "background/service-worker.js");
 assert.equal(firefoxManifest.background.type, "module");
@@ -23,5 +24,6 @@ assert.equal(firefoxManifest.permissions.includes("offscreen"), false);
 assert.equal(firefoxManifest.permissions.includes("sidePanel"), false);
 assert.ok(firefoxManifest.permissions.includes("declarativeNetRequestWithHostAccess"));
 assert.deepEqual(firefoxManifest.content_scripts, baseManifest.content_scripts);
+assert.deepEqual(firefoxManifest.commands, baseManifest.commands);
 
 console.log("Manifest target tests passed.");
