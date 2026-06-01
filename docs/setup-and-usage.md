@@ -18,12 +18,14 @@ Dichrome is local and UI-driven. It does not use the OpenAI API and does not req
 3. Click `Load unpacked`.
 4. Select the repository root directory, not a subfolder.
 5. Accept the permission prompt.
-6. Pin or open the `Dichrome` extension from the browser toolbar.
+6. Pin or open the `Dichrome` extension from the browser toolbar, or use `Alt+Shift+D`.
 7. Open `https://chatgpt.com/` in a normal tab and confirm the account is signed in.
 
 The Chrome manifest requests access to all sites so the screenshot button can capture visible normal web tabs without relying on a temporary `activeTab` grant or repeated per-site prompts. It also requests ChatGPT automation permissions, side-panel access, storage, offscreen documents, and declarative network request access for the hidden internal ChatGPT iframe probe.
 
 If the manifest changed while the extension was already loaded, use the reload button for Dichrome on `chrome://extensions` before testing again.
+
+The default side-panel shortcut is `Alt+Shift+D`. It can be changed from `chrome://extensions/shortcuts`. On Chrome versions with side-panel close support, the same shortcut closes the panel when Dichrome is already open.
 
 ## Load In Firefox
 
@@ -38,7 +40,7 @@ Firefox uses the extension sidebar as the hidden ChatGPT frame host because Fire
 ## First Run
 
 1. Open a normal webpage that you want to use as source context.
-2. Open the Dichrome side panel from the toolbar.
+2. Open the Dichrome side panel from the toolbar or with `Alt+Shift+D`.
 3. Confirm the settings show the intended ChatGPT project name or project URL.
 4. Leave `Create if missing` enabled if Dichrome should create the project automatically.
 5. Type a short message in the composer and press the send button.
@@ -112,6 +114,7 @@ If `Require exact match` is enabled, a missing model label stops the request bef
 ## Troubleshooting
 
 - If screenshot capture fails after pulling or editing the manifest, reload Dichrome on `chrome://extensions`.
+- If the keyboard shortcut does not fire, check `chrome://extensions/shortcuts`; Chrome may leave a shortcut unassigned if another extension already claimed it.
 - If a screenshot captures the wrong page, click the intended source tab and open the side panel from that same browser window before retrying.
 - If requests stall at ChatGPT, use the sign-in/setup handoff and check for sign-in, account, cookie, or modal prompts.
 - If project routing fails, confirm the configured project name or project URL is valid and `Create if missing` is enabled when creation is intended.
