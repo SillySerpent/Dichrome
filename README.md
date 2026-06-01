@@ -22,7 +22,7 @@ This is intentionally UI-driven. It does not use the OpenAI API and does not req
 
 ## Files
 
-- `manifest.json` - Chrome MV3 source manifest, permissions, side-panel entry, all-sites screenshot host access, ChatGPT host permissions, offscreen permission, and the DNR host-access permission used for hidden iframe frame-policy overrides.
+- `manifest.json` - Chrome MV3 source manifest, permissions, side-panel entry, side-panel shortcut command, all-sites screenshot host access, ChatGPT host permissions, offscreen permission, and the DNR host-access permission used for hidden iframe frame-policy overrides.
 - `shared/contracts.js` - shared request states, message strings, hidden workspace constants, content script order, and response-rendering allowlists.
 - `shared/response-formatting.js` - response normalization, markdown-ish rendering, HTML sanitization, and deterministic local math rendering.
 - `shared/error-messages.js` - centralized user-facing error titles, details, and action labels.
@@ -62,7 +62,8 @@ Chrome/Chromium:
 3. Choose Load unpacked.
 4. Select this repository directory.
 5. Accept the extension permissions. Dichrome requests all-sites host access so visible screenshot capture works on normal web tabs without a temporary `activeTab` grant.
-6. Sign in to ChatGPT in a normal browser tab before testing selection relay.
+6. Open Dichrome from the toolbar or with `Alt+Shift+D`.
+7. Sign in to ChatGPT in a normal browser tab before testing selection relay.
 
 Firefox:
 
@@ -119,7 +120,7 @@ The ChatGPT adapter avoids whole-page scraping for response extraction. It looks
 
 The content runtime is layered under `content/chatgpt/runtime/`: `adapter/` owns ChatGPT DOM heuristics, `response/` owns response extraction and observation, `history/` owns project-scoped conversation history loading, `network/` owns main-world response capture, `offscreen/` owns the hidden iframe bridge shared by Chrome offscreen and Firefox sidebar hosts, `page/` owns visibility checks, `debug/` owns content-side dumps and event payloads, and `runner/` owns the request lifecycle. `runtime/app.js` composes those modules and registers extension message listeners.
 
-The side panel stores plain text as the canonical response payload and renders final HTML through `shared/response-formatting.js`. The renderer preserves common generated formatting such as paragraphs, lists, task lists, tables, ChatGPT writing blocks, blockquotes, inline code, code blocks, strikethrough, and common local math expressions while removing scripts, forms, buttons, iframes, event attributes, and unsafe links. If a math expression cannot be parsed confidently, it is shown as escaped source in a styled fallback instead of malformed HTML.
+The side panel stores plain text as the canonical response payload and renders final HTML through `shared/response-formatting.js`. The renderer preserves common generated formatting such as paragraphs, lists, task lists, tables, ChatGPT writing blocks, blockquotes, inline code, code blocks, strikethrough, and common local math expressions including accents, primes, fractions, roots, matrices, matrix products, and cases while removing scripts, forms, buttons, iframes, event attributes, and unsafe links. If a math expression cannot be parsed confidently, it is shown as escaped source in a styled fallback instead of malformed HTML.
 
 ## Automation Target Mode
 
