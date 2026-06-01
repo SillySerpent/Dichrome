@@ -59,11 +59,24 @@ Run the core hidden-internal, logged-out, project-history, project-routing, foll
 2. Open Dichrome from the toolbar or context menu on that source tab.
 3. Attach a local file and attach a visible screenshot.
 4. Confirm an image chip appears in the composer attachment tray.
-5. Confirm successful attachments send through ChatGPT's file input.
-6. Open another normal website in the same window and repeat the screenshot flow without a runtime host-permission prompt.
-7. Try a restricted browser page such as `chrome://extensions` and confirm any failure clearly explains that the browser blocks restricted surfaces.
-8. Try an oversized or unsupported file and confirm the sidebar does not present the attachment as successfully sent.
-9. Confirm ChatGPT upload-limit or rejection messages surface as user-readable errors.
+5. Drag a local image file into the composer and confirm it appears as an attachment chip.
+6. Copy a webpage image with the browser context menu or `Cmd+C`, paste it into the composer, and confirm the image appears as an attachment chip rather than URL text.
+7. Drag a webpage image into the composer and confirm it appears as an attachment chip rather than URL text.
+8. Drag selected webpage text and a non-image link into the composer and confirm readable text or the link is inserted into the message field.
+9. Add screenshots until the image cap is reached and confirm the composer refuses additional screenshots with a clear local message before sending.
+10. Confirm each attachment appears as an accepted ChatGPT composer chip before the prompt sends.
+11. Open another normal website in the same window and repeat the screenshot flow without a runtime host-permission prompt.
+12. Try a restricted browser page such as `chrome://extensions` and confirm any failure clearly explains that the browser blocks restricted surfaces.
+13. Try an oversized or unsupported file and confirm the sidebar does not present the attachment as successfully sent.
+14. Confirm ChatGPT upload-limit or rejection messages surface as user-readable errors and do not quote the user's prompt as the technical upload detail.
+
+## Selection Sync
+
+1. Open Dichrome beside a normal webpage.
+2. Select text on the page and confirm the selected-text card appears after about three seconds without pressing the panel refresh button.
+3. Change the page selection and confirm the card updates to the new text after about three seconds.
+4. Clear the page selection and confirm the selected-text card disappears automatically after about three seconds.
+5. Press `Remove` on the selected-text card and confirm the same still-highlighted text does not reappear until the page selection changes or clears.
 
 ## Usage Limits
 

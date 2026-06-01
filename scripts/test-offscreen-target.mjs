@@ -100,6 +100,7 @@ const {
   getOffscreenFrameStatus,
   getOffscreenTargetDescriptor,
   handleOffscreenFramePort,
+  probeOffscreenAutomationTarget,
   sendMessageToOffscreenFrame
 } = await import("../background/automation/offscreen-target.js");
 
@@ -107,6 +108,45 @@ assert.equal(
   getOffscreenTargetDescriptor().offscreenDocumentUrl,
   "chrome-extension://test-extension/offscreen/automation-host.html"
 );
+
+let hostProbeCalls = 0;
+globalThis.chrome.runtime.sendMessage = async (message) => {
+  if (message?.type === OFFSCREEN_MESSAGES.HOST_PROBE) {
+    hostProbeCalls += 1;
+    return {
+      target: "offscreen-automation-host",
+      supported: true,
+      status: {
+        frameLoaded: true
+      }
+    };
+  }
+
+  return null;
+};
+
+const concurrentProbeOne = probeOffscreenAutomationTarget();
+const concurrentProbeTwo = probeOffscreenAutomationTarget();
+const warmupPort = createMockPort();
+
+assert.equal(handleOffscreenFramePort(warmupPort), true);
+warmupPort.onMessage.emit({
+  type: OFFSCREEN_MESSAGES.FRAME_READY,
+  frame: {
+    href: "https://chatgpt.com/",
+    readyState: "complete"
+  }
+});
+
+const probeResults = await Promise.all([concurrentProbeOne, concurrentProbeTwo]);
+
+assert.equal(probeResults[0], probeResults[1]);
+assert.equal(probeResults[0].supported, true);
+assert.equal(probeResults[0].failureReason, null);
+assert.equal(hostProbeCalls, 1);
+warmupPort.disconnect();
+assert.equal(getOffscreenFrameStatus().connected, false);
+globalThis.chrome.runtime.sendMessage = async () => null;
 
 const tabPort = createMockPort({
   tabId: 7

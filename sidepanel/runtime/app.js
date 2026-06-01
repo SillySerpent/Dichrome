@@ -15,13 +15,23 @@ import {
   renderMarkdownToHtml
 } from "../../shared/response-formatting.js";
 import {
+  getPendingAttachmentLimitViolation
+} from "./attachment-limits.js";
+import {
   captureVisibleScreenshotAttachment,
+  createImageAttachmentsFromUrls,
   createFileAttachments,
   formatBytes,
   removeAttachmentFromList
 } from "./attachments.js";
 import { sendMessage } from "./client.js";
 import { dom } from "./dom.js";
+import {
+  extractDroppedPromptText,
+  extractDroppedImageUrls,
+  getDroppedFiles,
+  insertDroppedTextIntoComposer
+} from "./drop-content.js";
 import {
   createProjectHistoryState,
   loadPersistedProjectHistoryState,
@@ -33,6 +43,10 @@ import {
 import {
   getUnreflectedLiveRequestsForHistory
 } from "./conversation-thread.js";
+import {
+  createSelectionKey,
+  resolveSelectedContextUpdate
+} from "./selection-context.js";
 import { createResponseAnimation } from "./response-animation.js";
 import { createResponseView } from "./response-view.js";
 import { createSettingsDialog } from "./settings-dialog.js";
@@ -42,7 +56,8 @@ import {
 } from "./state.js";
 
 const MAX_CONTEXT_PREVIEW_LENGTH = 700;
-const SELECTION_REFRESH_DELAY_MS = 180;
+const SELECTION_REFRESH_DELAY_MS = 3000;
+const SELECTION_POLL_INTERVAL_MS = 3000;
 const CHAT_THREAD_AUTOSCROLL_BOTTOM_THRESHOLD_PX = 64;
 const CHAT_THREAD_HISTORY_TOP_THRESHOLD_PX = 72;
 const HISTORY_LIST_BOTTOM_THRESHOLD_PX = 48;
@@ -65,6 +80,8 @@ let pendingAttachments = [];
 let selectedContext = null;
 let dismissedSelectionKey = "";
 let selectionRefreshTimer = null;
+let selectionPollTimer = null;
+let selectionRefreshPromise = null;
 let composerReadingMode = true;
 let projectHistoryReadingMode = true;
 let projectHistoryAutoLoadTimer = null;
@@ -112,8 +129,9 @@ async function initialize() {
     loadAutomationSettings()
   ]);
   await loadWorkspaceReadiness({ silent: true });
-  await maybeRefreshSelectedContext({ force: true });
+  await maybeRefreshSelectedContext();
   render();
+  startSelectedContextPolling();
   scheduleProjectHistoryAutoLoad({
     force: true,
     reset: true
@@ -126,7 +144,7 @@ function bindEvents() {
       await Promise.all([
         loadPanelState(),
         loadWorkspaceReadiness({ silent: true }),
-        maybeRefreshSelectedContext({ force: true })
+        maybeRefreshSelectedContext()
       ]);
       render();
     });
@@ -221,9 +239,28 @@ function bindEvents() {
     updateComposerSendState();
   });
 
+  dom.manualText.addEventListener("paste", (event) => {
+    const files = getDroppedFiles(event.clipboardData);
+    const imageUrls = extractDroppedImageUrls(event.clipboardData);
+
+    if (!files.length && !imageUrls.length) {
+      return;
+    }
+
+    event.preventDefault();
+    markComposerInterest();
+    const text = extractDroppedPromptText(event.clipboardData);
+    void runPanelAction(() => handleComposerTransfer({
+      files,
+      imageUrls,
+      text,
+      verb: "Pasted"
+    }));
+  });
+
   dom.manualText.addEventListener("focus", () => {
     markComposerInterest();
-    scheduleSelectedContextRefresh({ force: true });
+    scheduleSelectedContextRefresh();
   });
 
   dom.manualText.addEventListener("keydown", () => {
@@ -278,6 +315,9 @@ function bindEvents() {
 
   dom.composerDropZone.addEventListener("dragover", (event) => {
     event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
     markComposerInterest();
     dom.composerDropZone.classList.add("drag-over");
   });
@@ -290,7 +330,15 @@ function bindEvents() {
     event.preventDefault();
     markComposerInterest();
     dom.composerDropZone.classList.remove("drag-over");
-    void runPanelAction(() => attachFilesFromInput(event.dataTransfer?.files));
+    const files = getDroppedFiles(event.dataTransfer);
+    const imageUrls = extractDroppedImageUrls(event.dataTransfer);
+    const text = extractDroppedPromptText(event.dataTransfer);
+    void runPanelAction(() => handleComposerTransfer({
+      files,
+      imageUrls,
+      text,
+      verb: "Dropped"
+    }));
   });
 
   for (const eventName of ["focusin", "pointerdown", "pointerenter"]) {
@@ -352,13 +400,18 @@ function bindEvents() {
 
 
   window.addEventListener("focus", () => {
-    scheduleSelectedContextRefresh({ force: true });
+    scheduleSelectedContextRefresh();
+    startSelectedContextPolling();
   });
 
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
-      scheduleSelectedContextRefresh({ force: true });
+      scheduleSelectedContextRefresh();
+      startSelectedContextPolling();
+      return;
     }
+
+    stopSelectedContextPolling();
   });
 
   responseView.bindInteractions();
@@ -668,7 +721,7 @@ async function sendComposerRequest() {
   updateComposerSendState();
 
   try {
-    await maybeRefreshSelectedContext({ force: true });
+    await maybeRefreshSelectedContext();
 
     const text = dom.manualText.value.trim();
     const selectedText = selectedContext?.text || "";
@@ -742,6 +795,7 @@ function canContinueActiveProjectConversation() {
 function clearComposerAfterSend() {
   dom.manualText.value = "";
   pendingAttachments = [];
+  dismissedSelectionKey = selectedContext ? createSelectionKey(selectedContext.text) : dismissedSelectionKey;
   selectedContext = null;
   forceNewConversationDraft = false;
   renderAttachments();
@@ -772,42 +826,136 @@ function startNewConversationDraft() {
 
 async function attachVisibleScreenshot() {
   const attachment = await captureVisibleScreenshotAttachment();
-  addAttachment(attachment);
-  setTransientStatus("Screenshot attached.");
+  if (addAttachment(attachment)) {
+    setTransientStatus("Screenshot attached.");
+  }
 }
 
 async function attachFilesFromInput(fileList) {
   const { attachments, rejected } = await createFileAttachments(fileList);
+  const acceptedAttachments = [];
+  let limitRejectedCount = 0;
 
   for (const message of rejected) {
     setTransientStatus(message);
   }
 
   for (const attachment of attachments) {
-    addAttachment(attachment);
+    if (addAttachment(attachment)) {
+      acceptedAttachments.push(attachment);
+    } else {
+      limitRejectedCount += 1;
+    }
   }
 
-  if (attachments.length) {
-    setTransientStatus(`${attachments.length} attachment${attachments.length === 1 ? "" : "s"} added.`);
+  if (acceptedAttachments.length && limitRejectedCount) {
+    setTransientStatus(`${acceptedAttachments.length} attachment${acceptedAttachments.length === 1 ? "" : "s"} added; ${limitRejectedCount} skipped by attachment limits.`);
+  } else if (acceptedAttachments.length) {
+    setTransientStatus(`${acceptedAttachments.length} attachment${acceptedAttachments.length === 1 ? "" : "s"} added.`);
+  }
+
+  return {
+    attachments: acceptedAttachments,
+    rejected
+  };
+}
+
+async function attachImagesFromUrls(urls) {
+  const { attachments, rejected } = await createImageAttachmentsFromUrls(urls);
+  const acceptedAttachments = [];
+  let limitRejectedCount = 0;
+
+  for (const message of rejected) {
+    setTransientStatus(message);
+  }
+
+  for (const attachment of attachments) {
+    if (addAttachment(attachment)) {
+      acceptedAttachments.push(attachment);
+    } else {
+      limitRejectedCount += 1;
+    }
+  }
+
+  if (acceptedAttachments.length && limitRejectedCount) {
+    setTransientStatus(`${acceptedAttachments.length} image${acceptedAttachments.length === 1 ? "" : "s"} added; ${limitRejectedCount} skipped by attachment limits.`);
+  }
+
+  return {
+    attachments: acceptedAttachments,
+    rejected
+  };
+}
+
+async function handleComposerTransfer({ files = [], imageUrls = [], text = "", verb = "Added" } = {}) {
+  const droppedFiles = Array.from(files || []);
+  const droppedImageUrls = Array.from(imageUrls || []);
+  let insertedText = false;
+  let attachmentCount = 0;
+
+  if (droppedFiles.length) {
+    const result = await attachFilesFromInput(droppedFiles);
+    attachmentCount += result.attachments.length;
+  }
+
+  if (droppedImageUrls.length) {
+    const result = await attachImagesFromUrls(droppedImageUrls);
+    attachmentCount += result.attachments.length;
+  }
+
+  if (text) {
+    insertedText = insertDroppedTextIntoComposer(dom.manualText, text);
+  }
+
+  if (insertedText) {
+    markComposerInterest();
+    updateComposerSendState();
+    setTransientStatus(attachmentCount ? `${verb} attachments and text added.` : `${verb} text added.`);
+    return;
+  }
+
+  if (attachmentCount) {
+    setTransientStatus(`${verb} ${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}.`);
+    return;
+  }
+
+  if (droppedImageUrls.length) {
+    insertDroppedTextIntoComposer(dom.manualText, droppedImageUrls.join("\n"));
+    updateComposerSendState();
+    setTransientStatus(`Could not attach ${droppedImageUrls.length === 1 ? "image" : "images"}; inserted ${droppedImageUrls.length === 1 ? "URL" : "URLs"} instead.`);
+    return;
+  }
+
+  if (!droppedFiles.length) {
+    setTransientStatus(`No usable ${verb.toLowerCase()} content was found.`);
   }
 }
 
 function addAttachment(attachment) {
+  const normalizedAttachment = {
+    id: attachment.id || createLocalId(),
+    kind: attachment.kind || (String(attachment.mimeType || "").startsWith("image/") ? "image" : "file"),
+    name: attachment.name || "attachment",
+    mimeType: attachment.mimeType || "application/octet-stream",
+    sizeBytes: attachment.sizeBytes || null,
+    dataUrl: attachment.dataUrl,
+    previewUrl: attachment.previewUrl || (String(attachment.mimeType || "").startsWith("image/") ? attachment.dataUrl : "")
+  };
+  const limitViolation = getPendingAttachmentLimitViolation(pendingAttachments, normalizedAttachment);
+
+  if (limitViolation) {
+    setTransientStatus(limitViolation);
+    return false;
+  }
+
   markComposerInterest();
   pendingAttachments = [
     ...pendingAttachments,
-    {
-      id: attachment.id || createLocalId(),
-      kind: attachment.kind || (String(attachment.mimeType || "").startsWith("image/") ? "image" : "file"),
-      name: attachment.name || "attachment",
-      mimeType: attachment.mimeType || "application/octet-stream",
-      sizeBytes: attachment.sizeBytes || null,
-      dataUrl: attachment.dataUrl,
-      previewUrl: attachment.previewUrl || (String(attachment.mimeType || "").startsWith("image/") ? attachment.dataUrl : "")
-    }
+    normalizedAttachment
   ];
   renderAttachments();
   updateComposerSendState();
+  return true;
 }
 
 function removeAttachment(attachmentId) {
@@ -860,39 +1008,60 @@ function renderAttachments() {
   }
 }
 
-function scheduleSelectedContextRefresh({ force = false } = {}) {
+function scheduleSelectedContextRefresh() {
   window.clearTimeout(selectionRefreshTimer);
   selectionRefreshTimer = window.setTimeout(() => {
-    void maybeRefreshSelectedContext({ force });
+    void maybeRefreshSelectedContext();
   }, SELECTION_REFRESH_DELAY_MS);
 }
 
-async function maybeRefreshSelectedContext({ force = false } = {}) {
-  if (!force && selectedContext) {
-    return;
+async function maybeRefreshSelectedContext() {
+  if (selectionRefreshPromise) {
+    return selectionRefreshPromise;
   }
 
+  selectionRefreshPromise = refreshSelectedContextNow()
+    .finally(() => {
+      selectionRefreshPromise = null;
+    });
+
+  return selectionRefreshPromise;
+}
+
+async function refreshSelectedContextNow() {
   const selection = await getActiveTabSelection().catch(() => null);
-  const text = normalizeSelectionText(selection?.text || "");
+  const update = resolveSelectedContextUpdate({
+    currentContext: selectedContext,
+    dismissedSelectionKey,
+    selection
+  });
 
-  if (!text) {
+  selectedContext = update.selectedContext;
+  dismissedSelectionKey = update.dismissedSelectionKey;
+
+  if (update.changed) {
+    renderSelectedContext();
+    updateComposerSendState();
+  }
+}
+
+function startSelectedContextPolling() {
+  if (document.hidden || selectionPollTimer) {
     return;
   }
 
-  const key = createSelectionKey(text);
+  selectionPollTimer = window.setTimeout(runSelectedContextPoll, SELECTION_POLL_INTERVAL_MS);
+}
 
-  if (key === dismissedSelectionKey) {
-    return;
-  }
+function stopSelectedContextPolling() {
+  window.clearTimeout(selectionPollTimer);
+  selectionPollTimer = null;
+}
 
-  selectedContext = {
-    id: key,
-    text,
-    sourceTitle: selection?.title || "",
-    sourceUrl: selection?.url || ""
-  };
-  renderSelectedContext();
-  updateComposerSendState();
+async function runSelectedContextPoll() {
+  selectionPollTimer = null;
+  await maybeRefreshSelectedContext().catch(() => null);
+  startSelectedContextPolling();
 }
 
 async function getActiveTabSelection() {
@@ -957,10 +1126,12 @@ async function retryActiveRequest() {
     : getActiveRequest();
 
   if (!request) {
+    setTransientStatus("No request is available to retry.");
     return;
   }
 
   await saveAutomationSettings({ silent: true });
+  markOutgoingRequestPending("Retrying request...");
   await sendMessage(PANEL_MESSAGES.RETRY_REQUEST, {
     requestId: request.id
   });
@@ -1674,17 +1845,6 @@ function truncateText(text, maxLength) {
   }
 
   return `${normalized.slice(0, maxLength - 1)}…`;
-}
-
-function normalizeSelectionText(value) {
-  return String(value || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/[ \t]+\n/g, "\n")
-    .trim();
-}
-
-function createSelectionKey(text) {
-  return normalizeSelectionText(text).slice(0, 1000);
 }
 
 function createLocalId() {

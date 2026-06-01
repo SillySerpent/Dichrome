@@ -30,6 +30,7 @@ const OFFSCREEN_FRAME_BRIDGE_TIMEOUT_MS = 15000;
 const OFFSCREEN_FRAME_COMMAND_TIMEOUT_MS = 8000;
 
 let creatingOffscreenDocument = null;
+let probingOffscreenAutomationTarget = null;
 let offscreenFramePort = null;
 let offscreenFrameInfo = null;
 let offscreenCommandCounter = 0;
@@ -115,6 +116,19 @@ export function handleOffscreenFramePort(port) {
 }
 
 export async function probeOffscreenAutomationTarget() {
+  if (probingOffscreenAutomationTarget) {
+    return probingOffscreenAutomationTarget;
+  }
+
+  probingOffscreenAutomationTarget = probeOffscreenAutomationTargetOnce()
+    .finally(() => {
+      probingOffscreenAutomationTarget = null;
+    });
+
+  return probingOffscreenAutomationTarget;
+}
+
+async function probeOffscreenAutomationTargetOnce() {
   const session = await getAutomationSession();
 
   if (session.offscreenCapability?.supported === true && hasConnectedOffscreenFrame()) {

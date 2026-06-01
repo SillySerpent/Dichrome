@@ -92,7 +92,10 @@ Future content-runtime changes should usually land in the concern-specific modul
 - `sidepanel/runtime/app.js` owns panel initialization, event binding, panel state loading, request actions, project-history UI state, sign-in handoff, and top-level rendering.
 - `sidepanel/runtime/firefox-automation-host.js` owns the Firefox-only hidden ChatGPT iframe host that mirrors the Chrome offscreen host protocol through the opened sidebar page.
 - `sidepanel/runtime/settings-dialog.js` owns the routing/model settings popup form, summary label, and settings payload collection.
-- `sidepanel/runtime/attachments.js` owns screenshot permission prompts, visible-tab screenshot attachment construction, and user file attachment normalization.
+- `sidepanel/runtime/attachment-limits.js` owns pending attachment count, image count, and total-byte caps before request payloads are stored or sent.
+- `sidepanel/runtime/attachments.js` owns screenshot permission prompts, visible-tab screenshot attachment construction, user file attachment normalization, and explicit pasted/dropped image-URL attachment construction.
+- `sidepanel/runtime/drop-content.js` owns drag-and-drop payload normalization for files, selected text, links, and webpage image descriptors before they enter the composer.
+- `sidepanel/runtime/selection-context.js` owns selected-webpage-text normalization, dismissal, replacement, and empty-selection state transitions.
 - `sidepanel/runtime/dom.js` owns DOM id lookup.
 - `sidepanel/runtime/client.js` owns checked `chrome.runtime.sendMessage` calls.
 - `sidepanel/runtime/project-history-state.js` owns project-history side-panel state creation, local persistence, and project-key normalization.
@@ -111,6 +114,8 @@ Keep side-panel DOM ids stable unless the HTML/CSS are changed in the same pass.
 - `scripts/test-contracts.mjs` guards shared constants and manifest content script order.
 - `scripts/test-response-formatting.mjs` guards response rendering, sanitizer behavior, structured writing/task-list/table cases, and math fallback behavior.
 - `scripts/test-content-runtime-url.mjs` guards ChatGPT URL allow/reject logic.
+- `scripts/test-composer-upload-error-detection.mjs` and `scripts/test-composer-attachment-upload-status.mjs` guard ChatGPT-side upload-error detection, file-input compatibility, and accepted-attachment readiness before send.
+- `scripts/test-sidepanel-attachment-limits.mjs`, `scripts/test-sidepanel-attachments.mjs`, `scripts/test-sidepanel-drop-content.mjs`, and `scripts/test-sidepanel-selection-context.mjs` guard attachment caps, image-URL attachment construction, drag/drop composer insertion, and selected-text state transitions.
 - Other `scripts/test-*.mjs` files cover settings, request records, automation session storage, target manifests, offscreen frame policy, Firefox sidebar hosting, bridge origin checks, and hidden target behavior.
 
 Add narrowly scoped Node tests when extracting pure logic. Add manual smoke-test notes when behavior depends on browser APIs, ChatGPT UI state, login state, Chrome offscreen document behavior, or Firefox sidebar-host behavior.
