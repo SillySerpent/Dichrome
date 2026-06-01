@@ -1451,7 +1451,7 @@ function renderChatThread(activeRequest) {
     body.textContent = forceNewConversationDraft
       ? "Your next message will start separately. Mode changes only affect the next send."
       : "Type below, attach context, or select webpage text. Follow-ups continue this conversation until you press New.";
-    empty.append(title, body);
+    empty.append(title, body, createShortcutHint());
     dom.chatMessages.append(empty);
     restoreChatThreadScroll(previousScrollTop, shouldStickToBottom);
     return;
@@ -1528,6 +1528,28 @@ function createAssistantMessageCard(request, isActive) {
 
   card.append(meta, body);
   return card;
+}
+
+function createShortcutHint() {
+  const hint = document.createElement("div");
+  hint.className = "shortcut-hint";
+  hint.setAttribute("aria-label", "Side panel shortcut");
+
+  const mac = document.createElement("span");
+  mac.append("Mac ", createKeyCap("Option"), createKeyCap("Shift"), createKeyCap("D"));
+
+  const windows = document.createElement("span");
+  windows.append("Windows ", createKeyCap("Alt"), createKeyCap("Shift"), createKeyCap("D"));
+
+  hint.append(mac, windows);
+  return hint;
+}
+
+function createKeyCap(value) {
+  const key = document.createElement("kbd");
+  key.textContent = value;
+
+  return key;
 }
 
 function getRequestThread(activeRequest) {
