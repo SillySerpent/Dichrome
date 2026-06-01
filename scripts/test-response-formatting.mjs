@@ -85,6 +85,73 @@ assert.match(symbolMath, /⇒/);
 assert.match(symbolMath, /math-overline/);
 assert.match(symbolMath, /∈/);
 
+const accentAndPrimeMath = renderMarkdownToHtml(`Use \\(\\hat{x} + P' + x\u02c6 + y\u0302 + \\widehat{AB} + x < 0\\).`);
+assert.match(accentAndPrimeMath, /math-accent-hat/);
+assert.match(accentAndPrimeMath, /<sup class="math-prime">′<\/sup>/);
+assert.match(accentAndPrimeMath, /\\hat\{x\}/);
+assert.match(accentAndPrimeMath, /&lt; 0/);
+assert.doesNotMatch(accentAndPrimeMath, /&amp;#039;|&amp;lt;/);
+
+const matrixProductMath = renderMarkdownToHtml([
+  "$$\\begin{bmatrix} 1 & 20 \\\\ 300 & 4 \\end{bmatrix}",
+  "\\begin{pmatrix} x \\\\ y \\end{pmatrix}",
+  "= \\begin{bmatrix} 1x + 20y \\\\ 300x + 4y \\end{bmatrix}$$"
+].join(""));
+assert.equal((matrixProductMath.match(/math-environment/g) || []).length, 3);
+assert.match(matrixProductMath, /math-pmatrix/);
+assert.match(matrixProductMath, /math-bracket-square/);
+assert.doesNotMatch(matrixProductMath, /beginbmatrix|endbmatrix|beginpmatrix|endpmatrix/);
+
+const complexBoxedMatrixMath = renderMarkdownToHtml([
+  "$$\\boxed{\\det\\left(",
+  "\\begin{pmatrix}",
+  "\\lambda-\\ddot{a} & \\sqrt{\\Delta} & \\partial_t\\varnothing \\\\",
+  "\\sum_i & \\lambda+\\tilde{\\beta} & \\hat{f} \\\\",
+  "\\dot{a}_{\\neg} & \\nabla^2\\psi & \\lambda-\\Omega",
+  "\\end{pmatrix}",
+  "\\right)=0}$$"
+].join(" "));
+assert.match(complexBoxedMatrixMath, /math-boxed/);
+assert.match(complexBoxedMatrixMath, /math-pmatrix/);
+assert.match(complexBoxedMatrixMath, /∂<sub>t<\/sub>∅/);
+assert.match(complexBoxedMatrixMath, /∇<sup>2<\/sup>ψ/);
+assert.match(complexBoxedMatrixMath, /math-accent-ddot/);
+assert.match(complexBoxedMatrixMath, /math-accent-tilde/);
+assert.doesNotMatch(complexBoxedMatrixMath, />boxed|>partial|>varnothing|>nabla|beginpmatrix|endpmatrix/);
+
+const alignedMath = renderMarkdownToHtml([
+  "$$\\begin{aligned}",
+  "\\tilde f(x) &= \\sum_{n=-\\infty}^{\\infty} \\hat c_n e^{i\\pi nx/L} \\\\",
+  "\\hat c_n &= \\frac{1}{2L}\\int_{-L}^{L} f(x)e^{-i\\pi nx/L}\\,dx",
+  "\\end{aligned}$$"
+].join(" "));
+assert.match(alignedMath, /math-aligned/);
+assert.match(alignedMath, /∞/);
+assert.match(alignedMath, /π/);
+assert.match(alignedMath, /∫/);
+assert.doesNotMatch(alignedMath, /beginaligned|endaligned/);
+
+const quotedDisplayMath = renderMarkdownToHtml([
+  "> $$",
+  "> \\boxed{",
+  "> \\tilde{z}",
+  "> =",
+  "> \\frac{\\hat{\\alpha}+i\\ddot{\\beta}}",
+  "> {\\sqrt{\\Delta}-\\mathring{\\varnothing}i}",
+  "> +",
+  "> e^{i\\pi}",
+  "> +",
+  "> \\sum_{n=1}^{\\infty}\\frac{1}{n^2}",
+  "> }",
+  "> $$"
+].join("\n"));
+assert.match(quotedDisplayMath, /^<blockquote><div class="math math-display/);
+assert.match(quotedDisplayMath, /math-boxed/);
+assert.match(quotedDisplayMath, /math-accent-tilde/);
+assert.match(quotedDisplayMath, /math-accent-ddot/);
+assert.match(quotedDisplayMath, /∑/);
+assert.doesNotMatch(quotedDisplayMath, /<br>\\boxed|\$\$/);
+
 const fallbackMath = renderMarkdownToHtml("$$\\frac{a}$$");
 assert.match(fallbackMath, /math-fallback/);
 assert.match(fallbackMath, /\\frac\{a\}/);
