@@ -75,6 +75,12 @@ import {
 import { formatUserFacingError } from "../../shared/error-messages.js";
 
 const EXTENSION_NAME = chrome.runtime.getManifest().name;
+const SIDE_PANEL_TOGGLE_COMMAND = "toggle-dichrome-side-panel";
+const sidePanelOpenState = {
+  tabIds: new Set(),
+  windowIds: new Set(),
+  firefoxSidebarOpen: false
+};
 const contextMenuController = createContextMenuController({
   appendEvent,
   normalizeText,
@@ -151,11 +157,33 @@ chrome.action.onClicked.addListener((tab) => {
   void rememberSourceTab(tab).catch(() => null);
 });
 
+chrome.commands?.onCommand?.addListener?.((command, tab) => {
+  if (command !== SIDE_PANEL_TOGGLE_COMMAND) {
+    return;
+  }
+
+  if (shouldCloseSidePanel(tab)) {
+    void closeSidePanel(tab);
+  } else {
+    void openSidePanel(tab?.id);
+    void rememberSourceTab(tab).catch(() => null);
+  }
+});
+
+chrome.sidePanel?.onOpened?.addListener?.((info) => {
+  markSidePanelOpen(info);
+});
+
+chrome.sidePanel?.onClosed?.addListener?.((info) => {
+  markSidePanelClosed(info);
+});
+
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   void contextMenuController.handleContextMenuClick(info, tab);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  sidePanelOpenState.tabIds.delete(tabId);
   void clearAutomationTabIfMatches(tabId);
 });
 
@@ -655,15 +683,98 @@ async function getReconciledAutomationSession() {
 
 async function openSidePanel(tabId) {
   if (tabId && chrome.sidePanel?.open) {
-    await chrome.sidePanel.open({
-      tabId
+    await chrome.sidePanel.open({ tabId }).then(() => {
+      markSidePanelOpen({ tabId });
     }).catch(() => null);
     return;
   }
 
   if (chrome.sidebarAction?.open) {
-    await chrome.sidebarAction.open().catch(() => null);
+    await chrome.sidebarAction.open().then(() => {
+      sidePanelOpenState.firefoxSidebarOpen = true;
+    }).catch(() => null);
   }
+}
+
+async function closeSidePanel(tab) {
+  if (chrome.sidePanel?.close) {
+    for (const context of getSidePanelCloseContexts(tab)) {
+      const closed = await chrome.sidePanel.close(context).then(() => true).catch(() => false);
+
+      if (closed) {
+        markSidePanelClosed(context);
+        markSidePanelClosed(tab);
+        return;
+      }
+    }
+  }
+
+  if (chrome.sidebarAction?.close) {
+    await chrome.sidebarAction.close().then(() => {
+      sidePanelOpenState.firefoxSidebarOpen = false;
+    }).catch(() => null);
+  }
+}
+
+function shouldCloseSidePanel(tab) {
+  if (!chrome.sidePanel?.close && !chrome.sidebarAction?.close) {
+    return false;
+  }
+
+  const tabId = getTabId(tab);
+  const windowId = getWindowId(tab);
+
+  return Boolean(
+    (windowId !== null && sidePanelOpenState.windowIds.has(windowId))
+    || (tabId !== null && sidePanelOpenState.tabIds.has(tabId))
+    || sidePanelOpenState.firefoxSidebarOpen
+  );
+}
+
+function getSidePanelCloseContexts(tab) {
+  const contexts = [];
+  const windowId = getWindowId(tab);
+  const tabId = getTabId(tab);
+
+  if (windowId !== null) {
+    contexts.push({ windowId });
+  }
+
+  if (tabId !== null) {
+    contexts.push({ tabId });
+  }
+
+  return contexts;
+}
+
+function markSidePanelOpen(info = {}) {
+  const tabId = getTabId(info);
+  const windowId = getWindowId(info);
+
+  if (tabId !== null) {
+    sidePanelOpenState.tabIds.add(tabId);
+  }
+
+  if (windowId !== null) {
+    sidePanelOpenState.windowIds.add(windowId);
+  }
+}
+
+function markSidePanelClosed(info = {}) {
+  const tabId = getTabId(info);
+  const windowId = getWindowId(info);
+
+  if (tabId !== null) {
+    sidePanelOpenState.tabIds.delete(tabId);
+  }
+
+  if (windowId !== null) {
+    sidePanelOpenState.windowIds.delete(windowId);
+  }
+}
+
+function getWindowId(value) {
+  return Number.isInteger(value?.windowId) ? value.windowId : null;
 }
 
 const MESSAGE_RETRY_CONFIG = {
