@@ -25,7 +25,7 @@
 body {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  min-width: 320px;
+  min-width: 260px;
   height: 100vh;
   margin: 0;
   color: var(--text);
@@ -331,7 +331,7 @@ h2 {
 
 .empty-chat {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   margin: auto;
   max-width: 360px;
   color: var(--muted);
@@ -342,6 +342,38 @@ h2 {
 .empty-chat strong {
   color: var(--text);
   font-size: 15px;
+}
+
+.shortcut-hint {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.shortcut-hint span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.shortcut-hint kbd {
+  min-width: 18px;
+  border: 1px solid var(--border);
+  border-bottom-color: var(--border-strong);
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: var(--text);
+  background: #ffffff;
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1.35;
+  box-shadow: 0 1px 0 rgba(23, 32, 24, 0.1);
 }
 
 .message-card {
@@ -891,7 +923,7 @@ pre {
 .response-content pre {
   max-height: 260px;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   scrollbar-gutter: stable;
   border: 1px solid #c8d0c5;
@@ -899,8 +931,8 @@ pre {
   padding: 10px;
   background: #101511;
   color: #edf6ec;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  white-space: pre;
+  overflow-wrap: normal;
   word-break: normal;
 }
 
@@ -928,6 +960,14 @@ pre {
   color: var(--muted);
 }
 
+.response-content blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.response-content blockquote .math {
+  color: var(--text);
+}
+
 .response-content table {
   display: table;
   table-layout: fixed;
@@ -947,12 +987,20 @@ pre {
 
 .response-content .katex-display,
 .response-content .math {
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: visible;
   border: 1px solid #c8d0c5;
   border-radius: 8px;
   padding: 8px;
   background: #fbfcfa;
   overflow-wrap: anywhere;
+}
+
+.response-content .math,
+.response-content .math * {
+  max-width: none;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .hidden {
@@ -1015,9 +1063,13 @@ pre {
 
 .response-content .math-display {
   display: block;
+  overflow-x: auto;
+  overflow-y: visible;
   margin: 8px 0 10px;
-  white-space: pre-wrap;
+  scrollbar-gutter: stable;
+  white-space: normal;
   font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  contain: inline-size;
 }
 
 .response-content .writing-block {
@@ -1157,12 +1209,16 @@ pre {
 }
 
 .response-content .math {
+  --math-fit-scale: 1;
   line-height: 1.45;
 }
 
 .response-content .math-rendered {
+  display: inline-block;
   font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
-  font-size: 15px;
+  font-size: calc(15px * var(--math-fit-scale, 1));
+  line-height: 1.35;
+  white-space: nowrap;
 }
 
 .response-content .math-display {
@@ -1171,11 +1227,20 @@ pre {
   white-space: normal;
 }
 
+.response-content .math-display.math-fit-scrollable {
+  text-align: left;
+}
+
+.response-content .math-display.math-fit-scrollable .math-rendered {
+  min-width: max-content;
+}
+
 .response-content .response-copy-wrapper .math-display {
   padding-right: 64px;
 }
 
 .response-content .math-inline {
+  overflow: visible;
   vertical-align: baseline;
 }
 
@@ -1210,6 +1275,13 @@ pre {
   gap: 0.08em;
 }
 
+.response-content .math-root-index {
+  margin-right: -0.16em;
+  font-size: 0.58em;
+  line-height: 1;
+  transform: translateY(-0.25em);
+}
+
 .response-content .math-root-body {
   border-top: 1px solid currentColor;
   padding: 0.02em 0.1em 0;
@@ -1221,33 +1293,88 @@ pre {
   padding: 0.02em 0.08em 0;
 }
 
+.response-content .math-accent {
+  position: relative;
+  display: inline-block;
+  padding-top: 0.36em;
+  vertical-align: baseline;
+}
+
+.response-content .math-accent::before {
+  position: absolute;
+  top: -0.08em;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 0.78em;
+  line-height: 1;
+}
+
+.response-content .math-accent-hat::before {
+  content: "ˆ";
+  transform: scaleX(1.25);
+}
+
+.response-content .math-accent-tilde::before {
+  content: "~";
+}
+
+.response-content .math-accent-vec::before {
+  content: "→";
+}
+
+.response-content .math-accent-dot::before {
+  content: "·";
+  font-size: 1em;
+}
+
+.response-content .math-accent-ddot::before {
+  content: "· ·";
+  font-size: 0.86em;
+}
+
+.response-content .math-accent-ring::before {
+  content: "˚";
+  font-size: 0.88em;
+}
+
+.response-content .math-accent-left-vec::before {
+  content: "←";
+}
+
+.response-content .math-prime {
+  margin-left: 0.04em;
+  font-size: 0.72em;
+  line-height: 0;
+  vertical-align: super;
+}
+
 .response-content .math-environment {
   display: inline-flex;
-  align-items: center;
-  gap: 0.18em;
+  align-items: stretch;
+  gap: 0.16em;
+  margin: 0 0.12em;
   vertical-align: middle;
 }
 
 .response-content .math-matrix,
 .response-content .math-cases-body {
-  display: inline-grid;
-  gap: 0.12em;
+  display: inline-table;
+  border-collapse: separate;
+  border-spacing: 0.38em 0.12em;
 }
 
 .response-content .math-row {
-  display: inline-flex;
-  justify-content: center;
-  gap: 0.5em;
-}
-
-.response-content .math-cases-body .math-row {
-  justify-content: flex-start;
+  display: table-row;
 }
 
 .response-content .math-cell {
-  display: inline-block;
+  display: table-cell;
   min-width: 1ch;
+  padding: 0 0.08em;
   text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 .response-content .math-cases-body .math-cell {
@@ -1255,8 +1382,176 @@ pre {
 }
 
 .response-content .math-bracket {
-  font-size: 1.8em;
-  line-height: 1;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0.34em;
+  font-size: 2.15em;
+  line-height: 0.82;
+  transform: scaleY(1.08);
+  transform-origin: center;
+}
+
+.response-content .math-bracket-square,
+.response-content .math-bracket-vertical,
+.response-content .math-bracket-double-vertical {
+  font-size: 2em;
+}
+
+.response-content .math-cases .math-bracket {
+  min-width: 0.42em;
+  font-size: 2.35em;
+}
+
+.response-content .math-boxed {
+  display: inline-block;
+  border: 1px solid currentColor;
+  padding: 0.18em 0.28em;
+}
+
+.response-content .math-text-mathbf {
+  font-weight: 700;
+}
+
+.response-content .math-text-mathit,
+.response-content .math-text-mathcal,
+.response-content .math-text-mathfrak {
+  font-style: italic;
+}
+
+.response-content .math-aligned-body,
+.response-content .math-alignedat-body,
+.response-content .math-gathered-body {
+  display: inline-table;
+  border-collapse: separate;
+  border-spacing: 0.28em 0.18em;
+}
+
+.response-content .math-aligned-body .math-cell,
+.response-content .math-alignedat-body .math-cell {
+  text-align: left;
+}
+
+.response-content .math-aligned-body .math-cell:nth-child(odd),
+.response-content .math-alignedat-body .math-cell:nth-child(odd) {
+  text-align: right;
+}
+
+.response-content .math-gathered-body .math-cell {
+  text-align: center;
+}
+
+@media (max-width: 319px) {
+  .app-header {
+    gap: 6px;
+    min-height: 42px;
+    padding: 6px 7px;
+  }
+
+  .brand-lockup {
+    gap: 6px;
+  }
+
+  .brand-mark {
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+  }
+
+  h1 {
+    font-size: 15px;
+  }
+
+  .header-actions {
+    gap: 4px;
+  }
+
+  .header-actions button {
+    min-width: 32px;
+    min-height: 32px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  #settingsButton::before {
+    content: "⚙";
+    font-size: 16px;
+  }
+
+  #newChatButton::before {
+    content: "+";
+    font-size: 19px;
+    line-height: 1;
+  }
+
+  #refreshButton::before {
+    content: "↻";
+    font-size: 16px;
+  }
+
+  .chat-shell {
+    grid-template-rows: auto minmax(160px, 1fr) auto auto;
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .history-panel,
+  .chat-messages,
+  .composer-panel {
+    border-radius: 10px;
+  }
+
+  .history-panel {
+    padding: 8px;
+  }
+
+  .chat-messages {
+    padding: 10px;
+  }
+
+  .composer-panel {
+    padding: 6px;
+  }
+
+  .composer-box {
+    border-radius: 10px;
+    padding: 7px;
+  }
+
+  .composer-left-actions {
+    gap: 4px;
+    max-width: 70px;
+  }
+
+  .composer-left-actions .icon-only-button {
+    min-width: 30px;
+    min-height: 30px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  #composerScreenshotButton::before {
+    content: "▣";
+    font-size: 13px;
+  }
+
+  #composerAttachButton::before {
+    content: "+";
+    font-size: 18px;
+    line-height: 1;
+  }
+}
+
+@media (max-width: 279px) {
+  h1 {
+    display: none;
+  }
+
+  .brand-mark {
+    width: 20px;
+    height: 20px;
+  }
 }
 
 .routing-summary {
@@ -1267,6 +1562,13 @@ pre {
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 319px) {
+  .routing-summary {
+    max-width: 62px;
+    font-size: 11px;
+  }
 }
 
 .settings-overlay {
