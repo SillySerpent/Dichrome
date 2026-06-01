@@ -207,6 +207,14 @@ async function validateManifest() {
   assert(manifest.background?.service_worker === "background/service-worker.js", "background service worker path is wrong.");
   assert(manifest.background?.type === "module", "background service worker must be an ES module.");
   assert(manifest.side_panel?.default_path === "sidepanel/sidepanel.html", "side panel path is wrong.");
+  assert(
+    manifest.commands?.["toggle-dichrome-side-panel"]?.suggested_key === "Alt+Shift+D",
+    "Manifest must register the Dichrome side-panel toggle shortcut."
+  );
+  assert(
+    manifest.commands?.["toggle-dichrome-side-panel"]?.description === "Open or close the Dichrome side panel",
+    "Manifest shortcut description must explain the side-panel toggle."
+  );
   assert(manifest.icons?.["128"] === "icons/icon-128.png", "manifest 128px icon path is wrong.");
   assert(manifest.action?.default_icon?.["32"] === "icons/icon-32.png", "action 32px icon path is wrong.");
   assert(Array.isArray(manifest.content_scripts), "Missing ChatGPT content script registration.");
