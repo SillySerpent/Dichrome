@@ -6,9 +6,11 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const css = await readFile(join(root, "sidepanel/sidepanel.css"), "utf8");
 const app = await readFile(join(root, "sidepanel/runtime/app.js"), "utf8");
 const html = await readFile(join(root, "sidepanel/sidepanel.html"), "utf8");
+const responseView = await readFile(join(root, "sidepanel/runtime/response-view.js"), "utf8");
 const manifest = JSON.parse(await readFile(join(root, "manifest.json"), "utf8"));
 const iconSvg = await readFile(join(root, "assets/icon.svg"), "utf8");
 
+assertRuleIncludes("body", ["min-width: 260px", "overflow: hidden"]);
 assertRuleIncludes(".composer-panel", ["min-width: 0", "overflow: hidden"]);
 assertRuleIncludes(".composer-box", ["grid-template-columns: minmax(0, 1fr)", "overflow: hidden"]);
 assertRuleIncludes(".composer-actions", ["display: grid", "grid-template-columns: auto minmax(0, 1fr)"]);
@@ -35,13 +37,25 @@ assertRuleIncludes(".response-copy-toolbar", ["position: absolute", "right: 18px
 assertRuleIncludes(".response-copy-wrapper:hover .response-copy-toolbar,\n.response-copy-wrapper:focus-within .response-copy-toolbar", ["opacity: 1", "pointer-events: auto"]);
 assertRuleIncludes(".response-copy-button", ["user-select: none"]);
 assertRuleIncludes(".response-content h1,\n.response-content h2,\n.response-content h3,\n.response-content h4,\n.response-content h5,\n.response-content h6", ["overflow: visible", "text-overflow: clip", "white-space: normal"]);
-assertRuleIncludes(".response-content pre", ["scrollbar-gutter: stable"]);
+assertRuleIncludes(".response-content pre", ["overflow-x: auto", "scrollbar-gutter: stable", "white-space: pre", "overflow-wrap: normal"]);
 assertRuleIncludes(".response-content .response-copy-wrapper pre", ["padding-right: 78px"]);
 assertRuleIncludes(".response-content .writing-block", ["display: grid", "background: var(--surface-soft)"]);
 assertRuleIncludes(".response-content .writing-block-meta", ["flex-wrap: wrap"]);
 assertRuleIncludes(".response-content .task-list", ["list-style: none"]);
-assertRuleIncludes(".response-content .math-environment", ["display: inline-flex"]);
-assertRuleIncludes(".response-content .math-row", ["display: inline-flex"]);
+assertRuleIncludes(".response-content blockquote .math", ["color: var(--text)"]);
+assertRuleIncludes(".shortcut-hint", ["display: flex", "flex-wrap: wrap"]);
+assertRuleIncludes(".shortcut-hint kbd", ["border: 1px solid var(--border)", "font-size: 10px"]);
+assertRuleIncludes(".response-content .math-rendered", ["display: inline-block", "font-size: calc(15px * var(--math-fit-scale, 1))", "white-space: nowrap"]);
+assertRuleIncludes(".response-content .math-display", ["overflow-x: auto", "overflow-y: visible", "scrollbar-gutter: stable", "contain: inline-size"]);
+assertRuleIncludes(".response-content .math-display.math-fit-scrollable", ["text-align: left"]);
+assertRuleIncludes(".response-content .math-accent", ["position: relative", "padding-top: 0.36em"]);
+assertRuleIncludes(".response-content .math-prime", ["font-size: 0.72em", "vertical-align: super"]);
+assertRuleIncludes(".response-content .math-boxed", ["display: inline-block", "border: 1px solid currentColor"]);
+assertRuleIncludes(".response-content .math-environment", ["display: inline-flex", "align-items: stretch"]);
+assertRuleIncludes(".response-content .math-matrix,\n.response-content .math-cases-body", ["display: inline-table", "border-spacing: 0.38em 0.12em"]);
+assertRuleIncludes(".response-content .math-aligned-body,\n.response-content .math-alignedat-body,\n.response-content .math-gathered-body", ["display: inline-table", "border-spacing: 0.28em 0.18em"]);
+assertRuleIncludes(".response-content .math-row", ["display: table-row"]);
+assertRuleIncludes(".response-content .math-cell", ["display: table-cell", "white-space: nowrap"]);
 
 const copyToolbarRule = findRule(".response-copy-toolbar");
 assert(copyToolbarRule.includes("transform: translateY(-2px)"), "Copy toolbar must stay hidden until the block is hovered or focused.");
@@ -74,8 +88,23 @@ assert(
   "Historical assistant messages must receive the same copy controls as the active response."
 );
 assert(
-  /document\.addEventListener\("click"[\s\S]*response-copy-button/.test(await readFile(join(root, "sidepanel/runtime/response-view.js"), "utf8")),
+  /document\.addEventListener\("click"[\s\S]*response-copy-button/.test(responseView),
   "Copy controls must work for response blocks outside the active streaming container."
+);
+assert(
+  html.includes("Mac <kbd>Option</kbd><kbd>Shift</kbd><kbd>D</kbd>")
+    && html.includes("Windows <kbd>Alt</kbd><kbd>Shift</kbd><kbd>D</kbd>")
+    && app.includes("function createShortcutHint()")
+    && app.includes('createKeyCap("Option")')
+    && app.includes('createKeyCap("Alt")'),
+  "Fresh chat state must expose Mac and Windows side-panel shortcuts."
+);
+assert(
+  responseView.includes("function fitDisplayMathBlock(")
+    && responseView.includes("MIN_DISPLAY_MATH_SCALE")
+    && responseView.includes("ResizeObserver")
+    && responseView.includes("math-fit-scrollable"),
+  "Display math must be dynamically fitted after rendering and scroll instead of clipping below the readable scale."
 );
 assert(
   manifest.name === "Dichrome" && manifest.action?.default_title === "Open Dichrome",
