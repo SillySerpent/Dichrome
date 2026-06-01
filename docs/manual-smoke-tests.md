@@ -14,6 +14,14 @@ Run the core hidden-internal, logged-out, project-history, project-routing, foll
 4. Confirm the side panel streams response text and reaches `RESPONSE_COMPLETE`.
 5. Confirm the status text uses hidden workspace wording rather than tab-mode wording.
 
+## Side Panel Shortcut And Narrow Layout
+
+1. Open a normal webpage and press `Alt+Shift+D`.
+2. Confirm the Dichrome side panel opens and the browser toolbar area remains separate from the extension content.
+3. Press `Alt+Shift+D` again in Chrome or Chromium and confirm the panel closes when the browser exposes side-panel close support.
+4. Drag the side-panel divider as narrow as the browser allows.
+5. Confirm the header, history area, response area, composer, screenshot button, file button, routing label, and send button remain usable without overlapping text.
+
 ## Logged Out
 
 1. Use a fresh browser profile or sign out of ChatGPT.
@@ -90,10 +98,12 @@ Run the core hidden-internal, logged-out, project-history, project-routing, foll
 1. Ask ChatGPT for an answer containing:
    - `$$\frac{a_1}{\sqrt{b^2}} + \alpha$$`
    - `\(x_i^2\)`
+   - `\(\hat{x} + P' + \widehat{AB}\)`
    - `\text{units}` or `\mathrm{kg}`
    - `\begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}`
+   - `\begin{bmatrix} 1 & 20 \\ 300 & 4 \end{bmatrix}\begin{pmatrix} x \\ y \end{pmatrix}`
    - `\begin{cases} x^2, & x \ge 0 \\ -x, & x < 0 \end{cases}`
-2. Confirm display math, inline math, matrices, and cases render visibly in the side panel without raw `begin...end` text.
+2. Confirm display math, inline math, hats, primes, matrix products, and cases render visibly in the side panel without raw `begin...end` text.
 3. Ask for a malformed expression such as `$$\frac{a}$$`.
 4. Confirm it renders as escaped source in a styled math fallback instead of broken HTML.
 
