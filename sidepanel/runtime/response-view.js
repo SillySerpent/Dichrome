@@ -1,12 +1,15 @@
 import { sanitizeResponseHtml } from "../../shared/response-formatting.js";
 
 const RESPONSE_AUTOSCROLL_BOTTOM_THRESHOLD_PX = 36;
+const MIN_DISPLAY_MATH_SCALE = 0.38;
 
 export function createResponseView({ responseText }) {
   const scrollState = {
     autoScroll: true,
     lastProgrammaticScrollAt: 0
   };
+  let mathFitObserver = null;
+  const observedMathFitRoots = new WeakSet();
 
   function bindInteractions() {
     document.addEventListener("click", (event) => {
@@ -27,6 +30,12 @@ export function createResponseView({ responseText }) {
       }
 
       scrollState.autoScroll = isScrolledNearBottom();
+    }, {
+      passive: true
+    });
+
+    window.addEventListener("resize", () => {
+      fitDisplayMathBlocks(document.body);
     }, {
       passive: true
     });
@@ -66,6 +75,7 @@ export function createResponseView({ responseText }) {
 
     enhanceCopyableCodeBlocks(container);
     enhanceCopyableMathBlocks(container);
+    scheduleDisplayMathFit(container);
   }
 
   function enhanceCopyableCodeBlocks(container) {
@@ -108,6 +118,92 @@ export function createResponseView({ responseText }) {
     wrapper.append(toolbar);
 
     return wrapper;
+  }
+
+  function scheduleDisplayMathFit(container) {
+    fitDisplayMathBlocks(container);
+
+    const scheduleFrame = typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 0);
+
+    scheduleFrame(() => {
+      fitDisplayMathBlocks(container);
+      observeMathFitRoot(container);
+    });
+  }
+
+  function observeMathFitRoot(container) {
+    if (!window.ResizeObserver || !container?.isConnected) {
+      return;
+    }
+
+    const root = container.closest?.(".chat-messages") || container;
+
+    if (!root || observedMathFitRoots.has(root)) {
+      return;
+    }
+
+    if (!mathFitObserver) {
+      mathFitObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          fitDisplayMathBlocks(entry.target);
+        }
+      });
+    }
+
+    observedMathFitRoots.add(root);
+    mathFitObserver.observe(root);
+  }
+
+  function fitDisplayMathBlocks(container) {
+    if (!container?.querySelectorAll) {
+      return;
+    }
+
+    for (const math of Array.from(container.querySelectorAll(".math-display"))) {
+      fitDisplayMathBlock(math);
+    }
+  }
+
+  function fitDisplayMathBlock(math) {
+    const rendered = math.querySelector(".math-rendered");
+
+    if (!rendered) {
+      return;
+    }
+
+    math.classList.remove("math-fit-scaled", "math-fit-scrollable");
+    math.style.removeProperty("--math-fit-scale");
+
+    const availableWidth = getAvailableMathWidth(math);
+
+    if (availableWidth <= 0) {
+      return;
+    }
+
+    const naturalWidth = rendered.scrollWidth;
+
+    if (naturalWidth <= availableWidth) {
+      return;
+    }
+
+    const naturalScale = availableWidth / naturalWidth;
+    const scale = Math.max(MIN_DISPLAY_MATH_SCALE, Math.min(1, naturalScale));
+    math.style.setProperty("--math-fit-scale", scale.toFixed(3));
+    math.classList.add("math-fit-scaled");
+
+    if (naturalWidth * scale > availableWidth + 1) {
+      math.classList.add("math-fit-scrollable");
+    }
+  }
+
+  function getAvailableMathWidth(math) {
+    const style = window.getComputedStyle?.(math);
+    const paddingLeft = Number.parseFloat(style?.paddingLeft || "0") || 0;
+    const paddingRight = Number.parseFloat(style?.paddingRight || "0") || 0;
+
+    return Math.max(0, math.clientWidth - paddingLeft - paddingRight);
   }
 
   async function copyResponseBlock(button) {
