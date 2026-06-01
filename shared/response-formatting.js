@@ -14,24 +14,36 @@ const LATEX_COMMANDS = Object.freeze({
   delta: "δ",
   epsilon: "ε",
   theta: "θ",
+  varepsilon: "ε",
   lambda: "λ",
   mu: "μ",
+  nu: "ν",
+  xi: "ξ",
+  kappa: "κ",
   pi: "π",
   rho: "ρ",
   sigma: "σ",
+  upsilon: "υ",
   tau: "τ",
   phi: "φ",
+  varphi: "φ",
+  psi: "ψ",
+  chi: "χ",
   omega: "ω",
   Gamma: "Γ",
   Delta: "Δ",
   Theta: "Θ",
   Lambda: "Λ",
+  Xi: "Ξ",
   Pi: "Π",
   Sigma: "Σ",
+  Upsilon: "Υ",
   Phi: "Φ",
+  Psi: "Ψ",
   Omega: "Ω",
   times: "×",
   cdot: "·",
+  circ: "∘",
   div: "÷",
   pm: "±",
   mp: "∓",
@@ -39,28 +51,57 @@ const LATEX_COMMANDS = Object.freeze({
   leq: "≤",
   ge: "≥",
   geq: "≥",
+  ll: "≪",
+  gg: "≫",
   neq: "≠",
   approx: "≈",
+  equiv: "≡",
   infty: "∞",
+  partial: "∂",
+  nabla: "∇",
+  emptyset: "∅",
+  varnothing: "∅",
+  forall: "∀",
+  exists: "∃",
   rightarrow: "→",
   to: "→",
   leftarrow: "←",
+  gets: "←",
   Rightarrow: "⇒",
+  implies: "⇒",
   Leftrightarrow: "⇔",
+  iff: "⇔",
+  mapsto: "↦",
   mid: "|",
+  vert: "|",
+  lvert: "|",
+  rvert: "|",
+  lVert: "‖",
+  rVert: "‖",
+  langle: "⟨",
+  rangle: "⟩",
   land: "∧",
   lor: "∨",
   neg: "¬",
+  top: "⊤",
+  bot: "⊥",
   in: "∈",
   notin: "∉",
   subset: "⊂",
   subseteq: "⊆",
+  supset: "⊃",
+  supseteq: "⊇",
   cup: "∪",
   cap: "∩",
   setminus: "\\",
+  ell: "ℓ",
+  imath: "ı",
+  jmath: "ȷ",
+  degree: "°",
   dots: "…",
   ldots: "…",
   cdots: "⋯",
+  prime: "′",
   sum: "∑",
   prod: "∏",
   int: "∫",
@@ -70,6 +111,12 @@ const LATEX_COMMANDS = Object.freeze({
   log: "log",
   ln: "ln",
   exp: "exp",
+  lim: "lim",
+  det: "det",
+  rank: "rank",
+  min: "min",
+  max: "max",
+  Pr: "Pr",
   left: "",
   right: "",
   big: "",
@@ -81,6 +128,41 @@ const LATEX_COMMANDS = Object.freeze({
   ":": " ",
   "!": ""
 });
+
+const LATEX_ACCENT_COMMANDS = Object.freeze({
+  hat: "hat",
+  widehat: "hat",
+  tilde: "tilde",
+  widetilde: "tilde",
+  vec: "vec",
+  dot: "dot",
+  ddot: "ddot",
+  mathring: "ring",
+  overrightarrow: "vec",
+  overleftarrow: "left-vec"
+});
+
+const MATRIX_ENVIRONMENT_DELIMITERS = Object.freeze({
+  matrix: ["", ""],
+  smallmatrix: ["", ""],
+  array: ["", ""],
+  bmatrix: ["[", "]"],
+  pmatrix: ["(", ")"],
+  vmatrix: ["|", "|"],
+  Vmatrix: ["‖", "‖"]
+});
+
+const LATEX_TEXT_STYLE_COMMANDS = Object.freeze(new Set([
+  "mathrm",
+  "operatorname",
+  "mathbf",
+  "mathit",
+  "mathsf",
+  "mathtt",
+  "mathbb",
+  "mathcal",
+  "mathfrak"
+]));
 
 export function renderMarkdownToHtml(markdown) {
   const source = normalizeMarkdownText(markdown);
@@ -219,9 +301,8 @@ function renderMarkdownBlock(block, state) {
     return renderDelimitedTable(lines, "\t");
   }
 
-  if (lines.every((line) => /^>\s?/.test(line))) {
-    const quote = lines.map((line) => line.replace(/^>\s?/, "")).join("\n");
-    return `<blockquote>${renderInlineMarkdown(quote).replace(/\n/g, "<br>")}</blockquote>`;
+  if (lines.every(isBlockquoteLine)) {
+    return renderBlockquoteBlock(lines);
   }
 
   const standaloneTaskList = parseTaskListBlock(lines);
@@ -272,6 +353,19 @@ function renderMarkdownBlock(block, state) {
   }
 
   return `<p>${renderInlineMarkdown(block).replace(/\n/g, "<br>")}</p>`;
+}
+
+function isBlockquoteLine(line) {
+  return /^>\s?/.test(String(line || "")) || !String(line || "").trim();
+}
+
+function renderBlockquoteBlock(lines) {
+  const quote = lines
+    .map((line) => String(line || "").replace(/^>\s?/, ""))
+    .join("\n")
+    .trim();
+
+  return `<blockquote>${quote ? renderMarkdownToHtml(quote) : ""}</blockquote>`;
 }
 
 function protectFencedCodeBlocks(source) {
@@ -761,6 +855,14 @@ function renderLatexFragment(text, index, terminator) {
       continue;
     }
 
+    if (char === "'" || char === "′") {
+      const prime = readLatexPrimeRun(text, cursor);
+
+      html += `<sup class="math-prime">${escapeHtml(prime.value)}</sup>`;
+      cursor = prime.index;
+      continue;
+    }
+
     if (char === "\\") {
       const command = readLatexCommand(text, cursor + 1);
 
@@ -770,95 +872,19 @@ function renderLatexFragment(text, index, terminator) {
         continue;
       }
 
-      if (command.name === "frac") {
-        const numerator = readRequiredLatexArgument(text, command.index);
-        const denominator = numerator ? readRequiredLatexArgument(text, numerator.index) : null;
+      const renderedCommand = renderLatexCommandInvocation(text, command);
 
-        if (!numerator || !denominator) {
-          return {
-            ok: false,
-            html,
-            index: cursor
-          };
-        }
-
-        html += `<span class="math-frac"><span class="math-num">${numerator.html}</span><span class="math-den">${denominator.html}</span></span>`;
-        ok = ok && numerator.ok && denominator.ok;
-        cursor = denominator.index;
-        continue;
+      if (!renderedCommand) {
+        return {
+          ok: false,
+          html,
+          index: cursor
+        };
       }
 
-      if (command.name === "sqrt") {
-        const radicand = readRequiredLatexArgument(text, command.index);
-
-        if (!radicand) {
-          return {
-            ok: false,
-            html,
-            index: cursor
-          };
-        }
-
-        html += `<span class="math-root">√<span class="math-root-body">${radicand.html}</span></span>`;
-        ok = ok && radicand.ok;
-        cursor = radicand.index;
-        continue;
-      }
-
-      if (command.name === "bar" || command.name === "overline") {
-        const argument = readRequiredLatexArgument(text, command.index);
-
-        if (!argument) {
-          return {
-            ok: false,
-            html,
-            index: cursor
-          };
-        }
-
-        html += `<span class="math-overline">${argument.html}</span>`;
-        ok = ok && argument.ok;
-        cursor = argument.index;
-        continue;
-      }
-
-      if (command.name === "begin") {
-        const environment = readLatexEnvironment(text, command.index);
-
-        if (!environment) {
-          return {
-            ok: false,
-            html,
-            index: cursor
-          };
-        }
-
-        const renderedEnvironment = renderLatexEnvironment(environment.name, environment.body);
-        html += renderedEnvironment.html;
-        ok = ok && renderedEnvironment.ok;
-        cursor = environment.index;
-        continue;
-      }
-
-      if (command.name === "text" || command.name === "mathrm") {
-        const argument = readRequiredLatexArgument(text, command.index, { plainText: true });
-
-        if (!argument) {
-          return {
-            ok: false,
-            html,
-            index: cursor
-          };
-        }
-
-        html += argument.html;
-        ok = ok && argument.ok;
-        cursor = argument.index;
-        continue;
-      }
-
-      html += escapeHtml(mapLatexCommand(command.name));
-      cursor = command.index;
+      html += renderedCommand.html;
+      ok = ok && renderedCommand.ok;
+      cursor = renderedCommand.index;
       continue;
     }
 
@@ -877,6 +903,201 @@ function renderLatexFragment(text, index, terminator) {
   return {
     ok,
     html,
+    index: cursor
+  };
+}
+
+function renderLatexCommandInvocation(text, command) {
+  if (command.name === "frac") {
+    const numerator = readRequiredLatexArgument(text, command.index);
+    const denominator = numerator ? readRequiredLatexArgument(text, numerator.index) : null;
+
+    if (!numerator || !denominator) {
+      return null;
+    }
+
+    return {
+      ok: numerator.ok && denominator.ok,
+      html: `<span class="math-frac"><span class="math-num">${numerator.html}</span><span class="math-den">${denominator.html}</span></span>`,
+      index: denominator.index
+    };
+  }
+
+  if (command.name === "sqrt") {
+    const rootIndex = readOptionalLatexArgument(text, command.index);
+    const radicand = readRequiredLatexArgument(text, rootIndex ? rootIndex.index : command.index);
+
+    if (!radicand) {
+      return null;
+    }
+
+    return {
+      ok: radicand.ok && (!rootIndex || rootIndex.ok),
+      html: `<span class="math-root">${rootIndex ? `<sup class="math-root-index">${rootIndex.html}</sup>` : ""}√<span class="math-root-body">${radicand.html}</span></span>`,
+      index: radicand.index
+    };
+  }
+
+  if (command.name === "boxed") {
+    const argument = readRequiredLatexArgument(text, command.index);
+
+    if (!argument) {
+      return null;
+    }
+
+    return {
+      ok: argument.ok,
+      html: `<span class="math-boxed">${argument.html}</span>`,
+      index: argument.index
+    };
+  }
+
+  if (command.name === "bar" || command.name === "overline") {
+    const argument = readLatexArgumentOrAtom(text, command.index);
+
+    if (!argument) {
+      return null;
+    }
+
+    return {
+      ok: argument.ok,
+      html: `<span class="math-overline">${argument.html}</span>`,
+      index: argument.index
+    };
+  }
+
+  if (Object.prototype.hasOwnProperty.call(LATEX_ACCENT_COMMANDS, command.name)) {
+    const argument = readLatexArgumentOrAtom(text, command.index);
+
+    if (!argument) {
+      return null;
+    }
+
+    return {
+      ok: argument.ok,
+      html: renderLatexAccent(command.name, argument.html),
+      index: argument.index
+    };
+  }
+
+  if (command.name === "begin") {
+    const environment = readLatexEnvironment(text, command.index);
+
+    if (!environment) {
+      return null;
+    }
+
+    const renderedEnvironment = renderLatexEnvironment(environment.name, environment.body);
+
+    return {
+      ok: renderedEnvironment.ok,
+      html: renderedEnvironment.html,
+      index: environment.index
+    };
+  }
+
+  if (command.name === "left" || command.name === "right") {
+    return readLatexDelimiter(text, command.index);
+  }
+
+  if (command.name === "text") {
+    const argument = readRequiredLatexArgument(text, command.index, { plainText: true });
+
+    if (!argument) {
+      return null;
+    }
+
+    return {
+      ok: argument.ok,
+      html: argument.html,
+      index: argument.index
+    };
+  }
+
+  if (LATEX_TEXT_STYLE_COMMANDS.has(command.name)) {
+    const argument = readRequiredLatexArgument(text, command.index);
+
+    if (!argument) {
+      return null;
+    }
+
+    return {
+      ok: argument.ok,
+      html: `<span class="math-text math-text-${sanitizeClassName(command.name)}">${argument.html}</span>`,
+      index: argument.index
+    };
+  }
+
+  return {
+    ok: true,
+    html: escapeHtml(mapLatexCommand(command.name)),
+    index: command.index
+  };
+}
+
+function readLatexDelimiter(text, index) {
+  const cursor = skipLatexWhitespace(text, index);
+
+  if (cursor >= text.length) {
+    return {
+      ok: true,
+      html: "",
+      index: cursor
+    };
+  }
+
+  if (text[cursor] === ".") {
+    return {
+      ok: true,
+      html: "",
+      index: cursor + 1
+    };
+  }
+
+  if (text[cursor] === "\\") {
+    const command = readLatexCommand(text, cursor + 1);
+
+    return {
+      ok: true,
+      html: escapeHtml(mapLatexCommand(command.name)),
+      index: command.index
+    };
+  }
+
+  return {
+    ok: true,
+    html: escapeHtml(text[cursor]),
+    index: cursor + 1
+  };
+}
+
+function renderLatexAccent(commandName, html) {
+  const accent = LATEX_ACCENT_COMMANDS[commandName] || "hat";
+
+  return `<span class="math-accent math-accent-${accent}"><span class="math-accent-body">${html}</span></span>`;
+}
+
+function readLatexArgumentOrAtom(text, index) {
+  const cursor = skipLatexWhitespace(text, index);
+
+  if (text[cursor] === "{") {
+    return readRequiredLatexArgument(text, cursor);
+  }
+
+  return readLatexAtom(text, cursor);
+}
+
+function readLatexPrimeRun(text, index) {
+  let cursor = index;
+  let value = "";
+
+  while (text[cursor] === "'" || text[cursor] === "′") {
+    value += "′";
+    cursor += 1;
+  }
+
+  return {
+    value,
     index: cursor
   };
 }
@@ -901,6 +1122,18 @@ function readRequiredLatexArgument(text, index, options = {}) {
   return renderLatexFragment(text, cursor + 1, "}");
 }
 
+function readOptionalLatexArgument(text, index) {
+  const cursor = skipLatexWhitespace(text, index);
+
+  if (text[cursor] !== "[") {
+    return null;
+  }
+
+  const argument = renderLatexFragment(text, cursor + 1, "]");
+
+  return argument.ok ? argument : null;
+}
+
 function readLatexEnvironment(text, index) {
   const nameGroupStart = skipLatexWhitespace(text, index);
   const nameGroup = readRawLatexGroup(text, nameGroupStart);
@@ -911,7 +1144,8 @@ function readLatexEnvironment(text, index) {
 
   const name = nameGroup.value.trim();
   const endToken = `\\end{${name}}`;
-  const endIndex = text.indexOf(endToken, nameGroup.index);
+  const bodyStartIndex = skipLatexEnvironmentArguments(text, nameGroup.index, name);
+  const endIndex = text.indexOf(endToken, bodyStartIndex);
 
   if (!name || endIndex === -1) {
     return null;
@@ -919,7 +1153,7 @@ function readLatexEnvironment(text, index) {
 
   return {
     name,
-    body: text.slice(nameGroup.index, endIndex).trim(),
+    body: text.slice(bodyStartIndex, endIndex).trim(),
     index: endIndex + endToken.length
   };
 }
@@ -927,17 +1161,17 @@ function readLatexEnvironment(text, index) {
 function renderLatexEnvironment(name, body) {
   const normalizedName = String(name || "").trim();
 
-  if (["matrix", "bmatrix", "pmatrix"].includes(normalizedName)) {
+  if (Object.prototype.hasOwnProperty.call(MATRIX_ENVIRONMENT_DELIMITERS, normalizedName)) {
     const rows = parseLatexEnvironmentRows(body);
     const renderedRows = rows.map((row) => row.map(renderLatexCell));
     const ok = renderedRows.length > 0 && renderedRows.every((row) => row.length > 0 && row.every((cell) => cell.ok));
-    const left = normalizedName === "pmatrix" ? "(" : normalizedName === "bmatrix" ? "[" : "";
-    const right = normalizedName === "pmatrix" ? ")" : normalizedName === "bmatrix" ? "]" : "";
+    const [left, right] = MATRIX_ENVIRONMENT_DELIMITERS[normalizedName];
     const bodyHtml = renderMathRows(renderedRows, "math-matrix");
+    const environmentClassName = normalizedName === "Vmatrix" ? "double-vmatrix" : normalizedName;
 
     return {
       ok,
-      html: `<span class="math-environment math-${sanitizeClassName(normalizedName)}">${left ? `<span class="math-bracket">${escapeHtml(left)}</span>` : ""}${bodyHtml}${right ? `<span class="math-bracket">${escapeHtml(right)}</span>` : ""}</span>`
+      html: `<span class="math-environment math-${sanitizeClassName(environmentClassName)}">${left ? renderMathBracket(left, "left") : ""}${bodyHtml}${right ? renderMathBracket(right, "right") : ""}</span>`
     };
   }
 
@@ -948,7 +1182,18 @@ function renderLatexEnvironment(name, body) {
 
     return {
       ok,
-      html: `<span class="math-environment math-cases"><span class="math-bracket">{</span>${renderMathRows(renderedRows, "math-cases-body")}</span>`
+      html: `<span class="math-environment math-cases">${renderMathBracket("{", "left")}${renderMathRows(renderedRows, "math-cases-body")}</span>`
+    };
+  }
+
+  if (["aligned", "alignedat", "gathered"].includes(normalizedName)) {
+    const rows = parseLatexEnvironmentRows(body);
+    const renderedRows = rows.map((row) => row.map(renderLatexCell));
+    const ok = renderedRows.length > 0 && renderedRows.every((row) => row.length > 0 && row.every((cell) => cell.ok));
+
+    return {
+      ok,
+      html: `<span class="math-environment math-${sanitizeClassName(normalizedName)}">${renderMathRows(renderedRows, `math-${sanitizeClassName(normalizedName)}-body`)}</span>`
     };
   }
 
@@ -956,6 +1201,58 @@ function renderLatexEnvironment(name, body) {
     ok: false,
     html: escapeHtml(`\\begin{${normalizedName}}${body}\\end{${normalizedName}}`)
   };
+}
+
+function skipLatexEnvironmentArguments(text, index, name) {
+  let cursor = skipLatexWhitespace(text, index);
+
+  while (text[cursor] === "[") {
+    const closingIndex = text.indexOf("]", cursor + 1);
+
+    if (closingIndex === -1) {
+      return cursor;
+    }
+
+    cursor = skipLatexWhitespace(text, closingIndex + 1);
+  }
+
+  if ((name === "array" || name === "alignedat") && text[cursor] === "{") {
+    const columnSpec = readRawLatexGroup(text, cursor);
+
+    if (columnSpec) {
+      cursor = skipLatexWhitespace(text, columnSpec.index);
+    }
+  }
+
+  return cursor;
+}
+
+function renderMathBracket(symbol, side) {
+  return `<span class="math-bracket math-bracket-${side} math-bracket-${getMathBracketClassName(symbol)}">${escapeHtml(symbol)}</span>`;
+}
+
+function getMathBracketClassName(symbol) {
+  if (symbol === "[") {
+    return "square";
+  }
+
+  if (symbol === "(") {
+    return "round";
+  }
+
+  if (symbol === "{") {
+    return "brace";
+  }
+
+  if (symbol === "‖") {
+    return "double-vertical";
+  }
+
+  if (symbol === "|") {
+    return "vertical";
+  }
+
+  return "plain";
 }
 
 function parseLatexEnvironmentRows(body) {
@@ -1003,10 +1300,16 @@ function readLatexAtom(text, index) {
       };
     }
 
+    return renderLatexCommandInvocation(text, command);
+  }
+
+  if (text[cursor] === "'" || text[cursor] === "′") {
+    const prime = readLatexPrimeRun(text, cursor);
+
     return {
       ok: true,
-      html: escapeHtml(mapLatexCommand(command.name)),
-      index: command.index
+      html: `<sup class="math-prime">${escapeHtml(prime.value)}</sup>`,
+      index: prime.index
     };
   }
 
@@ -1059,11 +1362,23 @@ function skipLatexWhitespace(text, index) {
 }
 
 function normalizeLatexSource(value) {
-  return String(value || "")
+  return decodeEscapedMathEntities(value)
     .replace(/^\\\(|\\\)$/g, "")
     .replace(/^\\\[|\\\]$/g, "")
     .replace(/^\$\$|\$\$$/g, "")
+    .replace(/([A-Za-z0-9)\]])\u02c6/g, "\\hat{$1}")
+    .replace(/([A-Za-z0-9)\]])\u0302/g, "\\hat{$1}")
     .trim();
+}
+
+function decodeEscapedMathEntities(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#0*39;/g, "'");
 }
 
 function mapLatexCommand(command) {
