@@ -4,7 +4,7 @@
   relay.contracts = Object.freeze({
     offscreenFramePortName: "chatgpt-relay-offscreen-frame",
     requestStates: Object.freeze({
-      CHATGPT_TAB_READY: "CHATGPT_TAB_READY",
+      WORKSPACE_READY: "WORKSPACE_READY",
       PROJECT_READY: "PROJECT_READY",
       CONVERSATION_READY: "CONVERSATION_READY",
       MODEL_SELECTED: "MODEL_SELECTED",
@@ -27,6 +27,10 @@
     visibilityModes: Object.freeze({
       OFFSCREEN_FRAME: "offscreen-frame",
       HIDDEN: "hidden"
+    }),
+    offscreenFrameRoles: Object.freeze({
+      CHAT: "chat",
+      HISTORY: "history"
     }),
     messages: Object.freeze({
       ping: "CHATGPT_AUTOMATION_PING",
