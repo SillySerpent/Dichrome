@@ -24,7 +24,7 @@ vm.runInContext(source, context);
 const methods = context.ChatGptRelay.runtime.adapterConversation.createMethods({
   REQUEST_STATES: {
     CONVERSATION_READY: "CONVERSATION_READY",
-    CHATGPT_TAB_READY: "CHATGPT_TAB_READY"
+    WORKSPACE_READY: "WORKSPACE_READY"
   },
   clickElement() {},
   emitState() {},
