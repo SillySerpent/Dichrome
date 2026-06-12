@@ -1,0 +1,206 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: #0b0f14;
+  color: #f8fafc;
+  height: 100%;
+  margin: 0;
+  min-width: 320px;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+}
+
+.app-shell {
+  background: #0b0f14;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.top-bar {
+  background: #0b0f14;
+  border-bottom: 1px solid #1f2937;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.top-bar-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.brand {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.brand strong {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.status-pill {
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 999px;
+  color: #cbd5e1;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
+.status-pill[data-state="loading"] {
+  border-color: #3b82f6;
+  color: #bfdbfe;
+}
+
+.status-pill[data-state="loaded"] {
+  border-color: #14b8a6;
+  color: #99f6e4;
+}
+
+.status-pill[data-state="warning"] {
+  border-color: #f97316;
+  color: #fed7aa;
+}
+
+.primary-actions,
+.contextual-actions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  scrollbar-width: none;
+}
+
+.primary-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.contextual-actions {
+  border-top: 1px solid #1f2937;
+  justify-content: flex-start;
+  overflow-x: auto;
+  padding-top: 6px;
+}
+
+.contextual-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.tool-button {
+  appearance: none;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 7px;
+  color: #e5e7eb;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  min-height: 30px;
+  padding: 8px 9px;
+}
+
+.tool-button:hover,
+.tool-button:focus {
+  background: #1f2937;
+  border-color: #64748b;
+  outline: none;
+}
+
+.tool-button.primary {
+  background: #0f766e;
+  border-color: #14b8a6;
+  color: #f8fafc;
+}
+
+.tool-button.primary:hover,
+.tool-button.primary:focus {
+  background: #115e59;
+}
+
+.frame-area {
+  background: #05070a;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chatgpt-frame {
+  background: #ffffff;
+  border: 0;
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.status-bar {
+  background: #0b0f14;
+  border-top: 1px solid #1f2937;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.35;
+  min-height: 32px;
+  overflow: hidden;
+  padding: 8px 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-bar[data-kind="success"] {
+  color: #99f6e4;
+}
+
+.status-bar[data-kind="warning"] {
+  color: #fed7aa;
+}
+
+.status-bar[data-kind="error"] {
+  color: #fecaca;
+}
+
+.hidden {
+  display: none;
+}
+
+@media (max-width: 380px) {
+  .top-bar-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .brand,
+  .primary-actions {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .contextual-actions {
+    justify-content: flex-start;
+  }
+}
