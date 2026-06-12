@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 
+const dataSource = await readFile(new URL("../content/chatgpt/runtime/history/project-history-data.js", import.meta.url), "utf8");
 const source = await readFile(new URL("../content/chatgpt/runtime/history/project-history.js", import.meta.url), "utf8");
 
 const context = vm.createContext({
@@ -45,7 +46,7 @@ const context = vm.createContext({
   location: new URL("https://chatgpt.com/g/g-p-target/project")
 });
 
-vm.runInContext(source, context);
+loadProjectHistoryRuntime(context);
 
 const controller = context.ChatGptRelay.runtime.projectHistory.createController(createDependencies());
 const result = await controller.listProjectConversations({
@@ -93,7 +94,7 @@ const configuredSegmentContext = vm.createContext({
   location: new URL("https://chatgpt.com/")
 });
 
-vm.runInContext(source, configuredSegmentContext);
+loadProjectHistoryRuntime(configuredSegmentContext);
 
 const configuredSegmentController = configuredSegmentContext.ChatGptRelay.runtime.projectHistory.createController(createDependencies({
   ChatGptDomAdapter: class FakeAdapter {
@@ -163,7 +164,7 @@ const linkedProjectContext = vm.createContext({
   location: new URL("https://chatgpt.com/")
 });
 
-vm.runInContext(source, linkedProjectContext);
+loadProjectHistoryRuntime(linkedProjectContext);
 
 const linkedProjectController = linkedProjectContext.ChatGptRelay.runtime.projectHistory.createController(createDependencies({
   ChatGptDomAdapter: class FakeAdapter {
@@ -226,7 +227,7 @@ const domContext = vm.createContext({
   location: new URL("https://chatgpt.com/g/g-p-target/project")
 });
 
-vm.runInContext(source, domContext);
+loadProjectHistoryRuntime(domContext);
 
 const domController = domContext.ChatGptRelay.runtime.projectHistory.createController(createDependencies());
 const domResult = await domController.listProjectConversations({
@@ -277,7 +278,7 @@ const rowOnlyContext = vm.createContext({
   }
 });
 
-vm.runInContext(source, rowOnlyContext);
+loadProjectHistoryRuntime(rowOnlyContext);
 
 const rowOnlyController = rowOnlyContext.ChatGptRelay.runtime.projectHistory.createController(createDependencies());
 const rowOnlyResult = await rowOnlyController.listProjectConversations({
@@ -343,7 +344,7 @@ const linkContext = vm.createContext({
   }
 });
 
-vm.runInContext(source, linkContext);
+loadProjectHistoryRuntime(linkContext);
 
 const linkController = linkContext.ChatGptRelay.runtime.projectHistory.createController(createDependencies());
 const linkResult = await linkController.listProjectConversations({
@@ -397,7 +398,7 @@ const loadContext = vm.createContext({
   }
 });
 
-vm.runInContext(source, loadContext);
+loadProjectHistoryRuntime(loadContext);
 
 const loadController = loadContext.ChatGptRelay.runtime.projectHistory.createController(createDependencies());
 const loadedResult = await loadController.loadProjectConversation({
@@ -413,6 +414,11 @@ assert.equal(loadedResult.conversation.id, "dom-link-conversation");
 assert.equal(loadedResult.conversation.url, "https://chatgpt.com/g/g-p-target/c/dom-link-conversation");
 
 console.log("Project history filtering tests passed.");
+
+function loadProjectHistoryRuntime(context) {
+  vm.runInContext(dataSource, context);
+  vm.runInContext(source, context);
+}
 
 function createDependencies(overrides = {}) {
   return {
