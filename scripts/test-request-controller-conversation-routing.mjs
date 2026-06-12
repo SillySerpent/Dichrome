@@ -50,15 +50,12 @@ const controller = createRequestController({
     request.events = [...(request.events || []), { detail }];
   },
   captureVisibleTabScreenshot: async () => null,
-  disableFocusEmulationForRequest: async () => null,
-  findOrCreateChatGptTab: async () => ({ id: 99 }),
   getProfile() {
     return {
       inputKind: "manual_text"
     };
   },
   getRequest: async (id) => requests.get(id),
-  getSourceFocusTarget: () => ({}),
   normalizeText(value) {
     return String(value || "").trim();
   },
@@ -69,7 +66,6 @@ const controller = createRequestController({
     url: "https://example.test"
   }),
   restoreAttachmentPayloads: async () => [],
-  sendMessageToTab: async () => ({}),
   startRequest: async (payload) => {
     startCalls.push(payload);
 
