@@ -1,6 +1,5 @@
 import {
   REQUEST_PROFILES,
-  REQUEST_STATES,
   buildPromptForProfile,
   createRequestId,
   createRequestRecord,
@@ -10,20 +9,13 @@ import {
 } from "../state-machine.js";
 import {
   getVisibilityMode,
-  mergeAutomationSettings,
-  usesHiddenAutomation
+  mergeAutomationSettings
 } from "../automation/settings.js";
 import { summarizeDebugData } from "../debug-dump.js";
 import {
-  disableFocusEmulationForRequest,
-  setFocusEmulationDetachHandler
-} from "../focus-emulation.js";
-import {
   clearAutomationRequestActive,
-  clearAutomationTabIfMatches,
   getAutomationSession,
   markAutomationRequestActive,
-  summarizeAutomationSession,
   updateSessionConversation
 } from "../automation/session.js";
 import { resolveProjectTarget } from "../automation/project-target.js";
@@ -33,12 +25,11 @@ import {
   navigateOffscreenFrameToConversation,
   navigateOffscreenFrameToUrl,
   probeOffscreenAutomationTarget,
+  reloadOffscreenFrameToUrl,
   sendMessageToOffscreenFrame,
   setOffscreenFrameDisconnectHandler
 } from "../automation/offscreen-target.js";
 import {
-  CHATGPT_CONTENT_SCRIPT_FILES,
-  getTabId,
   serializeError,
   sleep
 } from "../constants.js";
@@ -53,7 +44,6 @@ import {
 } from "../requests/store.js";
 import {
   captureVisibleTabScreenshot,
-  getSourceFocusTarget,
   queryBestSourceTab,
   rememberSourceTab
 } from "../automation/source-focus.js";
@@ -64,49 +54,123 @@ import {
 } from "./settings-repository.js";
 import { createContextMenuController } from "./context-menu.js";
 import { buildChatOptionsForAutomationRun } from "./conversation-run-options.js";
+import { getFreshConversationUrl } from "./fresh-conversation-url.js";
 import { createRuntimeMessageRouter } from "./message-router.js";
 import { createProjectHistoryController } from "./project-history-controller.js";
 import { createRequestController } from "./request-controller.js";
-import { getFreshConversationUrl } from "./fresh-conversation-url.js";
-import {
-  CHATGPT_AUTOMATION_MESSAGES,
-  REQUEST_ERROR_CODES
-} from "../../shared/contracts.js";
 import { formatUserFacingError } from "../../shared/error-messages.js";
+import {
+  classifyHiddenCapabilityFailure,
+  classifyRequestError,
+  createCodedError
+} from "./error-classification.js";
+import { createSidePanelState } from "./side-panel-state.js";
+import { createWorkspaceReadinessController } from "./workspace-readiness.js";
+import { createRequestOrchestrator } from "./request-orchestrator.js";
+import { createAutomationEventController } from "./automation-events.js";
+import {
+  APP_MODES,
+  MODE_MESSAGES,
+  getActiveMode,
+  getModeLabel,
+  listPublicModes,
+  normalizeAppMode,
+  setActiveMode
+} from "../../shared/modes.js";
+import {
+  MODE2_COMMANDS,
+  MODE2_MESSAGE_TYPES,
+  createMode2CompanionController
+} from "../mode2/companion-controller.js";
 
 const EXTENSION_NAME = chrome.runtime.getManifest().name;
 const SIDE_PANEL_TOGGLE_COMMAND = "toggle-dichrome-side-panel";
-const sidePanelOpenState = {
-  tabIds: new Set(),
-  windowIds: new Set(),
-  firefoxSidebarOpen: false
-};
-const contextMenuController = createContextMenuController({
+const SELECTION_ACTION_BY_COMMAND = Object.freeze({
+  [MODE2_COMMANDS.SUMMARIZE_SELECTION]: "summarize",
+  [MODE2_COMMANDS.EXPLAIN_SELECTION]: "explain"
+});
+const sidePanelState = createSidePanelState();
+const workspaceReadinessController = createWorkspaceReadinessController({
+  classifyHiddenCapabilityFailure,
+  formatUserFacingError,
+  probeOffscreenAutomationTarget,
+  sleep
+});
+const automationEventController = createAutomationEventController({
   appendEvent,
-  normalizeText,
-  openSidePanel,
-  requestProfiles: REQUEST_PROFILES,
-  startRequest,
-  updateRequest
+  classifyHiddenCapabilityFailure,
+  classifyRequestError,
+  clearAutomationRequestActive,
+  createCodedError,
+  formatUserFacingError,
+  getRequest,
+  summarizeDebugData,
+  updateRequest,
+  updateSessionConversation
+});
+const requestOrchestrator = createRequestOrchestrator({
+  appendEvent,
+  buildChatOptionsForAutomationRun,
+  buildPromptForProfile,
+  classifyHiddenCapabilityFailure,
+  clearAutomationRequestActive,
+  createCodedError,
+  createRequestId,
+  createRequestRecord,
+  extensionName: EXTENSION_NAME,
+  getAutomationSettings,
+  getAutomationSession,
+  getFreshConversationUrl,
+  getOffscreenFrameStatus,
+  getRequest,
+  getVisibilityMode,
+  markAutomationRequestActive,
+  markRequestError: automationEventController.markRequestError,
+  mergeAutomationSettings,
+  navigateOffscreenFrameToConversation,
+  navigateOffscreenFrameToUrl,
+  openSidePanel: sidePanelState.openSidePanel,
+  putRequest,
+  rememberSourceTab,
+  resolveProjectTarget,
+  sendMessageToOffscreenFrame,
+  setAutomationSettings,
+  storeAttachmentPayloads,
+  updateRequest,
+  workspaceReadinessController
 });
 const requestController = createRequestController({
   appendEvent,
   captureVisibleTabScreenshot,
   clearAutomationRequestActive,
-  disableFocusEmulationForRequest,
   getProfile,
   getRequest,
   normalizeText,
   queryBestSourceTab,
   restoreAttachmentPayloads,
   sendMessageToOffscreenFrame,
-  sendMessageToTab,
-  startRequest,
+  startRequest: requestOrchestrator.startRequest,
+  updateRequest
+});
+const mode2Controller = createMode2CompanionController({
+  captureVisibleTabScreenshot,
+  openSidePanel: sidePanelState.openSidePanel,
+  queryBestSourceTab
+});
+const contextMenuController = createContextMenuController({
+  appendEvent,
+  getActiveMode,
+  mode2Controller,
+  normalizeText,
+  openSidePanel: sidePanelState.openSidePanel,
+  startRequest: requestOrchestrator.startRequest,
+  startScreenshotRequest: requestController.startScreenshotRequest,
   updateRequest
 });
 const projectHistoryController = createProjectHistoryController({
-  getAutomationSettings: () => getResolvedAutomationSettings(),
-  probeOffscreenAutomationTarget: () => probeHiddenAutomationWithWarmup({ attempts: 3, initialDelayMs: 350 }),
+  getAutomationSettings: () => requestOrchestrator.getResolvedAutomationSettings(),
+  probeOffscreenAutomationTarget: () => workspaceReadinessController.probeHiddenAutomationWithWarmup({ attempts: 3, initialDelayMs: 350 }),
+  reloadOffscreenFrameToUrl,
   sendMessageToOffscreenFrame,
   setAutomationSettings: (settings) => setAutomationSettings(settings, EXTENSION_NAME)
 });
@@ -131,51 +195,52 @@ const runtimeMessageRouter = createRuntimeMessageRouter({
     settings: await getPublicAutomationSettings(EXTENSION_NAME)
   }),
   setChatGptAutomationSettings: (settings) => setAutomationSettings(settings, EXTENSION_NAME),
-  checkChatGptWorkspace,
-  handleAutomationDebug,
-  handleAutomationEvent
-});
-
-setFocusEmulationDetachHandler((event) => {
-  void handleFocusEmulationDetached(event);
+  checkChatGptWorkspace: workspaceReadinessController.checkChatGptWorkspace,
+  handleAutomationDebug: automationEventController.handleAutomationDebug,
+  handleAutomationEvent: automationEventController.handleAutomationEvent
 });
 
 setOffscreenFrameDisconnectHandler((event) => {
-  void handleOffscreenFrameDisconnected(event);
+  void automationEventController.handleOffscreenFrameDisconnected(event);
 });
 
 chrome.runtime.onInstalled.addListener(() => {
+  void configureSidePanel();
   void contextMenuController.createContextMenus();
 });
 
 chrome.runtime.onStartup?.addListener(() => {
+  void configureSidePanel();
   void contextMenuController.createContextMenus();
 });
 
 chrome.action.onClicked.addListener((tab) => {
-  void openSidePanel(tab?.id);
+  void sidePanelState.openSidePanel(tab?.id);
   void rememberSourceTab(tab).catch(() => null);
 });
 
 chrome.commands?.onCommand?.addListener?.((command, tab) => {
   if (command !== SIDE_PANEL_TOGGLE_COMMAND) {
+    void handleShortcutCommand(command, tab).catch((error) => {
+      console.error("Dichrome shortcut command failed", error);
+    });
     return;
   }
 
-  if (shouldCloseSidePanel(tab)) {
-    void closeSidePanel(tab);
+  if (sidePanelState.shouldCloseSidePanel(tab)) {
+    void sidePanelState.closeSidePanel(tab);
   } else {
-    void openSidePanel(tab?.id);
+    void sidePanelState.openSidePanel(tab?.id);
     void rememberSourceTab(tab).catch(() => null);
   }
 });
 
 chrome.sidePanel?.onOpened?.addListener?.((info) => {
-  markSidePanelOpen(info);
+  sidePanelState.markSidePanelOpen(info);
 });
 
 chrome.sidePanel?.onClosed?.addListener?.((info) => {
-  markSidePanelClosed(info);
+  sidePanelState.markSidePanelClosed(info);
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -183,8 +248,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  sidePanelOpenState.tabIds.delete(tabId);
-  void clearAutomationTabIfMatches(tabId);
+  sidePanelState.forgetTab(tabId);
 });
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -196,7 +260,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  runtimeMessageRouter.handle(message, sender)
+  handleRuntimeMessage(message, sender)
     .then((payload) => sendResponse({ ok: true, ...payload }))
     .catch((error) => {
       console.error("ChatGPT relay background error", error);
@@ -210,626 +274,164 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-async function startRequest({
-  profileId,
-  sourceTab,
-  selectedText = "",
-  manualText = "",
-  attachments = [],
-  chatOptionsOverride = null,
-  parentRequestId = null,
-  conversationMode = "new",
-  expectedConversationUrl = null,
-  expectedConversationKey = null
-}) {
-  await rememberSourceTab(sourceTab);
-
-  const prompt = buildPromptForProfile(profileId, {
-    selectedText,
-    manualText,
-    attachments
-  });
-  const requestId = createRequestId();
-  const request = createRequestRecord({
-    id: requestId,
-    profileId,
-    sourceTab,
-    selectedText,
-    manualText,
-    prompt,
-    attachments,
-    parentRequestId,
-    conversationMode,
-    expectedConversationUrl,
-    expectedConversationKey
-  });
-
-  await storeAttachmentPayloads(requestId, attachments);
-  await putRequest(request);
-  await updateRequest(requestId, (draft) => {
-    draft.state = REQUEST_STATES.SELECTED_TEXT_RECEIVED;
-    appendEvent(draft, "Request accepted by background worker.");
-  });
-  await openSidePanel(getTabId(sourceTab));
-
-  void orchestrateRequest(requestId, {
-    attachments,
-    chatOptionsOverride
-  });
-
-  return {
-    requestId
-  };
-}
-
-async function orchestrateRequest(requestId, {
-  attachments = [],
-  chatOptionsOverride = null
-} = {}) {
-  try {
-    const request = await getRequest(requestId);
-
-    if (!request) {
-      throw new Error("Request disappeared before orchestration started.");
-    }
-
-    const automationSettings = await resolveAutomationSettingsProjectTarget(mergeAutomationSettings(
-      await getAutomationSettings(EXTENSION_NAME),
-      chatOptionsOverride,
-      EXTENSION_NAME
-    ));
-    const hiddenCapability = await probeHiddenAutomationWithWarmup({ attempts: 3, initialDelayMs: 350 });
-
-    if (!hiddenCapability?.supported) {
-      throw createCodedError(
-        `Hidden internal ChatGPT automation is unavailable. ${hiddenCapability?.failureReason || "Open ChatGPT to sign in, then retry from Dichrome."}`.trim(),
-        classifyHiddenCapabilityFailure(hiddenCapability?.failureReason)
-      );
-    }
-
-    await runOffscreenAutomationTarget({
-      request,
-      requestId,
-      attachments,
-      automationSettings
-    });
-  } catch (error) {
-    await disableFocusEmulationForRequest(requestId).catch(() => null);
-    await clearAutomationRequestActive(requestId).catch(() => null);
-    await markRequestError(requestId, error);
-  }
-}
-
-async function getResolvedAutomationSettings() {
-  return resolveAutomationSettingsProjectTarget(await getAutomationSettings(EXTENSION_NAME));
-}
-
-async function resolveAutomationSettingsProjectTarget(settings) {
-  if (!settings?.project?.enabled || !settings.project.name) {
-    return settings;
-  }
-
-  const project = await resolveProjectTarget(settings.project, {
-    getAutomationSession,
-    queryTabs: () => chrome.tabs.query({})
-  });
-
-  if (project.segment && project.segment !== settings.project.segment) {
-    await setAutomationSettings({
-      ...settings,
-      project
-    }, EXTENSION_NAME).catch(() => null);
-  }
-
-  return {
-    ...settings,
-    project
-  };
-}
-
-async function runOffscreenAutomationTarget({
-  request,
-  requestId,
-  attachments,
-  automationSettings
-}) {
-  if (request.conversationMode === "followup") {
-    if (!request.expectedConversationUrl) {
-      throw new Error("The previous request has no saved ChatGPT conversation URL. The extension will not start a new chat for this follow-up.");
-    }
-
-    await navigateOffscreenFrameToConversation(request.expectedConversationUrl);
-  } else {
-    const freshHiddenUrl = getFreshConversationUrl(automationSettings, getOffscreenFrameStatus()?.frame?.href || "");
-
-    if (freshHiddenUrl) {
-      await updateRequest(requestId, (draft) => {
-        appendEvent(draft, "Preparing a fresh hidden ChatGPT composer.");
-      });
-      await navigateOffscreenFrameToUrl(freshHiddenUrl, {
-        rejectedMessage: "The hidden ChatGPT frame rejected fresh-chat navigation.",
-        timeoutMessage: "Timed out waiting for the hidden ChatGPT frame to open a fresh composer."
-      });
-      await updateRequest(requestId, (draft) => {
-        appendEvent(draft, "Fresh hidden ChatGPT composer is ready.");
-      });
-    }
-  }
-
-  await markAutomationRequestActive(requestId);
-
-  await updateRequest(requestId, (draft) => {
-    draft.chatTabId = null;
-    draft.automationVisibilityMode = getVisibilityMode(automationSettings.visibility);
-    draft.automationTargetType = "offscreen-frame";
-    draft.state = REQUEST_STATES.CHATGPT_TAB_READY;
-    appendEvent(draft, "Using hidden internal ChatGPT frame.");
-  });
-
-  const response = await sendMessageToOffscreenFrame({
-    type: CHATGPT_AUTOMATION_MESSAGES.RUN,
-    request: buildAutomationRunRequest({
-      request,
-      attachments,
-      automationSettings,
-      visibilityModeOverride: "offscreen-frame"
-    })
-  });
-
-  if (!response?.accepted) {
-    throw new Error(response?.error || "Hidden ChatGPT frame did not accept the request.");
-  }
-}
-
-function buildAutomationRunRequest({
-  request,
-  attachments,
-  automationSettings,
-  visibilityModeOverride = null
-}) {
-  return {
-    id: request.id,
-    profileId: request.profileId,
-    prompt: request.prompt,
-    attachments,
-    chatOptions: buildChatOptionsForAutomationRun({
-      automationSettings,
-      request,
-      visibilityModeOverride
-    })
-  };
-}
-
-async function injectAutomationScript(tabId) {
-  await chrome.scripting.executeScript({
-    target: {
-      tabId
-    },
-    files: CHATGPT_CONTENT_SCRIPT_FILES
-  });
-}
-
-async function checkChatGptWorkspace() {
-  const capability = await probeHiddenAutomationWithWarmup({
-    attempts: 3,
-    initialDelayMs: 350
-  });
-  const errorCode = capability?.supported
-    ? null
-    : classifyHiddenCapabilityFailure(capability?.failureReason || "Hidden internal automation is unavailable.");
-
-  return {
-    ready: Boolean(capability?.supported),
-    capability,
-    errorCode,
-    message: capability?.supported
-      ? "Hidden ChatGPT workspace is ready."
-      : formatUserFacingError(errorCode, capability?.failureReason || "Hidden internal automation is unavailable.")
-  };
-}
-
-async function probeHiddenAutomationWithWarmup({ attempts = 2, initialDelayMs = 300 } = {}) {
-  let lastCapability = null;
-
-  for (let index = 0; index < attempts; index += 1) {
-    lastCapability = await probeOffscreenAutomationTarget();
-
-    if (lastCapability?.supported) {
-      return lastCapability;
-    }
-
-    if (index < attempts - 1) {
-      await sleep(initialDelayMs * (index + 1));
-    }
-  }
-
-  return lastCapability;
-}
-
-async function handleAutomationEvent(message, sender) {
-  const requestId = message.requestId;
-
-  if (!requestId) {
-    return;
-  }
-
-  console.debug("[ChatGPT Relay] Automation event", {
-    requestId,
-    tabId: sender.tab?.id || null,
-    state: message.state || null,
-    textLength: typeof message.text === "string" ? message.text.length : null,
-    htmlLength: typeof message.html === "string" ? message.html.length : null,
-    detail: message.detail || null
-  });
-
-  const existingRequest = await getRequest(requestId).catch(() => null);
-
-  if (!existingRequest) {
-    return;
-  }
-
-  if (isTerminalRequest(existingRequest)) {
-    if (
-      message.state === REQUEST_STATES.RESPONSE_COMPLETE
-      || message.state === REQUEST_STATES.ERROR_STATE
-    ) {
-      await disableFocusEmulationForRequest(requestId).catch(() => null);
-      await clearAutomationRequestActive(requestId).catch(() => null);
-    }
-
-    console.debug("[ChatGPT Relay] Ignoring automation event for terminal request", {
-      requestId,
-      existingState: existingRequest.state,
-      incomingState: message.state || null,
-      detail: message.detail || null
-    });
-    return;
-  }
-
-  await updateRequest(requestId, (draft) => {
-    if (message.state) {
-      draft.state = message.state;
-    }
-
-    if (typeof message.text === "string") {
-      draft.responseText = message.text;
-    }
-
-    if (typeof message.html === "string") {
-      draft.responseHtml = message.html;
-    }
-
-    if (message.error) {
-      draft.error = message.error;
-    }
-
-    if (message.errorCode) {
-      draft.errorCode = message.errorCode;
-    }
-
-    if (message.conversationUrl) {
-      draft.chatConversationUrl = message.conversationUrl;
-    }
-
-    if (message.conversationKey) {
-      draft.chatConversationKey = message.conversationKey;
-    }
-
-    if (message.state === REQUEST_STATES.RESPONSE_COMPLETE) {
-      draft.completedAt = new Date().toISOString();
-    }
-
-    if (message.state === REQUEST_STATES.ERROR_STATE) {
-      draft.errorCode = draft.errorCode || classifyRequestError(message.error || message.detail || "");
-      draft.completedAt = new Date().toISOString();
-    }
-
-    appendEvent(draft, message.detail || message.state || "Automation event received.");
-  });
-
-  if (message.conversationUrl || message.conversationKey) {
-    await updateSessionConversation({
-      conversationUrl: message.conversationUrl || null,
-      conversationKey: message.conversationKey || null
-    }).catch(() => null);
-  }
-
-  if (
-    message.state === REQUEST_STATES.RESPONSE_COMPLETE
-    || message.state === REQUEST_STATES.ERROR_STATE
-  ) {
-    await disableFocusEmulationForRequest(requestId).catch(() => null);
-    await clearAutomationRequestActive(requestId).catch(() => null);
-  }
-
-}
-
-async function handleFocusEmulationDetached({ requestId, reason }) {
-  const request = await getRequest(requestId).catch(() => null);
-
-  if (!request || isTerminalRequest(request)) {
-    return;
-  }
-
-  await markRequestError(
-    requestId,
-    createCodedError(
-      `Hidden ChatGPT workspace lost its automation connection (${reason}). Retry from Dichrome after the workspace is ready.`,
-      REQUEST_ERROR_CODES.HIDDEN_FRAME_UNAVAILABLE
-    )
-  );
-}
-
-async function handleOffscreenFrameDisconnected({ requestId, reason }) {
-  const request = await getRequest(requestId).catch(() => null);
-
-  if (!request || isTerminalRequest(request)) {
-    return;
-  }
-
-  await clearAutomationRequestActive(requestId).catch(() => null);
-  await markRequestError(
-    requestId,
-    createCodedError(
-      `${reason} Hidden internal automation cannot continue. Open ChatGPT to sign in if needed, then retry from Dichrome.`,
-      classifyHiddenCapabilityFailure(reason)
-    )
-  );
-}
-
-async function handleAutomationDebug(message, sender) {
-  const requestId = message.requestId || null;
-  const stage = message.stage || "debug";
-
-  console.debug("[ChatGPT Relay] Content debug", {
-    requestId,
-    tabId: sender.tab?.id || null,
-    stage,
-    data: message.data || null
-  });
-
-  if (!requestId) {
-    return;
-  }
-
-  if (stage === "stream-update") {
-    return;
-  }
-
-  await updateRequest(requestId, (draft) => {
-    appendEvent(draft, `Debug ${stage}: ${summarizeDebugData(message.data)}`);
+async function configureSidePanel() {
+  await chrome.sidePanel?.setPanelBehavior?.({
+    openPanelOnActionClick: true
+  }).catch(() => null);
+  await chrome.sidePanel?.setOptions?.({
+    path: "sidepanel/sidepanel.html",
+    enabled: true
   }).catch(() => null);
 }
 
-async function markRequestError(requestId, error) {
-  await updateRequest(requestId, (draft) => {
-    draft.state = REQUEST_STATES.ERROR_STATE;
-    const rawError = serializeError(error);
-    draft.errorCode = error?.errorCode || classifyRequestError(rawError);
-    draft.error = formatUserFacingError(draft.errorCode, rawError);
-    draft.rawError = rawError;
-    draft.completedAt = new Date().toISOString();
-    appendEvent(draft, `Error: ${draft.error}`);
-  });
+async function handleRuntimeMessage(message, sender) {
+  if (message.type === MODE_MESSAGES.GET_ACTIVE_MODE) {
+    const mode = await getActiveMode();
+
+    return {
+      mode,
+      label: getModeLabel(mode),
+      modes: listPublicModes()
+    };
+  }
+
+  if (message.type === MODE_MESSAGES.GET_MODE_STATUS) {
+    const mode = await getActiveMode();
+    const session = await getAutomationSession().catch(() => null);
+
+    return {
+      mode,
+      label: getModeLabel(mode),
+      modes: listPublicModes(),
+      mode1ActiveRequestId: session?.activeRequestId || null
+    };
+  }
+
+  if (message.type === MODE_MESSAGES.SET_ACTIVE_MODE) {
+    return setModeFromMessage(message);
+  }
+
+  if (message.type === MODE2_MESSAGE_TYPES.SELECTION_ACTION) {
+    const activeMode = await getActiveMode();
+
+    if (activeMode === APP_MODES.MODE1) {
+      return contextMenuController.handleSelectionAction({
+        action: message.action,
+        selectedText: message.selectedText,
+        tab: sender.tab,
+        source: "selection-popover",
+        pageTitle: message.pageTitle,
+        pageUrl: message.pageUrl
+      });
+    }
+  }
+
+  if (message.type === MODE2_MESSAGE_TYPES.CAPTURE_VISIBLE_TAB) {
+    const activeMode = await getActiveMode();
+
+    if (activeMode === APP_MODES.MODE1) {
+      return contextMenuController.handleScreenshotAction(sender.tab, message.source || "side-panel");
+    }
+  }
+
+  if (mode2Controller.canHandleMessage(message)) {
+    return mode2Controller.handleMessage(message, sender);
+  }
+
+  return runtimeMessageRouter.handle(message, sender);
 }
 
-function createCodedError(message, errorCode) {
-  const error = new Error(message);
-  error.errorCode = errorCode || REQUEST_ERROR_CODES.CHATGPT_UNAVAILABLE;
-  return error;
+async function setModeFromMessage(message) {
+  const targetMode = normalizeAppMode(message.mode);
+
+  if (!targetMode) {
+    throw new Error(`Unsupported Dichrome mode: ${message.mode}`);
+  }
+
+  const currentMode = await getActiveMode();
+  const session = await getAutomationSession().catch(() => null);
+
+  if (
+    currentMode === APP_MODES.MODE1
+    && targetMode === APP_MODES.MODE2
+    && session?.activeRequestId
+    && !message.cancelActiveRequest
+  ) {
+    throw new Error("Original Dichrome beta has an active request. Cancel it before switching modes.");
+  }
+
+  if (
+    currentMode === APP_MODES.MODE1
+    && targetMode === APP_MODES.MODE2
+    && session?.activeRequestId
+    && message.cancelActiveRequest
+  ) {
+    await requestController.cancelRequest(session.activeRequestId);
+  }
+
+  const mode = await setActiveMode(targetMode);
+
+  return {
+    mode,
+    label: getModeLabel(mode),
+    modes: listPublicModes()
+  };
 }
 
-function classifyHiddenCapabilityFailure(message) {
-  return classifyRequestError(message || "Hidden internal automation is unavailable.");
-}
+async function handleShortcutCommand(command, tab) {
+  const activeMode = await getActiveMode();
 
-function classifyRequestError(error) {
-  const message = serializeError(error).toLowerCase();
-
-  if (/\b(log in|login|sign in|sign-in|auth|account gate|401|403|session|access token)\b/.test(message)) {
-    return REQUEST_ERROR_CODES.AUTH_REQUIRED;
-  }
-
-  if (/\b(model|picker)\b/.test(message) && /\b(unavailable|not available|not selectable|not confirm|not found|upgrade|plan|tier|rejected)\b/.test(message)) {
-    return REQUEST_ERROR_CODES.MODEL_UNAVAILABLE;
-  }
-
-  if (/\b(upload|attachment|file input|file too large|unsupported file|image limit|file limit|rejected)\b/.test(message)) {
-    return REQUEST_ERROR_CODES.UPLOAD_REJECTED;
-  }
-
-  if (/\b(rate limit|usage limit|too many requests|temporarily unavailable|try again later|429)\b/.test(message)) {
-    return REQUEST_ERROR_CODES.RATE_LIMITED;
-  }
-
-  if (/\b(project)\b/.test(message) && /\b(not found|unavailable|requires|routing|history)\b/.test(message)) {
-    return REQUEST_ERROR_CODES.PROJECT_UNAVAILABLE;
-  }
-
-  if (/\b(disconnect|disconnected|receiving end does not exist|message port closed|could not establish connection|bridge)\b/.test(message)) {
-    return REQUEST_ERROR_CODES.BRIDGE_DISCONNECTED;
-  }
-
-  if (/\b(hidden|offscreen|frame|iframe)\b/.test(message)) {
-    return REQUEST_ERROR_CODES.HIDDEN_FRAME_UNAVAILABLE;
-  }
-
-  return REQUEST_ERROR_CODES.CHATGPT_UNAVAILABLE;
-}
-
-function isTerminalRequest(request) {
-  return Boolean(
-    request?.completedAt
-    || request?.state === REQUEST_STATES.RESPONSE_COMPLETE
-    || request?.state === REQUEST_STATES.ERROR_STATE
-  );
-}
-
-async function getReconciledAutomationSession() {
-  const session = await getAutomationSession();
-
-  if (!session.activeRequestId) {
-    return session;
-  }
-
-  const request = await getRequest(session.activeRequestId).catch(() => null);
-
-  if (!request || isTerminalRequest(request)) {
-    return clearAutomationRequestActive(session.activeRequestId).catch(() => session);
-  }
-
-  return session;
-}
-
-async function openSidePanel(tabId) {
-  if (tabId && chrome.sidePanel?.open) {
-    await chrome.sidePanel.open({ tabId }).then(() => {
-      markSidePanelOpen({ tabId });
-    }).catch(() => null);
+  if (activeMode === APP_MODES.MODE2) {
+    await mode2Controller.handleCommand(command);
     return;
   }
 
-  if (chrome.sidebarAction?.open) {
-    await chrome.sidebarAction.open().then(() => {
-      sidePanelOpenState.firefoxSidebarOpen = true;
-    }).catch(() => null);
+  const sourceTab = await queryBestSourceTab(tab);
+  if (command === MODE2_COMMANDS.CAPTURE_VISIBLE_SCREENSHOT) {
+    await contextMenuController.handleScreenshotAction(sourceTab, "keyboard-shortcut");
+    return;
   }
+
+  const action = SELECTION_ACTION_BY_COMMAND[command];
+  if (!action) {
+    return;
+  }
+
+  const selection = await readSelectionForShortcut(sourceTab);
+  await contextMenuController.handleSelectionAction({
+    action,
+    selectedText: selection.selectedText,
+    tab: sourceTab,
+    source: "keyboard-shortcut",
+    pageTitle: selection.pageTitle,
+    pageUrl: selection.pageUrl
+  });
 }
 
-async function closeSidePanel(tab) {
-  if (chrome.sidePanel?.close) {
-    for (const context of getSidePanelCloseContexts(tab)) {
-      const closed = await chrome.sidePanel.close(context).then(() => true).catch(() => false);
-
-      if (closed) {
-        markSidePanelClosed(context);
-        markSidePanelClosed(tab);
-        return;
-      }
-    }
+async function readSelectionForShortcut(tab) {
+  if (!tab?.id) {
+    return {
+      selectedText: "",
+      pageTitle: tab?.title || "",
+      pageUrl: tab?.url || ""
+    };
   }
 
-  if (chrome.sidebarAction?.close) {
-    await chrome.sidebarAction.close().then(() => {
-      sidePanelOpenState.firefoxSidebarOpen = false;
-    }).catch(() => null);
-  }
-}
-
-function shouldCloseSidePanel(tab) {
-  if (!chrome.sidePanel?.close && !chrome.sidebarAction?.close) {
-    return false;
-  }
-
-  const tabId = getTabId(tab);
-  const windowId = getWindowId(tab);
-
-  return Boolean(
-    (windowId !== null && sidePanelOpenState.windowIds.has(windowId))
-    || (tabId !== null && sidePanelOpenState.tabIds.has(tabId))
-    || sidePanelOpenState.firefoxSidebarOpen
-  );
-}
-
-function getSidePanelCloseContexts(tab) {
-  const contexts = [];
-  const windowId = getWindowId(tab);
-  const tabId = getTabId(tab);
-
-  if (windowId !== null) {
-    contexts.push({ windowId });
-  }
-
-  if (tabId !== null) {
-    contexts.push({ tabId });
-  }
-
-  return contexts;
-}
-
-function markSidePanelOpen(info = {}) {
-  const tabId = getTabId(info);
-  const windowId = getWindowId(info);
-
-  if (tabId !== null) {
-    sidePanelOpenState.tabIds.add(tabId);
-  }
-
-  if (windowId !== null) {
-    sidePanelOpenState.windowIds.add(windowId);
-  }
-}
-
-function markSidePanelClosed(info = {}) {
-  const tabId = getTabId(info);
-  const windowId = getWindowId(info);
-
-  if (tabId !== null) {
-    sidePanelOpenState.tabIds.delete(tabId);
-  }
-
-  if (windowId !== null) {
-    sidePanelOpenState.windowIds.delete(windowId);
-  }
-}
-
-function getWindowId(value) {
-  return Number.isInteger(value?.windowId) ? value.windowId : null;
-}
-
-const MESSAGE_RETRY_CONFIG = {
-  maxAttempts: 3,
-  initialDelayMs: 200,
-  backoffMultiplier: 2,
-  maxDelayMs: 2000
-};
-
-async function sendMessageToTab(tabId, message) {
-  return sendMessageToTabWithRetry(tabId, message, MESSAGE_RETRY_CONFIG);
-}
-
-async function sendMessageToTabWithRetry(tabId, message, config = MESSAGE_RETRY_CONFIG, attemptNumber = 0) {
   try {
-    // Ensure tab still exists
-    const tab = await chrome.tabs.get(tabId).catch(() => null);
-    if (!tab) {
-      throw new Error("Tab no longer exists.");
-    }
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: MODE2_MESSAGE_TYPES.GET_SELECTION
+    });
 
-    // Don't wait for tab to be fully loaded on retries - just ensure it's there
-    // but wait a bit for it to recover from bfcache
-    if (attemptNumber > 0 && tab.status !== "complete") {
-      await sleep(300);
-    }
-
-    return await chrome.tabs.sendMessage(tabId, message);
-  } catch (error) {
-    const errorMessage = error?.message || String(error);
-    const isBfcacheError = errorMessage.includes("back/forward cache");
-    const isDisconnectedError = errorMessage.includes("Receiving end does not exist") ||
-                               errorMessage.includes("The message port closed before") ||
-                               errorMessage.includes("could not establish connection");
-
-    // Retry on bfcache or disconnection errors
-    if ((isBfcacheError || isDisconnectedError) && attemptNumber < config.maxAttempts) {
-      const delayMs = Math.min(
-        config.initialDelayMs * Math.pow(config.backoffMultiplier, attemptNumber),
-        config.maxDelayMs
-      );
-
-      console.info("[ChatGPT Relay] Message to tab failed, retrying in " + delayMs + "ms", {
-        tabId,
-        attempt: attemptNumber + 1,
-        maxAttempts: config.maxAttempts,
-        error: errorMessage
-      });
-
-      // Sleep before retry to allow page to recover
-      await sleep(delayMs);
-
-      return sendMessageToTabWithRetry(tabId, message, config, attemptNumber + 1);
-    }
-
-    throw error;
+    return {
+      selectedText: response?.selectedText || "",
+      pageTitle: response?.pageTitle || tab.title || "",
+      pageUrl: response?.pageUrl || tab.url || ""
+    };
+  } catch (_error) {
+    return {
+      selectedText: "",
+      pageTitle: tab.title || "",
+      pageUrl: tab.url || ""
+    };
   }
 }
