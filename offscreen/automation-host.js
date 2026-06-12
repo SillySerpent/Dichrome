@@ -1,39 +1,44 @@
-const frame = document.getElementById("chatgptFrame");
 const DEFAULT_CHATGPT_URL = "https://chatgpt.com/";
-let frameLoaded = false;
-let frameFailed = false;
-let failureReason = "";
-let loadCount = 0;
-let lastLoadedAt = null;
-let lastFailedAt = null;
-let lastReloadedAt = null;
-let bridgeConnected = false;
-let lastBridgeConnectedAt = null;
-let lastBridgeDisconnectedAt = null;
-let bridgeFrame = null;
-let framePolicy = null;
+const FRAME_ROLES = Object.freeze({
+  CHAT: "chat",
+  HISTORY: "history"
+});
+const HOST_TARGET = "offscreen-automation-host";
 
-frame.addEventListener("load", () => {
-  frameLoaded = true;
-  frameFailed = false;
-  failureReason = "";
-  loadCount += 1;
-  lastLoadedAt = new Date().toISOString();
+const frameStates = Object.freeze({
+  [FRAME_ROLES.CHAT]: createFrameState(FRAME_ROLES.CHAT, document.getElementById("chatgptChatFrame")),
+  [FRAME_ROLES.HISTORY]: createFrameState(FRAME_ROLES.HISTORY, document.getElementById("chatgptHistoryFrame"))
 });
 
-frame.addEventListener("error", () => {
-  frameFailed = true;
-  frameLoaded = false;
-  failureReason = "Assistant iframe failed to load in the offscreen host.";
-  lastFailedAt = new Date().toISOString();
-});
+for (const state of Object.values(frameStates)) {
+  state.frame?.addEventListener("load", () => {
+    if (state.frame?.getAttribute("src") === "about:blank") {
+      return;
+    }
+
+    state.frameLoaded = true;
+    state.frameFailed = false;
+    state.failureReason = "";
+    state.loadCount += 1;
+    state.lastLoadedAt = new Date().toISOString();
+  });
+
+  state.frame?.addEventListener("error", () => {
+    state.frameFailed = true;
+    state.frameLoaded = false;
+    state.failureReason = `Assistant ${state.role} iframe failed to load in the offscreen host.`;
+    state.lastFailedAt = new Date().toISOString();
+  });
+}
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "OFFSCREEN_AUTOMATION_PROBE") {
+    const state = getFrameState(message.frameRole);
+
     sendResponse({
-      target: "offscreen-automation-host",
-      supported: frameLoaded && !frameFailed,
-      failureReason: getFailureReason(),
+      target: HOST_TARGET,
+      supported: state.frameLoaded && !state.frameFailed,
+      failureReason: getFailureReason(state),
       status: collectHostStatus()
     });
     return false;
@@ -41,28 +46,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === "OFFSCREEN_AUTOMATION_STATUS") {
     sendResponse({
-      target: "offscreen-automation-host",
+      target: HOST_TARGET,
       status: collectHostStatus()
     });
     return false;
   }
 
   if (message?.type === "OFFSCREEN_AUTOMATION_RELOAD_FRAME") {
+    const state = getFrameState(message.frameRole);
     const nextUrl = sanitizeChatGptUrl(message.url) || DEFAULT_CHATGPT_URL;
 
-    frameLoaded = false;
-    frameFailed = false;
-    bridgeConnected = false;
-    bridgeFrame = null;
-    failureReason = "";
-    lastReloadedAt = new Date().toISOString();
-    frame.src = "about:blank";
-    window.setTimeout(() => {
-      frame.src = nextUrl;
-    }, 50);
+    reloadFrame(state, nextUrl);
 
     sendResponse({
-      target: "offscreen-automation-host",
+      target: HOST_TARGET,
+      frameRole: state.role,
       reloaded: true,
       status: collectHostStatus()
     });
@@ -70,21 +68,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "OFFSCREEN_AUTOMATION_BRIDGE_STATUS") {
-    bridgeConnected = Boolean(message.connected);
-    bridgeFrame = normalizeBridgeFrame(message.frame);
-    framePolicy = message.framePolicy && typeof message.framePolicy === "object"
-      ? message.framePolicy
-      : framePolicy;
+    const state = getFrameState(message.frameRole);
 
-    if (bridgeConnected) {
-      lastBridgeConnectedAt = new Date().toISOString();
+    state.bridgeConnected = Boolean(message.connected);
+    state.bridgeFrame = normalizeBridgeFrame(message.frame);
+    state.framePolicy = message.framePolicy && typeof message.framePolicy === "object"
+      ? message.framePolicy
+      : state.framePolicy;
+
+    if (state.bridgeConnected) {
+      state.lastBridgeConnectedAt = new Date().toISOString();
     } else {
-      lastBridgeDisconnectedAt = new Date().toISOString();
+      state.lastBridgeDisconnectedAt = new Date().toISOString();
     }
 
     sendResponse({
-      target: "offscreen-automation-host",
+      target: HOST_TARGET,
       ok: true,
+      frameRole: state.role,
       status: collectHostStatus()
     });
     return false;
@@ -93,37 +94,98 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-function getFailureReason() {
-  if (frameFailed) {
-    return failureReason;
+function createFrameState(role, frame) {
+  return {
+    role,
+    frame,
+    frameLoaded: false,
+    frameFailed: false,
+    failureReason: frame ? "" : `Assistant ${role} iframe is missing from the offscreen host.`,
+    loadCount: 0,
+    lastLoadedAt: null,
+    lastFailedAt: null,
+    lastReloadedAt: null,
+    bridgeConnected: false,
+    lastBridgeConnectedAt: null,
+    lastBridgeDisconnectedAt: null,
+    bridgeFrame: null,
+    framePolicy: null
+  };
+}
+
+function getFrameState(frameRole) {
+  return frameStates[normalizeFrameRole(frameRole)] || frameStates[FRAME_ROLES.CHAT];
+}
+
+function normalizeFrameRole(value) {
+  return value === FRAME_ROLES.HISTORY ? FRAME_ROLES.HISTORY : FRAME_ROLES.CHAT;
+}
+
+function reloadFrame(state, url) {
+  if (!state.frame) {
+    state.frameFailed = true;
+    state.frameLoaded = false;
+    state.failureReason = `Assistant ${state.role} iframe is missing from the offscreen host.`;
+    state.lastFailedAt = new Date().toISOString();
+    return;
   }
 
-  if (!frameLoaded) {
-    return "Waiting for assistant iframe load in the offscreen host.";
+  state.frameLoaded = false;
+  state.frameFailed = false;
+  state.bridgeConnected = false;
+  state.bridgeFrame = null;
+  state.failureReason = "";
+  state.lastReloadedAt = new Date().toISOString();
+  state.frame.src = "about:blank";
+  window.setTimeout(() => {
+    state.frame.src = url;
+  }, 50);
+}
+
+function getFailureReason(state) {
+  if (state.frameFailed) {
+    return state.failureReason;
+  }
+
+  if (!state.frameLoaded) {
+    return `Waiting for assistant ${state.role} iframe load in the offscreen host.`;
   }
 
   return null;
 }
 
 function collectHostStatus() {
+  const chatStatus = collectFrameStatus(frameStates[FRAME_ROLES.CHAT]);
+
   return {
-    frameLoaded,
-    frameFailed,
-    failureReason: getFailureReason(),
-    frameSrc: frame.getAttribute("src") || "",
-    loadCount,
-    lastLoadedAt,
-    lastFailedAt,
-    lastReloadedAt,
-    bridgeConnected,
-    lastBridgeConnectedAt,
-    lastBridgeDisconnectedAt,
-    bridgeFrame,
-    framePolicy,
+    ...chatStatus,
+    frames: {
+      [FRAME_ROLES.CHAT]: chatStatus,
+      [FRAME_ROLES.HISTORY]: collectFrameStatus(frameStates[FRAME_ROLES.HISTORY])
+    },
+    hostKind: "chrome-offscreen",
     checkedAt: new Date().toISOString()
   };
 }
 
+function collectFrameStatus(state) {
+  return {
+    frameRole: state.role,
+    frameLoaded: state.frameLoaded,
+    frameFailed: state.frameFailed,
+    failureReason: getFailureReason(state),
+    frameSrc: state.frame?.getAttribute("src") || "",
+    loadCount: state.loadCount,
+    lastLoadedAt: state.lastLoadedAt,
+    lastFailedAt: state.lastFailedAt,
+    lastReloadedAt: state.lastReloadedAt,
+    bridgeConnected: state.bridgeConnected,
+    lastBridgeConnectedAt: state.lastBridgeConnectedAt,
+    lastBridgeDisconnectedAt: state.lastBridgeDisconnectedAt,
+    bridgeFrame: state.bridgeFrame,
+    framePolicy: state.framePolicy
+  };
+}
 
 function normalizeBridgeFrame(value) {
   const source = value && typeof value === "object" ? value : {};
@@ -138,7 +200,8 @@ function normalizeBridgeFrame(value) {
     bodyTextLength: Number.isFinite(source.bodyTextLength) ? source.bodyTextLength : null,
     collectedAt: typeof source.collectedAt === "string" ? source.collectedAt : null,
     connectedAt: typeof source.connectedAt === "string" ? source.connectedAt : null,
-    disconnectedAt: typeof source.disconnectedAt === "string" ? source.disconnectedAt : null
+    disconnectedAt: typeof source.disconnectedAt === "string" ? source.disconnectedAt : null,
+    frameRole: normalizeFrameRole(source.frameRole)
   };
 }
 
