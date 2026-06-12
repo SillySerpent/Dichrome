@@ -16,8 +16,8 @@ assert.equal(defaults.project.url, "");
 assert.equal(defaults.conversation.startNewChat, true);
 assert.equal(defaults.visibility.schemaVersion, VISIBILITY_SETTINGS_VERSION);
 assert.equal(defaults.visibility.mode, VISIBILITY_MODES.HIDDEN);
-assert.equal(defaults.visibility.windowWidth, 520);
-assert.equal(defaults.visibility.windowHeight, 760);
+assert.equal("windowWidth" in defaults.visibility, false);
+assert.equal("windowHeight" in defaults.visibility, false);
 assert.equal(defaults.model.enabled, false);
 
 const sanitized = sanitizeAutomationSettings({
@@ -55,9 +55,7 @@ assert.deepEqual(sanitized, {
   },
   visibility: {
     schemaVersion: VISIBILITY_SETTINGS_VERSION,
-    mode: VISIBILITY_MODES.HIDDEN,
-    windowWidth: 900,
-    windowHeight: 520
+    mode: VISIBILITY_MODES.HIDDEN
   },
   model: {
     enabled: true,
@@ -86,6 +84,8 @@ const migrated = sanitizeAutomationSettings({
 }, "Fallback Name");
 
 assert.equal(migrated.visibility.mode, VISIBILITY_MODES.HIDDEN);
+assert.equal("windowWidth" in migrated.visibility, false);
+assert.equal("windowHeight" in migrated.visibility, false);
 
 const migratedSeamlessMode = sanitizeAutomationSettings({
   visibility: {
