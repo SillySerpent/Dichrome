@@ -7,10 +7,6 @@ import {
 const MAX_PROJECT_NAME_LENGTH = 80;
 const MAX_PROJECT_SEGMENT_LENGTH = 160;
 const MAX_MODEL_LABEL_LENGTH = 80;
-const MIN_AUTOMATION_WINDOW_WIDTH = 420;
-const MAX_AUTOMATION_WINDOW_WIDTH = 900;
-const MIN_AUTOMATION_WINDOW_HEIGHT = 520;
-const MAX_AUTOMATION_WINDOW_HEIGHT = 1200;
 
 export {
   VISIBILITY_MODES,
@@ -33,9 +29,7 @@ export function getDefaultAutomationSettings(extensionName) {
     },
     visibility: {
       schemaVersion: VISIBILITY_SETTINGS_VERSION,
-      mode: VISIBILITY_MODES.HIDDEN,
-      windowWidth: 520,
-      windowHeight: 760
+      mode: VISIBILITY_MODES.HIDDEN
     },
     model: {
       enabled: false,
@@ -65,9 +59,7 @@ export function sanitizeAutomationSettings(value, extensionName) {
     },
     visibility: {
       schemaVersion: VISIBILITY_SETTINGS_VERSION,
-      mode: sanitizeVisibilityMode(visibilityDefaults.mode, defaults.visibility.mode),
-      windowWidth: clampInteger(visibilityDefaults.windowWidth, MIN_AUTOMATION_WINDOW_WIDTH, MAX_AUTOMATION_WINDOW_WIDTH, defaults.visibility.windowWidth),
-      windowHeight: clampInteger(visibilityDefaults.windowHeight, MIN_AUTOMATION_WINDOW_HEIGHT, MAX_AUTOMATION_WINDOW_HEIGHT, defaults.visibility.windowHeight)
+      mode: sanitizeVisibilityMode(visibilityDefaults.mode, defaults.visibility.mode)
     },
     model: {
       enabled: Boolean(model.enabled ?? defaults.model.enabled),
@@ -109,35 +101,16 @@ export function usesHiddenAutomation(visibility) {
   return getVisibilityMode(visibility) === VISIBILITY_MODES.HIDDEN;
 }
 
-export function usesSingleTabAutomation(visibility) {
-  return false;
-}
-
-export function usesSidecarWindow(visibility) {
-  return false;
-}
-
-export function usesFocusedAutomation(visibility) {
-  return false;
-}
-
-export function usesFocusEmulation(visibility) {
-  return false;
-}
-
 function migrateVisibilitySettings(visibility, defaults) {
   if (visibility.schemaVersion === VISIBILITY_SETTINGS_VERSION) {
     return {
-      ...visibility,
       mode: VISIBILITY_MODES.HIDDEN
     };
   }
 
   return {
     ...defaults,
-    mode: VISIBILITY_MODES.HIDDEN,
-    windowWidth: visibility.windowWidth,
-    windowHeight: visibility.windowHeight
+    mode: VISIBILITY_MODES.HIDDEN
   };
 }
 
@@ -195,14 +168,4 @@ function extractAllowedChatGptOrigin(value) {
   }
 
   return "";
-}
-
-function clampInteger(value, min, max, fallback) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return fallback;
-  }
-
-  return Math.max(min, Math.min(max, Math.round(number)));
 }
