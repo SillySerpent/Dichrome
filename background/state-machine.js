@@ -56,6 +56,38 @@ export const REQUEST_PROFILES = Object.freeze({
       ].join("\n");
     }
   }),
+  explain_selection: Object.freeze({
+    id: "explain_selection",
+    label: "Explain Selection",
+    shortLabel: "Explain",
+    inputKind: "selection",
+    contextMenuTitle: "Explain this selection",
+    buildPrompt({ selectedText }) {
+      return [
+        "Explain the selected text in plain language.",
+        "Define technical terms, describe the practical implications, and be explicit where the excerpt lacks enough context.",
+        "",
+        "Selected text:",
+        selectedText
+      ].join("\n");
+    }
+  }),
+  rewrite_selection: Object.freeze({
+    id: "rewrite_selection",
+    label: "Rewrite Selection",
+    shortLabel: "Rewrite",
+    inputKind: "selection",
+    contextMenuTitle: "Rewrite this selection",
+    buildPrompt({ selectedText }) {
+      return [
+        "Rewrite the selected text so it is clearer and more polished while preserving the original meaning.",
+        "If the excerpt is already clear, make only minimal improvements.",
+        "",
+        "Selected text:",
+        selectedText
+      ].join("\n");
+    }
+  }),
   custom_text: Object.freeze({
     id: "custom_text",
     label: "Custom Text Prompt",
