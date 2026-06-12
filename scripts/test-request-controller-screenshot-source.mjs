@@ -38,7 +38,6 @@ const controller = createRequestController({
 
     return screenshot;
   },
-  disableFocusEmulationForRequest: async () => null,
   getProfile() {
     return {
       inputKind: "manual_text"
