@@ -5,12 +5,12 @@
 Dichrome has these extension surfaces:
 
 - Root side-panel shell: active mode display, iframe loading for the selected mode, mode switching, Mode 1 beta acknowledgement, and active Mode 1 request switch guarding.
-- Mode 2 side panel: embedded ChatGPT sidebar, screenshot copy/download controls, copyable selected-text prompt state, embedded-frame reload, and fallback ChatGPT companion-window control.
+- Mode 2 side panel: embedded ChatGPT sidebar, compact screenshot-to-composer controls with copy/download fallback, copyable selected-text prompt state, embedded-frame reload, and fallback ChatGPT companion-window control.
 - Mode 1 side panel: project history, streaming response display, composer, attachments, retry/cancel, model choice, and explicit sign-in handoff.
 - Background runtime: deterministic orchestration, active-mode message dispatch, shared context-menu routing, side panel opening, Mode 2 companion control, state machine transitions, and Mode 1 hidden workspace command routing.
 - Automation modules: settings migration, hidden workspace session storage, Chrome offscreen capability probing, source-tab lookup, and shared screenshot capture helpers.
 - Request modules: request history, attachment payload storage, serialized panel updates, and normalized error metadata.
-- ChatGPT content scripts: Mode 1 page-local DOM adapter, project routing, model selection, prompt insertion, send action, response observer, and internal snapshot collection; Mode 2 embedded-frame styling/link normalization and URL persistence.
+- ChatGPT content scripts: Mode 1 page-local DOM adapter, project routing, model selection, prompt insertion, send action, response observer, and internal snapshot collection; Mode 2 embedded-frame styling/link normalization, URL persistence, and screenshot attachment handoff.
 - Source-page content script: shared selected-text quick-action popover on normal `http:` and `https:` webpages, excluding ChatGPT hosts.
 
 The source webpage receives only the shared selection popover content script. The background runtime still treats source-tab lookup and visible screenshot capture as shared services so Mode 1 and Mode 2 do not own separate browser-source logic.
@@ -32,7 +32,7 @@ Mode labels are intentionally user-facing:
 - `Mode 2 - ChatGPT Sidebar`
 - `Mode 1 - Original Dichrome Beta`
 
-The root side-panel page is `sidepanel/sidepanel.html`. It loads `sidepanel/mode2/sidepanel.html` or `sidepanel/mode1.html` in an extension iframe and keeps the mode switcher available above both mode apps. Switching into Mode 1 requires acknowledging the early beta copy. Switching away from Mode 1 is blocked while `chatGptAutomationSession.activeRequestId` is set unless the user explicitly asks to cancel that active request.
+The root side-panel page is `sidepanel/sidepanel.html`. It loads `sidepanel/mode2/sidepanel.html` or `sidepanel/mode1.html` in an extension iframe and keeps the mode switcher available as a compact floating control over both mode apps. Switching into Mode 1 requires acknowledging the early beta copy. Switching away from Mode 1 is blocked while `chatGptAutomationSession.activeRequestId` is set unless the user explicitly asks to cancel that active request.
 
 Mode state is intentionally separated:
 
@@ -200,7 +200,7 @@ Response tracking is deliberately scoped. The script selects the newest assistan
 
 Context menus, the source-page selection popover, visible screenshot capture, and keyboard screenshot/selection shortcuts enter a shared routing layer first.
 
-- In Mode 2, selected-text actions create a Mode 2 prompt record and screenshots create a Mode 2 screenshot record.
+- In Mode 2, selected-text actions create a Mode 2 prompt record and screenshots create a Mode 2 screenshot record. The Mode 2 side panel then asks the extension-hosted ChatGPT iframe to attach recent screenshots into the ChatGPT composer, with copy/save controls kept as fallback.
 - In Mode 1, selected-text actions start the matching original Dichrome request profile and screenshots start the Mode 1 visible-screenshot attachment request.
 - Source-tab focus restoration before `tabs.captureVisibleTab` is shared across both modes.
 - Restricted browser pages still fail with the common screenshot error path.

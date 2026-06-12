@@ -12,7 +12,7 @@ No separate non-Chromium package is built; browser smoke coverage is Chrome/Chro
 
 1. Load the unpacked extension in a clean Chrome/Chromium profile.
 2. Open a normal webpage and press `Alt+Shift+D`.
-3. Confirm the root shell opens and the active mode label says `Mode 2 - ChatGPT Sidebar`.
+3. Confirm the root shell opens with only a compact floating mode/settings control and the embedded Mode 2 ChatGPT sidebar gets nearly all vertical space.
 4. Confirm the embedded ChatGPT frame loads or presents a clear frame-policy/status message.
 5. Press `Open` and confirm a ChatGPT companion popup window opens or refocuses.
 6. Press `Reload` and confirm the embedded frame retries without reloading the extension.
@@ -24,8 +24,9 @@ No separate non-Chromium package is built; browser smoke coverage is Chrome/Chro
 3. Confirm the side panel opens and the Mode 2 `Copy prompt` action appears with a prompt grounded in the selected text.
 4. Right-click selected text and repeat `Ask with Dichrome`, `Summarize with Dichrome`, `Explain with Dichrome`, `Rewrite with Dichrome`, and `Define with Dichrome`.
 5. Use `Shot`, the selection popover `Screenshot` action, the context-menu `Capture visible screenshot`, and the screenshot keyboard shortcut.
-6. Confirm Mode 2 stores the visible source-tab screenshot and exposes `Copy image` and `Save`.
-7. Confirm screenshots are not auto-sent to ChatGPT in Mode 2.
+6. Confirm Mode 2 attaches the visible source-tab screenshot as an image chip in the embedded ChatGPT composer when the frame is loaded.
+7. Confirm `Copy image` and `Save` remain available as compact fallback controls if the embedded frame is unavailable or ChatGPT rejects the image upload.
+8. Confirm screenshots are not auto-sent to ChatGPT in Mode 2; the user must still press ChatGPT's send button.
 
 ## Mode Switching
 
@@ -52,7 +53,7 @@ No separate non-Chromium package is built; browser smoke coverage is Chrome/Chro
 2. Confirm the Dichrome side panel shell opens and the browser toolbar area remains separate from the extension content.
 3. Press `Alt+Shift+D` again in Chrome or Chromium and confirm the panel closes when the browser exposes side-panel close support.
 4. Drag the side-panel divider as narrow as the browser allows.
-5. In Mode 2, confirm the header, embedded frame, screenshot button, reload button, fallback open button, and status bar remain usable without overlapping text.
+5. In Mode 2, confirm the compact floating Shot, Reload, Open, frame-status, fallback action, and toast controls remain usable without covering the ChatGPT composer.
 6. Switch to Mode 1 and confirm the header, history area, response area, composer, screenshot button, file button, routing label, and send button remain usable without overlapping text.
 
 ## Logged Out

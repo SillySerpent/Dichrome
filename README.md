@@ -2,7 +2,7 @@
 
 Local-first Chrome/Chromium extension with two side-panel modes for working with the user's signed-in ChatGPT browser session.
 
-Mode 2 is the default ChatGPT sidebar companion. It embeds ChatGPT in the side panel, prepares copyable prompts from selected webpage text, captures visible screenshots for copy/download, and can open a ChatGPT companion window when the embedded frame is unavailable.
+Mode 2 is the default ChatGPT sidebar companion. It embeds ChatGPT in the side panel, prepares copyable prompts from selected webpage text, captures visible screenshots into the embedded ChatGPT prompt box when available, and can open a ChatGPT companion window when the embedded frame is unavailable.
 
 Mode 1 is the original Dichrome automation UI. It is available from the root side-panel settings as `Mode 1 - Original Dichrome Beta` and must be treated as early beta because it drives ChatGPT's web UI through hidden internal automation for project routing, model selection, file/screenshot attachments, streaming responses, follow-ups, and project history.
 
@@ -11,7 +11,7 @@ Dichrome is intentionally UI-driven. It does not use the OpenAI API and does not
 ## Current Workflow
 
 1. Open a normal webpage and open Dichrome from the toolbar or with `Alt+Shift+D`.
-2. Fresh installs open Mode 2 by default. The side panel loads the embedded ChatGPT sidebar and exposes screenshot, reload, fallback-window, prompt-copy, and image-copy controls.
+2. Fresh installs open Mode 2 by default. The side panel loads the embedded ChatGPT sidebar and exposes compact screenshot, reload, fallback-window, prompt-copy, and screenshot fallback controls.
 3. Highlight text on a normal webpage and use either the shared selection popover or right-click menu:
    - `Ask with Dichrome about "%s"`
    - `Summarize with Dichrome`
@@ -19,7 +19,7 @@ Dichrome is intentionally UI-driven. It does not use the OpenAI API and does not
    - `Rewrite with Dichrome`
    - `Define with Dichrome`
 4. In Mode 2, Dichrome prepares a copyable prompt from the selected text, stores it under Mode 2 state, opens the side panel for the source tab, and leaves the user in control of the embedded ChatGPT frame or fallback ChatGPT window.
-5. In Mode 2, screenshots capture the visible source tab and are stored for copy/download instead of being auto-sent.
+5. In Mode 2, screenshots capture the visible source tab and are attached to the embedded ChatGPT composer when the frame accepts image uploads. Copy/download remains available as a local fallback. Mode 2 does not press ChatGPT's send button.
 6. Use root side-panel `Settings` to switch modes. Switching into Mode 1 requires acknowledging the early beta warning. Switching away from Mode 1 is blocked while a Mode 1 request is active unless the user explicitly chooses to cancel that request.
 7. In Mode 1, the same context-menu, selection-popover, screenshot, and selected-text shortcut entrypoints route into the original Dichrome hidden-automation pipeline.
 8. Mode 1 resolves the hidden internal ChatGPT workspace, optionally routes to a configured project, optionally selects a configured model, inserts the prompt and attachments, sends it, and streams the newest assistant response back into the Mode 1 panel.
@@ -49,7 +49,7 @@ Dichrome is intentionally UI-driven. It does not use the OpenAI API and does not
 - `content/chatgpt/runtime/*` - ChatGPT-side runtime layers for contracts, messaging, URL/frame decisions, errors, adapter heuristics, response extraction, and the automation runner.
 - `content/chatgpt/runtime/history/project-history-data.js` and `project-history.js` - project-scoped history data normalization, listing, and selected conversation loading through ChatGPT's signed-in web session.
 - `content/shared/selection-popover.js` - shared selected-text quick-action toolbar on normal webpages.
-- `content/mode2/chatgpt-frame-theme.js` - Mode 2 embedded ChatGPT frame styling/link normalization and frame URL persistence.
+- `content/mode2/chatgpt-frame-theme.js` - Mode 2 embedded ChatGPT frame styling/link normalization, frame URL persistence, and screenshot attachment handoff.
 - `sidepanel/sidepanel.html`, `shell.css`, and `shell.js` - root side-panel shell, mode iframe, and mode switcher.
 - `sidepanel/mode2/*` - default Mode 2 ChatGPT sidebar companion UI.
 - `sidepanel/mode1.html`, `sidepanel/sidepanel.css`, and `sidepanel/sidepanel.js` - original Dichrome Mode 1 beta UI.
@@ -116,7 +116,7 @@ The extension is split deliberately:
 
 - The root side-panel shell owns active mode display, mode switching, and the Mode 1 beta acknowledgement.
 - Shared background routing owns context menus, selected-text actions, source-tab selection, and visible screenshot capture.
-- Mode 2 owns the embedded ChatGPT companion surface, copyable prompt state, screenshot copy/download state, and fallback ChatGPT companion window.
+- Mode 2 owns the embedded ChatGPT companion surface, copyable prompt state, screenshot-to-composer handoff with copy/download fallback state, and fallback ChatGPT companion window.
 - Mode 1 owns request state, hidden workspace routing, project/model automation, attachments, response streaming, follow-ups, and project history.
 - The ChatGPT content script owns deterministic DOM interaction for Mode 1 and narrowly scoped embedded-frame behavior for Mode 2.
 - Internal diagnostics are kept out of the normal sidebar UI; obsolete fallback automation experiments are no longer part of the product build.
@@ -129,7 +129,7 @@ Mode 1 stores plain text as the canonical response payload and renders final HTM
 
 ## Mode 2 Sidebar
 
-Mode 2 is the first-run default. It enables the local ChatGPT subframe policy, loads ChatGPT in an extension side-panel iframe, remembers the last valid ChatGPT frame URL under `dichrome.mode2.chatGptFrameUrl`, and keeps prompt/screenshot records under `dichrome.mode2.*` session state. It does not drive ChatGPT's composer or send messages automatically. Selected-text actions prepare a prompt for the user to copy or paste, and screenshot actions capture the visible source tab for copy/download.
+Mode 2 is the first-run default. It enables the local ChatGPT subframe policy, loads ChatGPT in an extension side-panel iframe, remembers the last valid ChatGPT frame URL under `dichrome.mode2.chatGptFrameUrl`, and keeps prompt/screenshot records under `dichrome.mode2.*` session state. Selected-text actions prepare a prompt for the user to copy or paste. Screenshot actions capture the visible source tab, ask the embedded ChatGPT frame to attach the image to the composer, and keep copy/download controls as a fallback if the frame or ChatGPT upload UI rejects the handoff. Mode 2 does not press ChatGPT's send button.
 
 If ChatGPT does not work reliably inside the embedded frame, Mode 2 can open or refocus a separate ChatGPT companion popup window. The popup window id is stored locally under Mode 2 state.
 
@@ -169,7 +169,7 @@ When a model label is requested, model-selection failure stops the request befor
 
 Both modes use the same visible screenshot capture service. It uses the browser `tabs.captureVisibleTab` API, so the manifest requests required `<all_urls>` host access instead of relying on a transient `activeTab` grant or a side-panel runtime permission prompt. Before capture, the background worker activates the resolved source tab so the browser captures the intended visible viewport.
 
-In Mode 2, screenshots are stored for copy/download. In Mode 1, screenshots are attached to the hidden ChatGPT request. The capture is the visible viewport, not a stitched full-page screenshot. Browsers can still block restricted surfaces such as `chrome://` pages, the Chrome Web Store, and other extension pages. Full-page screenshot support would need a separate scroll-and-stitch flow.
+In Mode 2, screenshots are attached to the embedded ChatGPT composer when the frame is loaded and ChatGPT exposes a compatible image upload input; copy/download controls remain as a local fallback. In Mode 1, screenshots are attached to the hidden ChatGPT request. The capture is the visible viewport, not a stitched full-page screenshot. Browsers can still block restricted surfaces such as `chrome://` pages, the Chrome Web Store, and other extension pages. Full-page screenshot support would need a separate scroll-and-stitch flow.
 
 ## Chrome Web Store Review
 

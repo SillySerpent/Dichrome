@@ -1,5 +1,8 @@
 const CHATGPT_URL = "https://chatgpt.com/";
 const CHATGPT_FRAME_LOAD_TIMEOUT_MS = 5000;
+const CHATGPT_FRAME_READY_TIMEOUT_MS = 12000;
+const FRAME_SCREENSHOT_ATTACH_TIMEOUT_MS = 45000;
+const RECENT_SCREENSHOT_AUTO_ATTACH_MS = 30000;
 const SCREENSHOT_ACTION_RESET_MS = 10000;
 
 const MESSAGE_TYPES = Object.freeze({
@@ -7,6 +10,16 @@ const MESSAGE_TYPES = Object.freeze({
   ENABLE_CHATGPT_FRAME_POLICY: "chatgpt-sidebar:enable-chatgpt-frame-policy",
   OPEN_CHATGPT_WINDOW: "chatgpt-sidebar:open-chatgpt-window"
 });
+
+const FRAME_MESSAGE_TYPES = Object.freeze({
+  ATTACH_SCREENSHOT: "dichrome:mode2:attach-screenshot",
+  ATTACH_SCREENSHOT_RESULT: "dichrome:mode2:attach-screenshot-result"
+});
+
+const CHATGPT_FRAME_ORIGINS = Object.freeze([
+  "https://chatgpt.com",
+  "https://chat.openai.com"
+]);
 
 const STORAGE_KEYS = Object.freeze({
   CHATGPT_FRAME_URL: "dichrome.mode2.chatGptFrameUrl",
@@ -22,6 +35,7 @@ const elements = {
   copyPrompt: document.getElementById("copyPrompt"),
   copyScreenshot: document.getElementById("copyScreenshot"),
   downloadScreenshot: document.getElementById("downloadScreenshot"),
+  modeButton: document.getElementById("modeButton"),
   openChatGptWindow: document.getElementById("openChatGptWindow"),
   reloadChatGptFrame: document.getElementById("reloadChatGptFrame"),
   frameStatus: document.getElementById("frameStatus"),
@@ -32,7 +46,10 @@ const elements = {
 let latestPrompt = null;
 let latestScreenshot = null;
 let chatGptFrameTimer = 0;
+let chatGptFrameLoaded = false;
 let screenshotActionResetTimer = 0;
+const autoAttachedScreenshotIds = new Set();
+const autoAttachTasks = new Map();
 
 document.addEventListener("DOMContentLoaded", () => {
   bindEvents();
@@ -67,7 +84,9 @@ function bindEvents() {
   });
   elements.chatGptFrame.addEventListener("load", () => {
     window.clearTimeout(chatGptFrameTimer);
+    chatGptFrameLoaded = true;
     setFrameStatus("Loaded", "loaded");
+    queueRecentScreenshotAttach(latestScreenshot);
   });
   elements.captureScreenshot.addEventListener("click", () => {
     void captureScreenshot();
@@ -80,6 +99,10 @@ function bindEvents() {
   });
   elements.downloadScreenshot.addEventListener("click", () => {
     downloadScreenshot();
+  });
+  elements.modeButton?.addEventListener("click", () => {
+    // Send message to parent (shell) to open mode settings
+    window.parent.postMessage({ type: "mode-settings:open" }, "*");
   });
 }
 
@@ -107,6 +130,7 @@ async function prepareAndLoadChatGptFrame() {
 
 async function loadChatGptFrame() {
   window.clearTimeout(chatGptFrameTimer);
+  chatGptFrameLoaded = false;
   setFrameStatus("Loading", "loading");
   elements.chatGptFrame.src = await getChatGptFrameUrl();
 
@@ -138,17 +162,20 @@ async function loadState() {
   renderNotice(state[STORAGE_KEYS.LATEST_NOTICE]);
   renderPrompt(latestPrompt);
   renderScreenshot(latestScreenshot);
+  queueRecentScreenshotAttach(latestScreenshot);
 }
 
 function renderNotice(notice) {
   if (!notice) {
-    elements.statusBar.dataset.kind = "";
-    elements.statusText.textContent = "Ready.";
+    setStatusMessage("Ready.", "");
     return;
   }
 
-  elements.statusBar.dataset.kind = notice.kind || "";
-  elements.statusText.textContent = notice.message || "Ready.";
+  if (shouldSuppressStoredScreenshotNotice(notice)) {
+    return;
+  }
+
+  setStatusMessage(notice.message || "Ready.", notice.kind || "");
 }
 
 function renderPrompt(prompt) {
@@ -175,6 +202,16 @@ function hideScreenshotActions() {
   updateContextualActionsVisibility();
 }
 
+function showScreenshotActions() {
+  if (!latestScreenshot?.dataUrl) {
+    return;
+  }
+
+  elements.copyScreenshot.classList.remove("hidden");
+  elements.downloadScreenshot.classList.remove("hidden");
+  updateContextualActionsVisibility();
+}
+
 function updateContextualActionsVisibility() {
   const hasVisibleContextualAction = [
     elements.copyPrompt,
@@ -196,14 +233,223 @@ async function openChatGptWindow() {
 }
 
 async function captureScreenshot() {
-  const response = await sendRuntimeMessage({
-    type: MESSAGE_TYPES.CAPTURE_VISIBLE_TAB,
-    source: "side-panel"
-  });
+  try {
+    elements.captureScreenshot.disabled = true;
+    showLocalStatus("Capturing screenshot...", "info");
 
-  if (response.ok) {
-    showLocalStatus("Screenshot captured.", "success");
+    const response = await sendRuntimeMessage({
+      type: MESSAGE_TYPES.CAPTURE_VISIBLE_TAB,
+      source: "side-panel"
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
+    latestScreenshot = response.screenshot || null;
+    renderScreenshot(latestScreenshot);
+    await autoAttachScreenshot(response.screenshot);
+  } finally {
+    elements.captureScreenshot.disabled = false;
   }
+}
+
+function queueRecentScreenshotAttach(screenshot) {
+  if (!shouldAutoAttachScreenshot(screenshot)) {
+    return;
+  }
+
+  void autoAttachScreenshot(screenshot);
+}
+
+function shouldAutoAttachScreenshot(screenshot) {
+  if (!screenshot?.dataUrl) {
+    return false;
+  }
+
+  const screenshotId = getScreenshotAttachId(screenshot);
+  if (autoAttachedScreenshotIds.has(screenshotId) || autoAttachTasks.has(screenshotId)) {
+    return false;
+  }
+
+  const createdAt = Date.parse(screenshot.createdAt || "");
+  if (!Number.isFinite(createdAt)) {
+    return false;
+  }
+
+  return Date.now() - createdAt <= RECENT_SCREENSHOT_AUTO_ATTACH_MS;
+}
+
+async function autoAttachScreenshot(screenshot) {
+  if (!screenshot?.dataUrl) {
+    showLocalStatus("No screenshot is ready to attach.", "warning");
+    return {
+      attached: false
+    };
+  }
+
+  const screenshotId = getScreenshotAttachId(screenshot);
+  if (autoAttachedScreenshotIds.has(screenshotId)) {
+    return {
+      attached: true
+    };
+  }
+
+  const activeTask = autoAttachTasks.get(screenshotId);
+  if (activeTask) {
+    return activeTask;
+  }
+
+  const task = attachScreenshotTask(screenshot, screenshotId);
+  autoAttachTasks.set(screenshotId, task);
+
+  try {
+    return await task;
+  } finally {
+    autoAttachTasks.delete(screenshotId);
+  }
+}
+
+async function attachScreenshotTask(screenshot, screenshotId) {
+  showLocalStatus("Attaching screenshot to ChatGPT...", "info");
+
+  try {
+    await waitForChatGptFrameReady();
+    await attachScreenshotToChatGptFrame(screenshot);
+    autoAttachedScreenshotIds.add(screenshotId);
+    hideScreenshotActions();
+    showLocalStatus("Screenshot attached to ChatGPT.", "success");
+
+    return {
+      attached: true
+    };
+  } catch (error) {
+    showScreenshotActions();
+    showLocalStatus(`Screenshot captured, but ChatGPT did not accept it: ${toErrorMessage(error)}`, "error");
+
+    return {
+      attached: false,
+      error
+    };
+  }
+}
+
+function waitForChatGptFrameReady() {
+  if (chatGptFrameLoaded && elements.chatGptFrame.contentWindow) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("ChatGPT frame did not finish loading."));
+    }, CHATGPT_FRAME_READY_TIMEOUT_MS);
+
+    function handleLoad() {
+      cleanup();
+      resolve();
+    }
+
+    function cleanup() {
+      window.clearTimeout(timeoutId);
+      elements.chatGptFrame.removeEventListener("load", handleLoad);
+    }
+
+    elements.chatGptFrame.addEventListener("load", handleLoad, {
+      once: true
+    });
+  });
+}
+
+function attachScreenshotToChatGptFrame(screenshot) {
+  const targetWindow = elements.chatGptFrame.contentWindow;
+  if (!targetWindow) {
+    return Promise.reject(new Error("ChatGPT frame is unavailable."));
+  }
+
+  const targetOrigins = getChatGptFrameTargetOrigins();
+  if (!targetOrigins.length) {
+    return Promise.reject(new Error("ChatGPT frame URL is not an allowed attachment target."));
+  }
+
+  const requestId = createId();
+  const payload = {
+    type: FRAME_MESSAGE_TYPES.ATTACH_SCREENSHOT,
+    requestId,
+    screenshot
+  };
+
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Timed out waiting for ChatGPT to accept the screenshot."));
+    }, FRAME_SCREENSHOT_ATTACH_TIMEOUT_MS);
+
+    function handleFrameMessage(event) {
+      if (event.source !== targetWindow || !targetOrigins.includes(event.origin)) {
+        return;
+      }
+
+      const message = event.data;
+      if (message?.type !== FRAME_MESSAGE_TYPES.ATTACH_SCREENSHOT_RESULT || message.requestId !== requestId) {
+        return;
+      }
+
+      cleanup();
+
+      if (message.ok) {
+        resolve(message);
+        return;
+      }
+
+      reject(new Error(message.error || "ChatGPT did not accept the screenshot."));
+    }
+
+    function cleanup() {
+      window.clearTimeout(timeoutId);
+      window.removeEventListener("message", handleFrameMessage);
+    }
+
+    window.addEventListener("message", handleFrameMessage);
+    for (const origin of targetOrigins) {
+      targetWindow.postMessage(payload, origin);
+    }
+  });
+}
+
+function getChatGptFrameTargetOrigins() {
+  const origins = new Set(CHATGPT_FRAME_ORIGINS);
+  const frameOrigin = getAllowedChatGptOrigin(elements.chatGptFrame.src);
+
+  if (frameOrigin) {
+    origins.delete(frameOrigin);
+    return [frameOrigin, ...origins];
+  }
+
+  return Array.from(origins);
+}
+
+function getAllowedChatGptOrigin(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" && (url.hostname === "chatgpt.com" || url.hostname === "chat.openai.com")) {
+      return url.origin;
+    }
+  } catch (_error) {
+    // Ignore malformed iframe URLs.
+  }
+
+  return "";
+}
+
+function shouldSuppressStoredScreenshotNotice(notice) {
+  return notice?.message === "Visible screenshot captured."
+    && latestScreenshot?.dataUrl
+    && autoAttachedScreenshotIds.has(getScreenshotAttachId(latestScreenshot));
+}
+
+function getScreenshotAttachId(screenshot) {
+  return String(screenshot?.id || `${screenshot?.createdAt || ""}:${screenshot?.dataUrl?.length || 0}`);
 }
 
 async function copyPrompt() {
@@ -278,8 +524,14 @@ async function sendRuntimeMessage(payload) {
 }
 
 function showLocalStatus(message, kind) {
+  setStatusMessage(message, kind);
+}
+
+function setStatusMessage(message, kind) {
+  const label = message || "Ready.";
   elements.statusBar.dataset.kind = kind || "";
-  elements.statusText.textContent = message;
+  elements.statusText.textContent = label;
+  elements.statusBar.classList.toggle("is-empty", label === "Ready." && !kind);
 }
 
 function getStorageArea() {
@@ -325,6 +577,14 @@ function fileSafeTimestamp(value) {
   }
 
   return date.toISOString().replace(/[:.]/g, "-");
+}
+
+function createId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function toErrorMessage(error) {

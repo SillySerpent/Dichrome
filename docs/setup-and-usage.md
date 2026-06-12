@@ -22,7 +22,7 @@ No separate non-Chromium package is built; this project targets Chrome/Chromium 
 6. Pin or open the `Dichrome` extension from the browser toolbar, or use `Alt+Shift+D`.
 7. Open `https://chatgpt.com/` in a normal tab and confirm the account is signed in.
 
-The Chrome manifest requests access to all sites so screenshot actions can capture visible normal web tabs without relying on a temporary `activeTab` grant or repeated per-site prompts. It also requests ChatGPT host access, side-panel access, storage, offscreen documents, clipboard writes for Mode 2 copy controls, window control for the Mode 2 fallback ChatGPT companion window, and declarative network request access for ChatGPT iframe frame-policy probes.
+The Chrome manifest requests access to all sites so screenshot actions can capture visible normal web tabs without relying on a temporary `activeTab` grant or repeated per-site prompts. It also requests ChatGPT host access, side-panel access, storage, offscreen documents, clipboard writes for Mode 2 copy/fallback controls, window control for the Mode 2 fallback ChatGPT companion window, and declarative network request access for ChatGPT iframe frame-policy probes.
 
 If the manifest changed while the extension was already loaded, use the reload button for Dichrome on `chrome://extensions` before testing again.
 
@@ -32,7 +32,7 @@ The default side-panel shortcut is `Alt+Shift+D`. It can be changed from `chrome
 
 1. Open a normal webpage that you want to use as source context.
 2. Open the Dichrome side panel from the toolbar or with `Alt+Shift+D`.
-3. Confirm the header shows `Mode 2 - ChatGPT Sidebar`.
+3. Confirm the compact mode control is present and Mode 2 opens the embedded ChatGPT sidebar.
 4. If the embedded ChatGPT frame loads, use it normally. If it does not, press `Open` to launch the ChatGPT companion window.
 5. Select text on the source page and use the selection popover or context menu to prepare a prompt.
 6. Press `Copy prompt` and paste into ChatGPT, or use the embedded frame directly.
@@ -43,7 +43,7 @@ Fresh installs open Mode 2 by default. Existing local installs that already have
 ## Mode Switching
 
 1. Open the root Dichrome side panel.
-2. Press `Settings` in the root header.
+2. Press the compact `Mode` control.
 3. Choose `Mode 2 - ChatGPT Sidebar` or `Mode 1 - Original Dichrome Beta`.
 4. When switching into Mode 1, read and acknowledge the early beta warning:
 
@@ -76,10 +76,11 @@ The source webpage should stay focused during normal Mode 1 hidden-internal auto
 1. Open a normal webpage with visible content.
 2. Open Dichrome in Mode 2.
 3. Press `Shot`, use the context menu `Capture visible screenshot`, use the screenshot shortcut, or use the selection popover `Screenshot` action.
-4. Use `Copy image` to place the captured screenshot on the clipboard, or `Save` to download the PNG.
-5. Select text and use a shared selection action, then press `Copy prompt` to copy the prepared prompt.
+4. Confirm the screenshot appears as an attachment in the embedded ChatGPT prompt box when the frame is loaded and ChatGPT exposes a compatible upload input.
+5. If the embedded frame cannot accept the image, use `Copy image` to place the captured screenshot on the clipboard, or `Save` to download the PNG.
+6. Select text and use a shared selection action, then press `Copy prompt` to copy the prepared prompt.
 
-Mode 2 does not auto-send prompts or screenshots. It prepares local prompt/screenshot records and leaves the ChatGPT send action under user control.
+Mode 2 does not press ChatGPT's send button. Screenshot attachment places the image in the composer and leaves the final send action under user control.
 
 ## Mode 1 Manual Messages
 
@@ -138,6 +139,7 @@ If `Require exact match` is enabled, a missing model label stops the request bef
 - If the keyboard shortcut does not fire, check `chrome://extensions/shortcuts`; Chrome may leave a shortcut unassigned if another extension already claimed it.
 - If a screenshot captures the wrong page, click the intended source tab and open the side panel from that same browser window before retrying.
 - If Mode 2's embedded frame does not load, press `Reload`; if it still fails, use `Open` for the ChatGPT companion window.
+- If Mode 2 captures a screenshot but cannot attach it to ChatGPT, use the compact fallback copy/save controls and check whether ChatGPT is signed in or showing a modal.
 - If requests stall at ChatGPT, use the sign-in/setup handoff and check for sign-in, account, cookie, or modal prompts.
 - If project routing fails, confirm the configured project name or project URL is valid and `Create if missing` is enabled when creation is intended.
 - If model selection fails, use the exact label visible in your ChatGPT account or turn off exact matching.

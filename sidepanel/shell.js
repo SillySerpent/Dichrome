@@ -62,6 +62,12 @@ function bindEvents() {
       closeSettings();
     }
   });
+  // Listen for messages from the iframe (mode2) to open settings
+  window.addEventListener("message", (event) => {
+    if (event.data?.type === "mode-settings:open") {
+      openSettings();
+    }
+  });
 }
 
 function renderModeOptions() {
@@ -98,6 +104,9 @@ function renderActiveMode() {
   if (!currentSource.endsWith(source)) {
     dom.modeFrame.src = source;
   }
+
+  // Update data-mode attribute for CSS styling
+  document.documentElement.setAttribute("data-mode", activeMode);
 }
 
 function renderSettingsState() {

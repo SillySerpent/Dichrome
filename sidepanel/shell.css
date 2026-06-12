@@ -22,31 +22,40 @@ select {
 }
 
 .mode-shell {
-  background: #f7f8f5;
+  background: #0b0f14;
   color: #1f2a24;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   height: 100vh;
   min-height: 100vh;
   overflow: hidden;
+  position: relative;
+}
+
+/* Hide mode-shell-bar when in mode2 */
+[data-mode="mode2"] .mode-shell-bar {
+  display: none;
 }
 
 .mode-shell-bar {
   align-items: center;
-  background: #ffffff;
-  border-bottom: 1px solid #d8dfd4;
   display: flex;
-  gap: 10px;
-  justify-content: space-between;
-  min-width: 0;
-  padding: 8px 10px;
+  gap: 8px;
+  justify-content: center;
+  padding: 4px 8px;
+  pointer-events: none;
+  position: relative;
+  z-index: 9;
+  flex-shrink: 0;
 }
 
 .mode-brand {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-  min-width: 0;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 .mode-brand strong,
@@ -68,11 +77,7 @@ select {
 }
 
 .mode-mark {
-  background: linear-gradient(135deg, #0f766e, #84cc16);
-  border-radius: 7px;
-  flex: 0 0 auto;
-  height: 24px;
-  width: 24px;
+  display: none;
 }
 
 .mode-button,
@@ -96,6 +101,17 @@ select {
   padding: 6px 9px;
 }
 
+.mode-shell-bar .mode-button {
+  background: rgba(15, 23, 42, 0.78);
+  border-color: rgba(148, 163, 184, 0.42);
+  border-radius: 999px;
+  color: #f8fafc;
+  font-size: 11px;
+  min-height: 24px;
+  padding: 4px 8px;
+  pointer-events: auto;
+}
+
 .mode-button:hover,
 .mode-button:focus,
 .mode-small-button:hover,
@@ -111,6 +127,7 @@ select {
 }
 
 .mode-frame-area {
+  flex: 1;
   min-height: 0;
   overflow: hidden;
 }

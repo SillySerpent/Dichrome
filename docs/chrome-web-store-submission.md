@@ -4,7 +4,7 @@ Use this file as the source packet for the Chrome Web Store listing, privacy fie
 
 ## Single Purpose
 
-Dichrome is a local-first Chrome side-panel extension for working with the user's own signed-in ChatGPT web session. Its default Mode 2 embeds a ChatGPT sidebar companion, prepares copyable prompts from selected webpage text, and captures visible screenshots for copy/download. Its optional Mode 1 original Dichrome beta sends user-selected webpage context, typed prompts, screenshots, and user-chosen attachments into ChatGPT through hidden local browser automation, then displays the generated response in the side panel.
+Dichrome is a local-first Chrome side-panel extension for working with the user's own signed-in ChatGPT web session. Its default Mode 2 embeds a ChatGPT sidebar companion, prepares copyable prompts from selected webpage text, and captures visible screenshots for attachment into the embedded ChatGPT composer with copy/download fallback controls. Its optional Mode 1 original Dichrome beta sends user-selected webpage context, typed prompts, screenshots, and user-chosen attachments into ChatGPT through hidden local browser automation, then displays the generated response in the side panel.
 
 The extension does not inject ads, replace search, alter website content beyond its selected-text quick-action popover, run a hosted backend, or use the OpenAI API. Its single purpose is a browser-side ChatGPT companion, prompt-preparation, screenshot, and optional original Dichrome routing workflow.
 
@@ -63,7 +63,7 @@ Implementation constraints:
 - Screenshot capture is initiated only after the user presses a screenshot control, selects the screenshot action from the context menu/popover, or uses the screenshot keyboard shortcut.
 - The background worker activates the resolved source tab immediately before calling `tabs.captureVisibleTab`.
 - Browser-internal pages such as `chrome://`, extension pages, and developer tools pages are rejected with a clear error.
-- The permission is used for visible viewport screenshot capture and source-tab context only. In Mode 2, screenshots are prepared for copy/download. In Mode 1, screenshots are attached to a user-started ChatGPT request. The permission is not used for background page crawling, analytics, advertising, or unrelated browsing-history collection.
+- The permission is used for visible viewport screenshot capture and source-tab context only. In Mode 2, screenshots are attached to the embedded ChatGPT composer when the user invokes screenshot capture and ChatGPT accepts the image upload; copy/download controls remain available as fallback. In Mode 1, screenshots are attached to a user-started ChatGPT request. The permission is not used for background page crawling, analytics, advertising, or unrelated browsing-history collection.
 
 ## Remote Code Statement
 
@@ -99,7 +99,7 @@ Use `docs/privacy-policy.md` as the source for the public privacy policy page. T
 3. Confirm the side panel opens in `Mode 2 - ChatGPT Sidebar`.
 4. Open a normal webpage, select text, right-click, and choose `Ask with Dichrome about "%s"`.
 5. Confirm Mode 2 prepares a copyable prompt and keeps the user in control of the embedded ChatGPT frame or fallback companion window.
-6. Press `Shot` on a normal webpage and confirm the screenshot is prepared for copy/download rather than auto-sent.
+6. Press `Shot` on a normal webpage and confirm the screenshot appears as an attachment in the embedded ChatGPT composer when available, or exposes copy/download fallback controls if the frame cannot accept it. Confirm ChatGPT does not send until the user presses ChatGPT's send button.
 7. Open root `Settings`, choose `Mode 1 - Original Dichrome Beta`, and confirm the early beta warning must be acknowledged before switching.
 8. In Mode 1, select webpage text, choose a Dichrome selected-text action, and confirm the selected text is routed to ChatGPT and the generated response appears in the side panel.
 9. Open Mode 1 `Settings`, change the ChatGPT project routing target, save, and confirm the history panel reflects the configured project.
@@ -119,7 +119,7 @@ Before submission, manually test these cases in a clean Chrome profile and docum
 - Existing original Dichrome storage migrates to Mode 1.
 - Mode 1 beta warning and active-request switch guard.
 - Mode 2 embedded ChatGPT frame and fallback companion window.
-- Mode 2 selected-text prompt copy and screenshot copy/download.
+- Mode 2 selected-text prompt copy and screenshot composer attachment with copy/download fallback.
 - Configured project exists.
 - Configured project renamed or missing.
 - Model unavailable on the user's ChatGPT tier.

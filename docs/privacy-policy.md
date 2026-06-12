@@ -6,7 +6,7 @@ This draft is intended to be published at the privacy policy URL used in the Chr
 
 ## Summary
 
-Dichrome provides a local Chrome side-panel companion for the user's signed-in ChatGPT web session. By default, Mode 2 embeds ChatGPT in the side panel, prepares copyable prompts from selected webpage text, and captures visible screenshots for copy/download. Optional Mode 1, labelled as the original Dichrome beta, can route user-selected webpage text, user-entered prompts, optional attachments, and visible-tab screenshots into ChatGPT through the ChatGPT web interface. Dichrome does not run a developer-operated backend, does not use the OpenAI API, does not sell data, and does not include advertising or analytics.
+Dichrome provides a local Chrome side-panel companion for the user's signed-in ChatGPT web session. By default, Mode 2 embeds ChatGPT in the side panel, prepares copyable prompts from selected webpage text, and captures visible screenshots for attachment into the embedded ChatGPT composer with copy/download fallback controls. Optional Mode 1, labelled as the original Dichrome beta, can route user-selected webpage text, user-entered prompts, optional attachments, and visible-tab screenshots into ChatGPT through the ChatGPT web interface. Dichrome does not run a developer-operated backend, does not use the OpenAI API, does not sell data, and does not include advertising or analytics.
 
 ## Data handled by the extension
 
@@ -27,7 +27,7 @@ Dichrome may handle the following data when the user invokes a feature:
 Dichrome uses this data only to provide the user-requested assistant workflow:
 
 - Build Mode 2 copyable prompts from selected text.
-- Capture Mode 2 screenshots for copy/download at the user's request.
+- Capture Mode 2 screenshots and attach them to the embedded ChatGPT composer at the user's request when ChatGPT accepts the image upload; local copy/download controls remain available as a fallback.
 - Build Mode 1 prompts from selected text, typed instructions, screenshots, and user-selected attachments.
 - Insert Mode 1 prompts and attachments into ChatGPT using the user's existing ChatGPT browser session.
 - Display Mode 1 ChatGPT-generated responses and request status in the extension side panel.
@@ -38,7 +38,7 @@ Dichrome uses this data only to provide the user-requested assistant workflow:
 
 ## Data sharing
 
-Dichrome shares prompt content, selected webpage text, screenshots, and attachments with ChatGPT only when the user sends, pastes, or otherwise uses that information in their ChatGPT session, or asks the extension to load project/conversation information from their ChatGPT session. Mode 2 selected-text prompts and screenshots are prepared locally for user-controlled copy/download. ChatGPT processing is governed by the user's account relationship with ChatGPT/OpenAI.
+Dichrome shares prompt content, selected webpage text, screenshots, and attachments with ChatGPT only when the user sends, pastes, attaches, or otherwise uses that information in their ChatGPT session, or asks the extension to load project/conversation information from their ChatGPT session. Mode 2 selected-text prompts are prepared locally for user-controlled copy/paste. Mode 2 screenshots are attached to the embedded ChatGPT composer after a user screenshot action when the frame accepts the image upload, and remain locally available for copy/download fallback. ChatGPT processing is governed by the user's account relationship with ChatGPT/OpenAI.
 
 Dichrome does not send user data to a developer-operated server, does not sell user data, does not transfer user data for advertising, and does not allow humans associated with the developer to read user data through a hosted service.
 

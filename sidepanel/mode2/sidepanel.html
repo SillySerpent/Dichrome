@@ -10,6 +10,7 @@
     <main class="app-shell">
       <header class="top-bar" aria-label="ChatGPT sidebar controls">
         <div class="top-bar-row">
+          <button id="modeButton" class="tool-button" type="button" title="Mode settings">Mode</button>
           <div class="brand">
             <strong>ChatGPT</strong>
             <span id="frameStatus" class="status-pill" data-state="idle">Ready</span>
@@ -37,7 +38,7 @@
         ></iframe>
       </section>
 
-      <footer id="statusBar" class="status-bar" data-kind="" aria-live="polite">
+      <footer id="statusBar" class="status-bar is-empty" data-kind="" aria-live="polite">
         <span id="statusText">Ready.</span>
       </footer>
     </main>

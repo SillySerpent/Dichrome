@@ -99,14 +99,14 @@ Ownership:
 - `content/chatgpt/runtime/app.js` owns top-level dependency wiring, adapter method composition, extension message registration, active-run/history locking, and module startup.
 - `content/chatgpt/90-bootstrap.js` stays a small marker/entrypoint after runtime modules have loaded.
 - `content/chatgpt/main-world-capture.js` runs in the page world and emits plain text as the canonical response payload. Final HTML rendering and sanitization belongs in the side panel through `shared/response-formatting.js`.
-- `content/mode2/chatgpt-frame-theme.js` runs only in direct extension-hosted ChatGPT iframes. It owns Mode 2 frame dark-theme hints, same-frame ChatGPT link behavior, and `dichrome.mode2.chatGptFrameUrl` persistence. It must not take over top-level ChatGPT tabs.
+- `content/mode2/chatgpt-frame-theme.js` runs only in direct extension-hosted ChatGPT iframes. It owns Mode 2 frame dark-theme hints, same-frame ChatGPT link behavior, `dichrome.mode2.chatGptFrameUrl` persistence, and the screenshot attachment handoff from the side-panel parent into the ChatGPT composer. It must not take over top-level ChatGPT tabs.
 
 Future content-runtime changes should usually land in the concern-specific module above. Keep `runtime/app.js` as wiring only unless a change genuinely crosses module boundaries.
 
 ## Side Panel
 
-- `sidepanel/sidepanel.html`, `sidepanel/shell.css`, and `sidepanel/shell.js` are the root side-panel shell. The shell owns mode iframe loading, active mode labels, mode settings, the Mode 1 beta acknowledgement, and active Mode 1 request switch guarding.
-- `sidepanel/mode2/sidepanel.html`, `sidepanel/mode2/sidepanel.css`, and `sidepanel/mode2/sidepanel.js` own the default Mode 2 ChatGPT sidebar companion UI.
+- `sidepanel/sidepanel.html`, `sidepanel/shell.css`, and `sidepanel/shell.js` are the root side-panel shell. The shell owns mode iframe loading, the compact floating mode/settings control, mode settings, the Mode 1 beta acknowledgement, and active Mode 1 request switch guarding.
+- `sidepanel/mode2/sidepanel.html`, `sidepanel/mode2/sidepanel.css`, and `sidepanel/mode2/sidepanel.js` own the default Mode 2 ChatGPT sidebar companion UI, including compact floating frame controls and the parent side of screenshot attachment messaging.
 - `sidepanel/mode1.html` hosts the original Dichrome Mode 1 beta app.
 - `sidepanel/sidepanel.js` is the Mode 1 HTML entrypoint and imports `sidepanel/runtime/app.js`.
 - `sidepanel/runtime/app.js` owns panel initialization, event binding, panel state loading, request actions, project-history UI state, sign-in handoff, and top-level rendering.
@@ -125,7 +125,7 @@ Future content-runtime changes should usually land in the concern-specific modul
 - `sidepanel/runtime/response-view.js` owns sanitized response insertion, auto-scroll state, copyable code/math blocks, and clipboard writes.
 - `sidepanel/runtime/response-animation.js` owns the streaming typewriter animation.
 
-Keep side-panel DOM ids stable unless the HTML/CSS are changed in the same pass. Mode 1 response HTML must flow through `shared/response-formatting.js` and `response-view.js`, not one-off renderers. Mode 2 must keep prompt/screenshot records under `dichrome.mode2.*` keys and avoid importing Mode 1 request rendering modules.
+Keep side-panel DOM ids stable unless the HTML/CSS are changed in the same pass. Mode 1 response HTML must flow through `shared/response-formatting.js` and `response-view.js`, not one-off renderers. Mode 2 must keep prompt/screenshot records under `dichrome.mode2.*` keys, avoid importing Mode 1 request rendering modules, and validate real ChatGPT screenshot attachment acceptance before telling the user the image reached the composer.
 
 ## Scripts And Tests
 

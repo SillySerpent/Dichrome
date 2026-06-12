@@ -24,52 +24,65 @@ button {
 
 .app-shell {
   background: #0b0f14;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
   min-height: 100vh;
   overflow: hidden;
+  position: relative;
 }
 
 .top-bar {
-  background: #0b0f14;
-  border-bottom: 1px solid #1f2937;
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  padding: 8px;
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 4px 8px;
+  pointer-events: none;
+  position: relative;
+  width: 100%;
+  z-index: 5;
+  flex-shrink: 0;
 }
 
 .top-bar-row {
   align-items: center;
   display: flex;
   gap: 8px;
-  justify-content: space-between;
+  justify-content: center;
   min-width: 0;
+  width: 100%;
 }
 
 .brand {
   align-items: center;
   display: flex;
-  gap: 8px;
+  gap: 4px;
   min-width: 0;
+  order: 2;
 }
 
 .brand strong {
-  font-size: 13px;
-  line-height: 1;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 .status-pill {
-  background: #111827;
-  border: 1px solid #374151;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.42);
   border-radius: 999px;
   color: #cbd5e1;
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   line-height: 1;
-  padding: 5px 8px;
+  min-height: 24px;
+  padding: 6px 7px;
+  pointer-events: auto;
 }
 
 .status-pill[data-state="loading"] {
@@ -91,7 +104,7 @@ button {
 .contextual-actions {
   align-items: center;
   display: flex;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
   scrollbar-width: none;
 }
@@ -99,13 +112,14 @@ button {
 .primary-actions {
   flex: 0 0 auto;
   justify-content: flex-end;
+  order: 1;
+  pointer-events: auto;
 }
 
 .contextual-actions {
-  border-top: 1px solid #1f2937;
-  justify-content: flex-start;
+  justify-content: flex-end;
   overflow-x: auto;
-  padding-top: 6px;
+  pointer-events: auto;
 }
 
 .contextual-actions::-webkit-scrollbar {
@@ -114,41 +128,48 @@ button {
 
 .tool-button {
   appearance: none;
-  background: #111827;
-  border: 1px solid #374151;
-  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 999px;
   color: #e5e7eb;
   cursor: pointer;
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
-  min-height: 30px;
-  padding: 8px 9px;
+  min-height: 24px;
+  padding: 5px 8px;
 }
 
 .tool-button:hover,
 .tool-button:focus {
-  background: #1f2937;
+  background: rgba(30, 41, 59, 0.9);
   border-color: #64748b;
   outline: none;
 }
 
+.tool-button:disabled {
+  cursor: wait;
+  opacity: 0.66;
+}
+
 .tool-button.primary {
-  background: #0f766e;
+  background: rgba(15, 118, 110, 0.88);
   border-color: #14b8a6;
   color: #f8fafc;
 }
 
 .tool-button.primary:hover,
 .tool-button.primary:focus {
-  background: #115e59;
+  background: rgba(17, 94, 89, 0.94);
 }
 
 .frame-area {
   background: #05070a;
+  flex: 1;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .chatgpt-frame {
@@ -160,16 +181,30 @@ button {
 }
 
 .status-bar {
-  background: #0b0f14;
-  border-top: 1px solid #1f2937;
+  background: rgba(5, 7, 10, 0.82);
+  border: 1px solid rgba(31, 41, 55, 0.9);
+  border-radius: 999px;
+  bottom: 8px;
   color: #cbd5e1;
-  font-size: 12px;
-  line-height: 1.35;
-  min-height: 32px;
+  font-size: 11px;
+  left: 8px;
+  line-height: 1.25;
+  max-width: calc(100% - 16px);
+  min-height: 0;
   overflow: hidden;
-  padding: 8px 10px;
+  padding: 6px 9px;
+  pointer-events: none;
+  position: absolute;
+  right: auto;
   text-overflow: ellipsis;
+  transition: opacity 160ms ease, transform 160ms ease;
   white-space: nowrap;
+  z-index: 5;
+}
+
+.status-bar.is-empty {
+  opacity: 0;
+  transform: translateY(4px);
 }
 
 .status-bar[data-kind="success"] {
@@ -189,18 +224,14 @@ button {
 }
 
 @media (max-width: 380px) {
-  .top-bar-row {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .brand,
-  .primary-actions {
-    justify-content: space-between;
-    width: 100%;
-  }
-
+  .top-bar-row,
   .contextual-actions {
-    justify-content: flex-start;
+    gap: 6px 8px;
+    padding: 6px 8px;
+  }
+
+  .tool-button {
+    font-size: 10px;
+    padding: 3px 6px;
   }
 }

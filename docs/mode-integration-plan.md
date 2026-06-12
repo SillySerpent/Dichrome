@@ -4,7 +4,7 @@
 
 Dichrome now ships as one Chrome/Chromium MV3 extension with two side-panel modes behind a shared shell.
 
-- **Mode 2 - ChatGPT Sidebar** is the first-run default. It embeds ChatGPT in the side panel, prepares copyable prompts from selected webpage text, captures visible screenshots for copy/download, and can open a user-triggered ChatGPT companion popup window.
+- **Mode 2 - ChatGPT Sidebar** is the first-run default. It embeds ChatGPT in the side panel, prepares copyable prompts from selected webpage text, captures visible screenshots into the embedded ChatGPT composer with copy/download fallback controls, and can open a user-triggered ChatGPT companion popup window.
 - **Mode 1 - Original Dichrome Beta** is the original Dichrome hidden-automation UI. It remains available from root side-panel settings after the user acknowledges the early beta warning.
 - **Shared shell** is the single extension identity, manifest, service worker entrypoint, mode setting, shared screenshot capture, shared source-tab tracking, shared context-menu entrypoints, shared selection popover, and mode switcher.
 
@@ -14,7 +14,7 @@ The standalone prototype source folder has been removed from the shipping worksp
 
 Fresh installs open Mode 2. Existing local installs that already contain original Dichrome settings/session state migrate to Mode 1 so the user's previous workflow is not hidden unexpectedly.
 
-Mode switching lives in the root side-panel settings UI and is reachable above both mode apps. Switching modes changes the iframe-loaded side-panel surface without requiring a browser extension reload.
+Mode switching lives in the root side-panel settings UI and is reachable through a compact floating control over both mode apps. Switching modes changes the iframe-loaded side-panel surface without requiring a browser extension reload.
 
 Switching into Mode 1 shows this warning and requires acknowledgement:
 
@@ -49,7 +49,7 @@ Mode ownership is separated:
 
 - Shared shell owns active mode, public mode labels, mode switching, switch guards, toolbar opening, and iframe loading.
 - Shared background routing owns context-menu creation, selected-text entrypoints, keyboard screenshot/selection shortcuts, source-tab selection, and visible screenshot capture.
-- Mode 2 owns embedded-frame UI, frame URL state, fallback popup-window state, selected-text prompt-copy records, screenshot copy/download records, and simple ChatGPT companion controls.
+- Mode 2 owns embedded-frame UI, frame URL state, fallback popup-window state, selected-text prompt-copy records, screenshot records, screenshot attachment handoff into the embedded ChatGPT composer, copy/download fallback controls, and simple ChatGPT companion controls.
 - Mode 1 owns hidden workspace automation, project routing, model selection, project history, request records, response extraction, file/screenshot attachment upload, follow-up routing, response rendering, and sign-in handoff.
 
 Mode 1 and Mode 2 must not import each other's UI or storage internals. Shared services should be extracted only when both modes genuinely need the same browser-source behavior.
@@ -95,7 +95,7 @@ Mode routing behavior:
 
 - In Mode 2, selected-text actions create a copyable prompt record, open Mode 2, and expose copy/open controls.
 - In Mode 1, selected-text actions start an original Dichrome request through the existing request orchestrator.
-- In Mode 2, screenshot actions capture and store an image for copy/download.
+- In Mode 2, screenshot actions capture and store an image, then the side panel asks the extension-hosted ChatGPT iframe to attach the recent screenshot into the composer. Copy/download remains available as fallback when the frame or ChatGPT upload UI cannot accept it.
 - In Mode 1, screenshot actions capture and attach the image to a hidden ChatGPT request.
 
 Unified user-facing menu actions:
