@@ -1,8 +1,4 @@
 import {
-  AUTOMATION_WINDOW_STATE_KEY,
-  storageArea
-} from "../constants.js";
-import {
   AUTOMATION_TARGET_TYPES,
   STORAGE_KEYS
 } from "../../shared/contracts.js";
@@ -10,6 +6,8 @@ import {
 export const AUTOMATION_SESSION_KEY = STORAGE_KEYS.AUTOMATION_SESSION;
 export const AUTOMATION_SESSION_SCHEMA_VERSION = 1;
 export { AUTOMATION_TARGET_TYPES };
+
+const LEGACY_AUTOMATION_WINDOW_STATE_KEY = "chatGptAutomationWindowState";
 
 const DEFAULT_SESSION = Object.freeze({
   schemaVersion: AUTOMATION_SESSION_SCHEMA_VERSION,
@@ -26,21 +24,12 @@ const DEFAULT_SESSION = Object.freeze({
 });
 
 export async function getAutomationSession() {
-  const result = await chrome.storage.local.get([
-    AUTOMATION_SESSION_KEY,
-    AUTOMATION_WINDOW_STATE_KEY
-  ]);
+  const result = await chrome.storage.local.get(AUTOMATION_SESSION_KEY);
+  await cleanupLegacyAutomationWindowState();
   const existing = normalizeAutomationSession(result[AUTOMATION_SESSION_KEY]);
 
   if (existing) {
     return existing;
-  }
-
-  const migrated = normalizeLegacyAutomationWindowState(result[AUTOMATION_WINDOW_STATE_KEY]);
-
-  if (migrated) {
-    await setAutomationSession(migrated);
-    return migrated;
   }
 
   return createDefaultAutomationSession();
@@ -126,21 +115,6 @@ export async function clearAutomationTarget(reason = "") {
   });
 }
 
-export async function clearAutomationTabIfMatches(tabId) {
-  const session = await getAutomationSession();
-
-  if (session.tabId !== tabId) {
-    return session;
-  }
-
-  return updateAutomationSession((draft) => {
-    draft.tabId = null;
-    draft.windowId = null;
-    draft.activeRequestId = null;
-    draft.lastKnownUrl = "tab-removed";
-  });
-}
-
 export async function setOffscreenCapability(capability) {
   return updateAutomationSession((session) => {
     session.offscreenCapability = {
@@ -193,17 +167,6 @@ function normalizeAutomationSession(value) {
   };
 }
 
-function normalizeLegacyAutomationWindowState(value) {
-  if (!value || typeof value !== "object" || !Number.isInteger(value.tabId)) {
-    return null;
-  }
-
-  return {
-    ...createDefaultAutomationSession(),
-    lastKnownUrl: "legacy-visible-tab-ignored"
-  };
-}
-
 function normalizeTargetType(value) {
   if (value === AUTOMATION_TARGET_TYPES.OFFSCREEN_FRAME) {
     return value;
@@ -222,4 +185,8 @@ function normalizeOffscreenCapability(value) {
     checkedAt: typeof value.checkedAt === "string" ? value.checkedAt : new Date().toISOString(),
     failureReason: typeof value.failureReason === "string" ? value.failureReason : null
   };
+}
+
+async function cleanupLegacyAutomationWindowState() {
+  await chrome.storage.local.remove?.(LEGACY_AUTOMATION_WINDOW_STATE_KEY).catch(() => null);
 }
