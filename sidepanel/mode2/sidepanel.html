@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ChatGPT Sidebar</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="top-bar" aria-label="ChatGPT sidebar controls">
+        <div class="top-bar-row">
+          <div class="brand">
+            <strong>ChatGPT</strong>
+            <span id="frameStatus" class="status-pill" data-state="idle">Ready</span>
+          </div>
+          <div class="primary-actions">
+            <button id="captureScreenshot" class="tool-button primary" type="button" title="Capture the visible tab screenshot">Shot</button>
+            <button id="reloadChatGptFrame" class="tool-button" type="button" title="Reload ChatGPT in the sidebar">Reload</button>
+            <button id="openChatGptWindow" class="tool-button" type="button" title="Open ChatGPT in a fallback window">Open</button>
+          </div>
+        </div>
+        <div id="contextualActions" class="contextual-actions hidden">
+          <button id="copyPrompt" class="tool-button hidden" type="button" title="Copy the latest selected-text prompt">Copy prompt</button>
+          <button id="copyScreenshot" class="tool-button hidden" type="button" title="Copy the latest screenshot image">Copy image</button>
+          <button id="downloadScreenshot" class="tool-button hidden" type="button" title="Download the latest screenshot">Save</button>
+        </div>
+      </header>
+
+      <section class="frame-area" aria-label="Embedded ChatGPT">
+        <iframe
+          id="chatGptFrame"
+          class="chatgpt-frame"
+          title="Embedded ChatGPT"
+          allow="clipboard-read; clipboard-write; microphone; camera; fullscreen; display-capture"
+          referrerpolicy="strict-origin-when-cross-origin"
+        ></iframe>
+      </section>
+
+      <footer id="statusBar" class="status-bar" data-kind="" aria-live="polite">
+        <span id="statusText">Ready.</span>
+      </footer>
+    </main>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
