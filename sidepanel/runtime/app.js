@@ -50,6 +50,16 @@ import {
 import { createResponseAnimation } from "./response-animation.js";
 import { createResponseView } from "./response-view.js";
 import { createSettingsDialog } from "./settings-dialog.js";
+import { createMessageCardFactory } from "./message-cards.js";
+import {
+  appendPendingAttachment,
+  renderPendingAttachments
+} from "./pending-attachments.js";
+import {
+  formatHistoryMeta,
+  formatRequestStatus,
+  isAuthRequired
+} from "./status-formatting.js";
 import {
   isRunningRequest,
   isStreamingState
@@ -95,6 +105,10 @@ const chatThreadScrollState = {
 
 const responseView = createResponseView({
   responseText: dom.responseText
+});
+const messageCards = createMessageCardFactory({
+  responseText: dom.responseText,
+  responseView
 });
 const responseAnimation = createResponseAnimation({
   renderMarkdownToHtml,
@@ -932,27 +946,18 @@ async function handleComposerTransfer({ files = [], imageUrls = [], text = "", v
 }
 
 function addAttachment(attachment) {
-  const normalizedAttachment = {
-    id: attachment.id || createLocalId(),
-    kind: attachment.kind || (String(attachment.mimeType || "").startsWith("image/") ? "image" : "file"),
-    name: attachment.name || "attachment",
-    mimeType: attachment.mimeType || "application/octet-stream",
-    sizeBytes: attachment.sizeBytes || null,
-    dataUrl: attachment.dataUrl,
-    previewUrl: attachment.previewUrl || (String(attachment.mimeType || "").startsWith("image/") ? attachment.dataUrl : "")
-  };
-  const limitViolation = getPendingAttachmentLimitViolation(pendingAttachments, normalizedAttachment);
+  const result = appendPendingAttachment(pendingAttachments, attachment, {
+    createLocalId,
+    getLimitViolation: getPendingAttachmentLimitViolation
+  });
 
-  if (limitViolation) {
-    setTransientStatus(limitViolation);
+  if (!result.added) {
+    setTransientStatus(result.limitViolation);
     return false;
   }
 
   markComposerInterest();
-  pendingAttachments = [
-    ...pendingAttachments,
-    normalizedAttachment
-  ];
+  pendingAttachments = result.attachments;
   renderAttachments();
   updateComposerSendState();
   return true;
@@ -966,46 +971,11 @@ function removeAttachment(attachmentId) {
 }
 
 function renderAttachments() {
-  dom.attachmentsTray.replaceChildren();
-  dom.attachmentsTray.classList.toggle("hidden", pendingAttachments.length === 0);
-
-  for (const attachment of pendingAttachments) {
-    const chip = document.createElement("div");
-    chip.className = "attachment-chip";
-
-    if (attachment.previewUrl) {
-      const image = document.createElement("img");
-      image.width = 34;
-      image.height = 30;
-      image.decoding = "sync";
-      image.loading = "eager";
-      image.src = attachment.previewUrl;
-      image.alt = "";
-      chip.append(image);
-    } else {
-      const icon = document.createElement("span");
-      icon.className = "file-icon";
-      icon.textContent = "File";
-      chip.append(icon);
-    }
-
-    const body = document.createElement("div");
-    body.className = "attachment-body";
-    const name = document.createElement("strong");
-    name.textContent = attachment.name;
-    const meta = document.createElement("span");
-    meta.textContent = [attachment.mimeType, formatBytes(attachment.sizeBytes)].filter(Boolean).join(" · ");
-    body.append(name, meta);
-
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "tiny-button";
-    remove.textContent = "Remove";
-    remove.dataset.removeAttachment = attachment.id;
-
-    chip.append(body, remove);
-    dom.attachmentsTray.append(chip);
-  }
+  renderPendingAttachments({
+    container: dom.attachmentsTray,
+    attachments: pendingAttachments,
+    formatBytes
+  });
 }
 
 function scheduleSelectedContextRefresh() {
@@ -1283,7 +1253,7 @@ function renderHistoryPanel({ preserveScroll = true, scrollAnchor = "preserve" }
     title.textContent = conversation.title || "Untitled conversation";
     const meta = document.createElement("div");
     meta.className = "history-item-meta";
-    meta.textContent = formatHistoryMeta(conversation);
+    meta.textContent = formatHistoryMeta(conversation, projectHistoryState.project?.name || "");
     body.append(title, meta);
 
     const marker = document.createElement("span");
@@ -1345,20 +1315,16 @@ function renderProjectConversationThread(conversation, activeRequest) {
 
   if (!visibleMessages.length && !activeRequest) {
     moveResponseTextToParking();
-    const empty = document.createElement("div");
-    empty.className = "empty-chat";
-    const title = document.createElement("strong");
-    title.textContent = conversation.title || "Conversation";
-    const body = document.createElement("span");
-    body.textContent = "No messages were returned for this conversation.";
-    empty.append(title, body);
-    dom.chatMessages.append(empty);
+    dom.chatMessages.append(messageCards.createEmptyChat({
+      title: conversation.title || "Conversation",
+      body: "No messages were returned for this conversation."
+    }));
     restoreChatThreadScroll(previousScrollTop, shouldStickToBottom);
     return;
   }
 
   for (const message of visibleMessages) {
-    dom.chatMessages.append(createHistoryMessageCard(message));
+    dom.chatMessages.append(messageCards.createHistoryMessageCard(message));
   }
 
   const liveRequests = activeRequest
@@ -1371,8 +1337,8 @@ function renderProjectConversationThread(conversation, activeRequest) {
     for (const request of liveRequests) {
       const isActiveLiveRequest = request.id === activeRequest.id;
       renderedActiveRequest = renderedActiveRequest || isActiveLiveRequest;
-      dom.chatMessages.append(createUserMessageCard(request));
-      dom.chatMessages.append(createAssistantMessageCard(request, isActiveLiveRequest));
+      dom.chatMessages.append(messageCards.createUserRequestCard(request));
+      dom.chatMessages.append(messageCards.createAssistantRequestCard(request, isActiveLiveRequest));
     }
   }
 
@@ -1381,32 +1347,6 @@ function renderProjectConversationThread(conversation, activeRequest) {
   }
 
   restoreChatThreadScroll(previousScrollTop, shouldStickToBottom);
-}
-
-function createHistoryMessageCard(message) {
-  const card = document.createElement("article");
-  const isAssistant = message.role === "assistant";
-  card.className = `message-card ${isAssistant ? "assistant-message" : "user-message"}`;
-
-  const meta = document.createElement("div");
-  meta.className = "message-meta";
-  meta.textContent = isAssistant ? "Assistant" : "You";
-
-  const body = document.createElement("div");
-  body.className = `message-body${isAssistant ? " assistant-body" : ""}`;
-
-  if (isAssistant) {
-    const content = document.createElement("div");
-    content.className = "response-content";
-    content.innerHTML = message.text ? renderMarkdownToHtml(message.text) : normalizeResponseHtml(message.html || "");
-    responseView.enhanceContainer(content);
-    body.append(content);
-  } else {
-    body.textContent = message.text || "";
-  }
-
-  card.append(meta, body);
-  return card;
 }
 
 function revealOlderHistoryMessages() {
@@ -1443,16 +1383,13 @@ function renderChatThread(activeRequest) {
 
   if (!activeRequest) {
     moveResponseTextToParking();
-    const empty = document.createElement("div");
-    empty.className = "empty-chat";
-    const title = document.createElement("strong");
-    title.textContent = forceNewConversationDraft ? "New conversation" : "Start a chat";
-    const body = document.createElement("span");
-    body.textContent = forceNewConversationDraft
-      ? "Your next message will start separately. Mode changes only affect the next send."
-      : "Type below, attach context, or select webpage text. Follow-ups continue this conversation until you press New.";
-    empty.append(title, body, createShortcutHint());
-    dom.chatMessages.append(empty);
+    dom.chatMessages.append(messageCards.createEmptyChat({
+      title: forceNewConversationDraft ? "New conversation" : "Start a chat",
+      body: forceNewConversationDraft
+        ? "Your next message will start separately. Mode changes only affect the next send."
+        : "Type below, attach context, or select webpage text. Follow-ups continue this conversation until you press New.",
+      includeShortcutHint: true
+    }));
     restoreChatThreadScroll(previousScrollTop, shouldStickToBottom);
     return;
   }
@@ -1460,96 +1397,11 @@ function renderChatThread(activeRequest) {
   const thread = getRequestThread(activeRequest);
 
   for (const request of thread) {
-    dom.chatMessages.append(createUserMessageCard(request));
-    dom.chatMessages.append(createAssistantMessageCard(request, request.id === activeRequest.id));
+    dom.chatMessages.append(messageCards.createUserRequestCard(request));
+    dom.chatMessages.append(messageCards.createAssistantRequestCard(request, request.id === activeRequest.id));
   }
 
   restoreChatThreadScroll(previousScrollTop, shouldStickToBottom);
-}
-
-function createUserMessageCard(request) {
-  const card = document.createElement("article");
-  card.className = "message-card user-message";
-
-  const meta = document.createElement("div");
-  meta.className = "message-meta";
-  meta.textContent = "You";
-
-  const body = document.createElement("div");
-  body.className = "message-body";
-  body.textContent = request.manualText || request.prompt || "Sent attachment/context.";
-
-  card.append(meta, body);
-
-  if (request.selectedText) {
-    const context = document.createElement("div");
-    context.className = "sent-context";
-    context.textContent = `Selected text: ${truncateText(request.selectedText, 420)}`;
-    card.append(context);
-  }
-
-  if (request.attachments?.length) {
-    const list = document.createElement("div");
-    list.className = "sent-attachments";
-
-    for (const attachment of request.attachments) {
-      const chip = document.createElement("span");
-      chip.textContent = attachment.name || attachment.kind || "attachment";
-      list.append(chip);
-    }
-
-    card.append(list);
-  }
-
-  return card;
-}
-
-function createAssistantMessageCard(request, isActive) {
-  const card = document.createElement("article");
-  card.className = "message-card assistant-message";
-
-  const meta = document.createElement("div");
-  meta.className = "message-meta";
-  meta.textContent = request.state === "ERROR_STATE" ? "Assistant - error" : "Assistant";
-
-  const body = document.createElement("div");
-  body.className = "message-body assistant-body";
-
-  if (isActive) {
-    body.append(dom.responseText);
-  } else {
-    const content = document.createElement("div");
-    content.className = "response-content";
-    const text = normalizeResponseText(request.responseText || "");
-    content.innerHTML = text ? renderMarkdownToHtml(text) : normalizeResponseHtml(request.responseHtml || "");
-    responseView.enhanceContainer(content);
-    body.append(content);
-  }
-
-  card.append(meta, body);
-  return card;
-}
-
-function createShortcutHint() {
-  const hint = document.createElement("div");
-  hint.className = "shortcut-hint";
-  hint.setAttribute("aria-label", "Side panel shortcut");
-
-  const mac = document.createElement("span");
-  mac.append("Mac ", createKeyCap("Option"), createKeyCap("Shift"), createKeyCap("D"));
-
-  const windows = document.createElement("span");
-  windows.append("Windows ", createKeyCap("Alt"), createKeyCap("Shift"), createKeyCap("D"));
-
-  hint.append(mac, windows);
-  return hint;
-}
-
-function createKeyCap(value) {
-  const key = document.createElement("kbd");
-  key.textContent = value;
-
-  return key;
 }
 
 function getRequestThread(activeRequest) {
@@ -1807,56 +1659,6 @@ function renderErrorBlock(request) {
   }
 
   dom.errorBlock.classList.remove("hidden");
-}
-
-function formatRequestStatus(request) {
-  if (!request) {
-    return "Ready";
-  }
-
-  const state = formatState(request.state);
-
-  if (request.errorCode === REQUEST_ERROR_CODES.AUTH_REQUIRED) {
-    return "Sign in required";
-  }
-
-  return state;
-}
-
-function isAuthRequired(request) {
-  return request?.errorCode === REQUEST_ERROR_CODES.AUTH_REQUIRED;
-}
-
-function formatState(state) {
-  if (state === "CHATGPT_TAB_READY") {
-    return "hidden workspace ready";
-  }
-
-  return String(state || "IDLE").toLowerCase().replace(/_/g, " ");
-}
-
-function formatHistoryMeta(conversation) {
-  const updated = formatCompactDate(conversation.updatedAt || conversation.createdAt);
-  const project = conversation.projectName || projectHistoryState.project?.name || "";
-
-  return [updated, project].filter(Boolean).join(" - ") || "Project conversation";
-}
-
-function formatCompactDate(value) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric"
-  });
 }
 
 function truncateText(text, maxLength) {
