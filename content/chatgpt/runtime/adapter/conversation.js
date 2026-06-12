@@ -61,7 +61,7 @@
         }
 
         if (usedDirectNavigation) {
-          emitState(requestId, REQUEST_STATES.CHATGPT_TAB_READY, {
+          emitState(requestId, REQUEST_STATES.WORKSPACE_READY, {
             detail: "Starting a fresh ChatGPT composer by direct navigation."
           });
         }

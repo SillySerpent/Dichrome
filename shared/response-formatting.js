@@ -1,7 +1,7 @@
-import {
-  RESPONSE_ALLOWED_ATTRIBUTES,
-  RESPONSE_ALLOWED_TAGS
-} from "./contracts.js";
+import { escapeHtml } from "./response/escaping.js";
+import { sanitizeResponseHtml } from "./response/sanitizer.js";
+
+export { escapeHtml, sanitizeResponseHtml };
 
 const INLINE_PLACEHOLDER_PREFIX = "\uE000";
 const INLINE_PLACEHOLDER_SUFFIX = "\uE001";
@@ -181,7 +181,7 @@ export function renderMarkdownToHtml(markdown) {
     writingBlocks: writingProtected.writingBlocks
   };
 
-  return stripChatGptMarkdownArtifacts(protectedSource)
+  return isolateDisplayMathBlocks(stripChatGptMarkdownArtifacts(protectedSource))
     .split(/\n{2,}/)
     .map((block) => block.trim())
     .filter(Boolean)
@@ -207,46 +207,6 @@ export function normalizeResponseHtml(value) {
   return renderMarkdownToHtml(raw);
 }
 
-export function sanitizeResponseHtml(html, documentRef = globalThis.document) {
-  if (!documentRef?.createElement) {
-    return sanitizeResponseHtmlString(html);
-  }
-
-  const template = documentRef.createElement("template");
-  const allowedTags = new Set(RESPONSE_ALLOWED_TAGS);
-  const allowedAttributes = new Set(RESPONSE_ALLOWED_ATTRIBUTES);
-
-  template.innerHTML = String(html || "");
-
-  for (const element of Array.from(template.content.querySelectorAll("*"))) {
-    if (!allowedTags.has(element.tagName)) {
-      element.replaceWith(documentRef.createTextNode(element.textContent || ""));
-      continue;
-    }
-
-    for (const attribute of Array.from(element.attributes)) {
-      if (!allowedAttributes.has(attribute.name)) {
-        element.removeAttribute(attribute.name);
-        continue;
-      }
-
-      if (attribute.name === "href" && !/^https?:\/\//i.test(attribute.value)) {
-        element.removeAttribute(attribute.name);
-      }
-
-      if (attribute.name === "target" && attribute.value !== "_blank") {
-        element.removeAttribute(attribute.name);
-      }
-
-      if (attribute.name === "rel") {
-        element.setAttribute("rel", "noopener noreferrer");
-      }
-    }
-  }
-
-  return template.innerHTML;
-}
-
 export function renderDisplayMath(expression) {
   const source = normalizeLatexSource(expression);
   const rendered = renderLatexLikeHtml(source);
@@ -261,15 +221,6 @@ export function renderInlineMath(expression) {
   const fallbackClass = rendered.ok ? "" : " math-fallback";
 
   return `<span class="math math-inline${fallbackClass}"><span class="math-rendered">${rendered.html}</span><span class="math-source">${escapeHtml(source)}</span></span>`;
-}
-
-export function escapeHtml(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }
 
 function renderMarkdownBlock(block, state) {
@@ -701,6 +652,94 @@ function matchDisplayMathBlock(block) {
   return bracketMatch ? bracketMatch[1].trim() : null;
 }
 
+function isolateDisplayMathBlocks(source) {
+  const lines = String(source || "").split("\n");
+  const output = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const opening = matchDisplayMathOpeningLine(lines[index]);
+
+    if (!opening) {
+      output.push(lines[index]);
+      index += 1;
+      continue;
+    }
+
+    const closingIndex = findDisplayMathClosingLine(lines, index, opening);
+
+    if (closingIndex === -1) {
+      output.push(lines[index]);
+      index += 1;
+      continue;
+    }
+
+    if (output.length && output[output.length - 1].trim()) {
+      output.push("");
+    }
+
+    output.push(...lines.slice(index, closingIndex + 1));
+    output.push("");
+    index = closingIndex + 1;
+  }
+
+  return output.join("\n");
+}
+
+function matchDisplayMathOpeningLine(line) {
+  const trimmed = String(line || "").trim();
+
+  if (/^\\\[[\s\S]*\\\]$/.test(trimmed)) {
+    return {
+      delimiter: "bracket",
+      complete: true
+    };
+  }
+
+  if (/^\\\[/.test(trimmed)) {
+    return {
+      delimiter: "bracket",
+      complete: false
+    };
+  }
+
+  if (/^\$\$[\s\S]*\$\$$/.test(trimmed) && trimmed.length > 4) {
+    return {
+      delimiter: "dollar",
+      complete: true
+    };
+  }
+
+  if (/^\$\$/.test(trimmed)) {
+    return {
+      delimiter: "dollar",
+      complete: false
+    };
+  }
+
+  return null;
+}
+
+function findDisplayMathClosingLine(lines, startIndex, opening) {
+  if (opening.complete) {
+    return startIndex;
+  }
+
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const trimmed = String(lines[index] || "").trim();
+
+    if (opening.delimiter === "bracket" && /\\\]$/.test(trimmed)) {
+      return index;
+    }
+
+    if (opening.delimiter === "dollar" && /\$\$$/.test(trimmed)) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 function looksLikeMarkdownTable(lines) {
   return lines.length >= 2
     && lines[0].includes("|")
@@ -908,9 +947,9 @@ function renderLatexFragment(text, index, terminator) {
 }
 
 function renderLatexCommandInvocation(text, command) {
-  if (command.name === "frac") {
-    const numerator = readRequiredLatexArgument(text, command.index);
-    const denominator = numerator ? readRequiredLatexArgument(text, numerator.index) : null;
+  if (command.name === "frac" || command.name === "dfrac" || command.name === "tfrac") {
+    const numerator = readLatexArgumentOrAtom(text, command.index);
+    const denominator = numerator ? readLatexArgumentOrAtom(text, numerator.index) : null;
 
     if (!numerator || !denominator) {
       return null;
@@ -1406,12 +1445,4 @@ function tryParseJson(value) {
 
 function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function sanitizeResponseHtmlString(html) {
-  return String(html || "")
-    .replace(/<\s*(script|style|iframe|object|embed|form|button|input|textarea|select)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
-    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+href\s*=\s*(["'])\s*javascript:[\s\S]*?\1/gi, "")
-    .replace(/\s+src\s*=\s*(["'])[\s\S]*?\1/gi, "");
 }

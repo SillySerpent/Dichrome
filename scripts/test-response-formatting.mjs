@@ -69,6 +69,21 @@ assert.match(bracketDisplayMath, /class="math math-display"/);
 assert.match(bracketDisplayMath, /speed/);
 assert.match(bracketDisplayMath, /m/);
 
+const mixedDisplayMath = renderMarkdownToHtml([
+  "1. **Write the ray coordinates**",
+  "\\[",
+  "p(t)=",
+  "\\begin{pmatrix}0\\\\-1\\\\-1\\end{pmatrix}",
+  "+t\\begin{pmatrix}1\\\\1\\\\1\\end{pmatrix}",
+  "=",
+  "\\begin{pmatrix}t\\\\-1+t\\\\-1+t\\end{pmatrix}",
+  "\\]"
+].join("\n"));
+assert.match(mixedDisplayMath, /<ol><li><strong>Write the ray coordinates<\/strong><\/li><\/ol>/);
+assert.equal((mixedDisplayMath.match(/class="math-environment math-pmatrix"/g) || []).length, 3);
+assert.doesNotMatch(mixedDisplayMath, /<br>\\\[|<br>\\begin\{pmatrix\}/);
+assert.doesNotMatch(mixedDisplayMath, /math-fallback/);
+
 const matrixMath = renderMarkdownToHtml("$$\\begin{bmatrix} 1 & 2 \\\\ 3 & 4 \\end{bmatrix}$$");
 assert.match(matrixMath, /math-bmatrix/);
 assert.match(matrixMath, /math-row/);
@@ -130,6 +145,13 @@ assert.match(alignedMath, /∞/);
 assert.match(alignedMath, /π/);
 assert.match(alignedMath, /∫/);
 assert.doesNotMatch(alignedMath, /beginaligned|endaligned/);
+
+const compactFractionMath = renderMarkdownToHtml("$$t=\\frac13 \\quad \\text{or} \\quad t=1$$");
+assert.match(compactFractionMath, /class="math math-display"/);
+assert.match(compactFractionMath, /math-frac/);
+assert.match(compactFractionMath, /<span class="math-num">1<\/span>/);
+assert.match(compactFractionMath, /<span class="math-den">3<\/span>/);
+assert.doesNotMatch(compactFractionMath, /math-fallback/);
 
 const quotedDisplayMath = renderMarkdownToHtml([
   "> $$",

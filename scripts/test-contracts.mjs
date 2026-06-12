@@ -6,9 +6,11 @@ import {
   CHATGPT_CONTENT_SCRIPT_FILES,
   AUTOMATION_TARGET_TYPES,
   OFFSCREEN_FRAME_PORT_NAME,
+  OFFSCREEN_FRAME_ROLES,
   PANEL_MESSAGES,
   REQUEST_STATES,
-  VISIBILITY_MODES
+  VISIBILITY_MODES,
+  normalizeRequestState
 } from "../shared/contracts.js";
 
 const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url), "utf8"));
@@ -22,17 +24,23 @@ const contentContracts = contentContext.ChatGptRelay.contracts;
 
 assert.deepEqual(chatGptContentScript.js, CHATGPT_CONTENT_SCRIPT_FILES);
 assert.equal(OFFSCREEN_FRAME_PORT_NAME, "chatgpt-relay-offscreen-frame");
+assert.equal(REQUEST_STATES.WORKSPACE_READY, "WORKSPACE_READY");
 assert.equal(REQUEST_STATES.RESPONSE_COMPLETE, "RESPONSE_COMPLETE");
+assert.equal(normalizeRequestState("CHATGPT_TAB_READY"), REQUEST_STATES.WORKSPACE_READY);
+assert.equal(normalizeRequestState(REQUEST_STATES.WORKSPACE_READY), REQUEST_STATES.WORKSPACE_READY);
 assert.equal(VISIBILITY_MODES.HIDDEN, "hidden");
 assert.deepEqual(Object.values(VISIBILITY_MODES), ["hidden", "offscreen-frame"]);
 assert.deepEqual(Object.values(AUTOMATION_TARGET_TYPES), ["offscreen-frame"]);
+assert.deepEqual(Object.values(OFFSCREEN_FRAME_ROLES), ["chat", "history"]);
 assert.equal(PANEL_MESSAGES.RUN_MANUAL_REQUEST, "RUN_MANUAL_REQUEST");
 assert.equal(PANEL_MESSAGES.GET_PROJECT_CONVERSATIONS, "GET_PROJECT_CONVERSATIONS");
 assert.equal(CHATGPT_AUTOMATION_MESSAGES.RUN, "CHATGPT_AUTOMATION_RUN");
 assert.equal(CHATGPT_AUTOMATION_MESSAGES.LOAD_PROJECT_CONVERSATION, "CHATGPT_AUTOMATION_LOAD_PROJECT_CONVERSATION");
 assert.equal(contentContracts.offscreenFramePortName, OFFSCREEN_FRAME_PORT_NAME);
+assert.equal(contentContracts.requestStates.WORKSPACE_READY, REQUEST_STATES.WORKSPACE_READY);
 assert.equal(contentContracts.requestStates.RESPONSE_COMPLETE, REQUEST_STATES.RESPONSE_COMPLETE);
 assert.equal(contentContracts.visibilityModes.HIDDEN, VISIBILITY_MODES.HIDDEN);
+assert.equal(contentContracts.offscreenFrameRoles.HISTORY, OFFSCREEN_FRAME_ROLES.HISTORY);
 assert.equal(contentContracts.messages.run, CHATGPT_AUTOMATION_MESSAGES.RUN);
 assert.equal(contentContracts.messages.listProjectConversations, CHATGPT_AUTOMATION_MESSAGES.LIST_PROJECT_CONVERSATIONS);
 

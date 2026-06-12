@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   CHATGPT_AUTOMATION_MESSAGES,
   OFFSCREEN_FRAME_PORT_NAME,
+  OFFSCREEN_FRAME_ROLES,
   OFFSCREEN_MESSAGES
 } from "../shared/contracts.js";
 
@@ -96,11 +97,24 @@ function createMockPort({
   return port;
 }
 
+function announceReady(port, frameRole, href = "https://chatgpt.com/") {
+  port.onMessage.emit({
+    type: OFFSCREEN_MESSAGES.FRAME_READY,
+    frameRole,
+    frame: {
+      frameRole,
+      href,
+      readyState: "complete"
+    }
+  });
+}
+
 const {
   getOffscreenFrameStatus,
   getOffscreenTargetDescriptor,
   handleOffscreenFramePort,
   probeOffscreenAutomationTarget,
+  reloadOffscreenFrameToUrl,
   sendMessageToOffscreenFrame
 } = await import("../background/automation/offscreen-target.js");
 
@@ -117,7 +131,15 @@ globalThis.chrome.runtime.sendMessage = async (message) => {
       target: "offscreen-automation-host",
       supported: true,
       status: {
-        frameLoaded: true
+        frameLoaded: true,
+        frames: {
+          chat: {
+            frameLoaded: true
+          },
+          history: {
+            frameLoaded: true
+          }
+        }
       }
     };
   }
@@ -130,13 +152,7 @@ const concurrentProbeTwo = probeOffscreenAutomationTarget();
 const warmupPort = createMockPort();
 
 assert.equal(handleOffscreenFramePort(warmupPort), true);
-warmupPort.onMessage.emit({
-  type: OFFSCREEN_MESSAGES.FRAME_READY,
-  frame: {
-    href: "https://chatgpt.com/",
-    readyState: "complete"
-  }
-});
+announceReady(warmupPort, OFFSCREEN_FRAME_ROLES.CHAT);
 
 const probeResults = await Promise.all([concurrentProbeOne, concurrentProbeTwo]);
 
@@ -172,59 +188,138 @@ assert.equal(handleOffscreenFramePort(apiPort), false);
 assert.equal(apiPort.disconnected, true);
 assert.equal(getOffscreenFrameStatus().connected, false);
 
-const firstPort = createMockPort();
+const chatPort = createMockPort();
+const firstHistoryPort = createMockPort();
 
-assert.equal(handleOffscreenFramePort(firstPort), true);
-firstPort.onMessage.emit({
-  type: OFFSCREEN_MESSAGES.FRAME_READY,
-  frame: {
-    href: "https://chatgpt.com/",
-    readyState: "complete"
-  }
-});
-assert.equal(getOffscreenFrameStatus().connected, true);
+assert.equal(handleOffscreenFramePort(chatPort), true);
+announceReady(chatPort, OFFSCREEN_FRAME_ROLES.CHAT);
+assert.equal(handleOffscreenFramePort(firstHistoryPort), true);
+announceReady(firstHistoryPort, OFFSCREEN_FRAME_ROLES.HISTORY, "https://chatgpt.com/g/g-p-dichrome/project");
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.CHAT).connected, true);
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.HISTORY).connected, true);
+assert.equal(getOffscreenFrameStatus().frames.history.connected, true);
 
-const secondPort = createMockPort();
+const secondHistoryPort = createMockPort();
 
-assert.equal(handleOffscreenFramePort(secondPort), true);
-secondPort.onMessage.emit({
-  type: OFFSCREEN_MESSAGES.FRAME_READY,
-  frame: {
-    href: "https://chatgpt.com/",
-    readyState: "complete"
-  }
-});
-assert.equal(firstPort.disconnected, true);
-assert.equal(getOffscreenFrameStatus().connected, true);
+assert.equal(handleOffscreenFramePort(secondHistoryPort), true);
+announceReady(secondHistoryPort, OFFSCREEN_FRAME_ROLES.HISTORY, "https://chatgpt.com/g/g-p-dichrome/project");
+assert.equal(firstHistoryPort.disconnected, true);
+assert.equal(chatPort.disconnected, false);
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.CHAT).connected, true);
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.HISTORY).connected, true);
 
-const commandPromise = sendMessageToOffscreenFrame({
+const chatCommandPromise = sendMessageToOffscreenFrame({
   type: CHATGPT_AUTOMATION_MESSAGES.DUMP
 });
 
-assert.equal(secondPort.messages.length, 1);
-const commandId = secondPort.messages[0].commandId;
-
-firstPort.disconnect();
-secondPort.onMessage.emit({
+assert.equal(chatPort.messages.length, 1);
+assert.equal(secondHistoryPort.messages.length, 0);
+chatPort.onMessage.emit({
   type: OFFSCREEN_MESSAGES.FRAME_COMMAND_RESPONSE,
-  commandId,
+  commandId: chatPort.messages[0].commandId,
   response: {
-    ok: true
+    ok: true,
+    frame: "chat"
   }
 });
-
-assert.deepEqual(await commandPromise, {
-  ok: true
+assert.deepEqual(await chatCommandPromise, {
+  ok: true,
+  frame: "chat"
 });
 
-secondPort.disconnect();
-assert.equal(getOffscreenFrameStatus().connected, false);
+const historyCommandPromise = sendMessageToOffscreenFrame({
+  type: CHATGPT_AUTOMATION_MESSAGES.LIST_PROJECT_CONVERSATIONS
+}, undefined, {
+  frameRole: OFFSCREEN_FRAME_ROLES.HISTORY
+});
 
-delete globalThis.chrome.offscreen;
-globalThis.chrome.runtime.getURL = (path) => `moz-extension://test-extension/${path}`;
+assert.equal(secondHistoryPort.messages.length, 1);
+secondHistoryPort.onMessage.emit({
+  type: OFFSCREEN_MESSAGES.FRAME_COMMAND_RESPONSE,
+  commandId: secondHistoryPort.messages[0].commandId,
+  response: {
+    ok: true,
+    frame: "history"
+  }
+});
+assert.deepEqual(await historyCommandPromise, {
+  ok: true,
+  frame: "history"
+});
+
+const historyProjectUrl = "https://chatgpt.com/g/g-p-dichrome/project";
+const reloadMessages = [];
+globalThis.chrome.runtime.sendMessage = async (message) => {
+  if (message?.type === OFFSCREEN_MESSAGES.HOST_RELOAD_FRAME) {
+    reloadMessages.push(message);
+    return {
+      target: "offscreen-automation-host",
+      frameRole: OFFSCREEN_FRAME_ROLES.HISTORY,
+      reloaded: true
+    };
+  }
+
+  if (message?.type === OFFSCREEN_MESSAGES.BRIDGE_STATUS) {
+    return {
+      target: "offscreen-automation-host",
+      ok: true
+    };
+  }
+
+  return null;
+};
+
+let historyReloadResolved = false;
+const historyReloadPromise = reloadOffscreenFrameToUrl(historyProjectUrl, {
+  timeoutMessage: "Timed out waiting for test history reload."
+}, {
+  frameRole: OFFSCREEN_FRAME_ROLES.HISTORY
+}).then((frame) => {
+  historyReloadResolved = true;
+  return frame;
+});
+
+await new Promise((resolve) => {
+  setTimeout(resolve, 20);
+});
+assert.equal(reloadMessages.length, 1);
+assert.equal(reloadMessages[0].frameRole, OFFSCREEN_FRAME_ROLES.HISTORY);
+assert.match(reloadMessages[0].url, /^https:\/\/chatgpt\.com\/g\/g-p-dichrome\/project\?relay_offscreen_probe=/);
+assert.equal(historyReloadResolved, false);
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.HISTORY).connected, false);
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.CHAT).connected, true);
+
+announceReady(secondHistoryPort, OFFSCREEN_FRAME_ROLES.HISTORY, historyProjectUrl);
+await new Promise((resolve) => {
+  setTimeout(resolve, 20);
+});
+assert.equal(historyReloadResolved, false);
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.HISTORY).connected, false);
+
+const reloadedHistoryPort = createMockPort();
+
+assert.equal(handleOffscreenFramePort(reloadedHistoryPort), true);
+announceReady(reloadedHistoryPort, OFFSCREEN_FRAME_ROLES.HISTORY, historyProjectUrl);
+
+const reloadedHistoryFrame = await historyReloadPromise;
+
+assert.equal(historyReloadResolved, true);
+assert.equal(reloadedHistoryFrame.href, historyProjectUrl);
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.HISTORY).connected, true);
+
+reloadedHistoryPort.disconnect();
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.HISTORY).connected, false);
+
+secondHistoryPort.disconnect();
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.HISTORY).connected, false);
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.CHAT).connected, true);
+
+chatPort.disconnect();
+assert.equal(getOffscreenFrameStatus(OFFSCREEN_FRAME_ROLES.CHAT).connected, false);
+
 assert.equal(
   getOffscreenTargetDescriptor().offscreenDocumentUrl,
-  "moz-extension://test-extension/sidepanel/sidepanel.html"
+  "chrome-extension://test-extension/offscreen/automation-host.html"
 );
 
 console.log("Offscreen target tests passed.");

@@ -96,7 +96,7 @@
           bubbles: true
         }));
 
-        emitState(requestId, REQUEST_STATES.CHATGPT_TAB_READY, {
+        emitState(requestId, REQUEST_STATES.WORKSPACE_READY, {
           detail: `Uploading ${fileAttachments.length} attachment${fileAttachments.length === 1 ? "" : "s"} into ChatGPT.`
         });
 
@@ -125,7 +125,7 @@
           `Timed out waiting for ChatGPT to finish attaching ${formatAttachmentNames(fileAttachments)}.`
         );
 
-        emitState(requestId, REQUEST_STATES.CHATGPT_TAB_READY, {
+        emitState(requestId, REQUEST_STATES.WORKSPACE_READY, {
           detail: `ChatGPT accepted ${fileAttachments.length} attachment${fileAttachments.length === 1 ? "" : "s"}.`
         });
       },

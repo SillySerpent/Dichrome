@@ -194,9 +194,7 @@
           // after the model had finished. Treat an idle composer as an equivalent
           // completion signal once the assistant text has stabilized and no stop
           // control is visible.
-          const lowConfidenceCompletion = isLowConfidenceDomResponse(latestText, promptText)
-            && responseSource !== "backend-api"
-            && responseSource !== "network-stream";
+          const lowConfidenceCompletion = isLowConfidenceDomResponse(latestText, promptText) && !backendFinished;
 
           if (stable && hasStopped && (sendReady || composerReady || backendFinished) && minimumResponseAgeMet && !transientStatusRecentlySeen && !lowConfidenceCompletion) {
             emitState(requestId, REQUEST_STATES.RESPONSE_COMPLETE, {

@@ -29,7 +29,7 @@
   const ADAPTER_COMPOSER_CONTROLS = RUNTIME.adapterComposerControls || {};
   const ADAPTER_ASSISTANT_RESPONSE = RUNTIME.adapterAssistantResponse || {};
   const REQUEST_STATES = CONTRACTS.requestStates || Object.freeze({
-    CHATGPT_TAB_READY: "CHATGPT_TAB_READY",
+    WORKSPACE_READY: "WORKSPACE_READY",
     PROJECT_READY: "PROJECT_READY",
     CONVERSATION_READY: "CONVERSATION_READY",
     MODEL_SELECTED: "MODEL_SELECTED",
@@ -43,6 +43,10 @@
   const VISIBILITY_MODES = CONTRACTS.visibilityModes || Object.freeze({
     OFFSCREEN_FRAME: "offscreen-frame",
     HIDDEN: "hidden"
+  });
+  const OFFSCREEN_FRAME_ROLES = CONTRACTS.offscreenFrameRoles || Object.freeze({
+    CHAT: "chat",
+    HISTORY: "history"
   });
   const AUTOMATION_MESSAGES = MESSAGE_RUNTIME.types || CONTRACTS.messages || Object.freeze({
     ping: "CHATGPT_AUTOMATION_PING",
@@ -238,6 +242,14 @@
         sendResponse({
           accepted: false,
           error: "ChatGPT automation is already running in this tab."
+        });
+        return false;
+      }
+
+      if (activeHistoryRun && !activeHistoryRun.finished) {
+        sendResponse({
+          accepted: false,
+          error: "Project history is already loading in this target."
         });
         return false;
       }
@@ -528,6 +540,7 @@
     });
     offscreenBridge = createOffscreenBridge({
       AUTOMATION_MESSAGES,
+      OFFSCREEN_FRAME_ROLES,
       OFFSCREEN_FRAME_PORT_NAME,
       handleAutomationMessage,
       isChatGptLocation,

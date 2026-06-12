@@ -1,5 +1,7 @@
 import {
   CHATGPT_AUTOMATION_MESSAGES,
+  CHATGPT_HOME_URL,
+  OFFSCREEN_FRAME_ROLES,
   PROJECT_CONVERSATION_HISTORY_LIMIT,
   REQUEST_ERROR_CODES
 } from "../../shared/contracts.js";
@@ -11,6 +13,7 @@ const inFlightHistoryCommands = new Map();
 export function createProjectHistoryController({
   getAutomationSettings,
   probeOffscreenAutomationTarget,
+  reloadOffscreenFrameToUrl = async () => null,
   sendMessageToOffscreenFrame,
   setAutomationSettings = null
 }) {
@@ -84,11 +87,19 @@ export function createProjectHistoryController({
     }
 
     try {
+      await reloadOffscreenFrameToUrl(getProjectHistoryFrameUrl(project), {
+        timeoutMessage: "Timed out waiting for the hidden ChatGPT history frame to reload project history."
+      }, {
+        frameRole: OFFSCREEN_FRAME_ROLES.HISTORY
+      });
+
       const response = await sendMessageToOffscreenFrame({
         type,
         project,
         ...payload
-      }, HISTORY_COMMAND_TIMEOUT_MS);
+      }, HISTORY_COMMAND_TIMEOUT_MS, {
+        frameRole: OFFSCREEN_FRAME_ROLES.HISTORY
+      });
 
       return persistResolvedProjectTarget(settings, unwrapHistoryResponse(response, "offscreen-frame"));
     } catch (error) {
@@ -121,6 +132,10 @@ export function createProjectHistoryController({
     getProjectConversations,
     getProjectConversation
   });
+}
+
+function getProjectHistoryFrameUrl(project) {
+  return project.url || CHATGPT_HOME_URL;
 }
 
 function unwrapHistoryResponse(response, automationTargetType) {

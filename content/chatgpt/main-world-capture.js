@@ -72,6 +72,40 @@
     return normalizeText(value).replace(/\s+/g, " ").trim();
   }
 
+  function isTransientAssistantStatusText(value) {
+    const normalized = getComparableText(value);
+
+    if (!normalized || normalized.length > 96 || normalized.includes("\n\n")) {
+      return false;
+    }
+
+    const comparable = normalized
+      .toLowerCase()
+      .replace(/[.!?…]+$/g, "")
+      .trim();
+
+    if ([
+      "thinking",
+      "reasoning",
+      "working",
+      "generating",
+      "processing",
+      "analyzing",
+      "analysing",
+      "reading",
+      "searching"
+    ].includes(comparable)) {
+      return true;
+    }
+
+    if (/^(analy[sz]ing|reading|processing|reviewing|inspecting|examining)\s+(?:(?:a|an|the|this|that|your|attached|uploaded)\s+)*(?:image|images|photo|photos|picture|pictures|screenshot|screenshots|attachment|attachments|file|files|document|documents)$/.test(comparable)) {
+      return true;
+    }
+
+    return /^thought for\b/.test(comparable)
+      || /^(thinking|reasoning|working|generating|processing|analy[sz]ing|reading|searching)\s+(for|about)\b/.test(comparable);
+  }
+
   function getFetchUrl(input) {
     if (typeof input === "string") {
       return input;
@@ -260,12 +294,12 @@
 
     let changed = false;
 
-    if (selectedEligible && selected.text && getComparableText(selected.text).length >= getComparableText(streamState.text).length) {
+    if (selectedEligible && selected.text && !isTransientAssistantStatusText(selected.text) && getComparableText(selected.text).length >= getComparableText(streamState.text).length) {
       streamState.text = normalizeText(selected.text);
       changed = true;
     }
 
-    if (patch?.text) {
+    if (patch?.text && !isTransientAssistantStatusText(patch.text)) {
       if (patch.operation === "replace") {
         streamState.text = normalizeText(patch.text);
       } else if (patch.operation === "append") {

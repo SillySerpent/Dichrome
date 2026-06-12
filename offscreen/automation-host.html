@@ -13,8 +13,9 @@
         background: transparent;
       }
 
-      #chatgptFrame {
-        display: block;
+      .automation-frame {
+        position: absolute;
+        inset: 0;
         width: 1280px;
         height: 900px;
         border: 0;
@@ -22,7 +23,8 @@
     </style>
   </head>
   <body>
-    <iframe id="chatgptFrame" title="Assistant automation host" src="https://chatgpt.com/" referrerpolicy="origin"></iframe>
+    <iframe id="chatgptChatFrame" class="automation-frame" name="dichrome-offscreen-chat" title="Assistant automation chat host" src="https://chatgpt.com/" referrerpolicy="origin"></iframe>
+    <iframe id="chatgptHistoryFrame" class="automation-frame" name="dichrome-offscreen-history" title="Assistant automation history host" src="https://chatgpt.com/" referrerpolicy="origin"></iframe>
     <script src="automation-host.js"></script>
   </body>
 </html>

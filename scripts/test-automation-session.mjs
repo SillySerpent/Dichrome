@@ -19,6 +19,9 @@ const storageApi = {
     for (const [key, value] of Object.entries(values)) {
       localStore.set(key, value);
     }
+  },
+  async remove(key) {
+    localStore.delete(key);
   }
 };
 
@@ -36,13 +39,9 @@ globalThis.chrome = {
 };
 
 const {
-  AUTOMATION_WINDOW_STATE_KEY
-} = await import("../background/constants.js");
-const {
   AUTOMATION_SESSION_KEY,
   AUTOMATION_TARGET_TYPES,
   clearAutomationRequestActive,
-  clearAutomationTabIfMatches,
   getAutomationSession,
   markAutomationRequestActive,
   markAutomationTargetReady,
@@ -52,7 +51,9 @@ const {
   updateSessionConversation
 } = await import("../background/automation/session.js");
 
-localStore.set(AUTOMATION_WINDOW_STATE_KEY, {
+const LEGACY_AUTOMATION_WINDOW_STATE_KEY = "chatGptAutomationWindowState";
+
+localStore.set(LEGACY_AUTOMATION_WINDOW_STATE_KEY, {
   tabId: 42,
   windowId: 7
 });
@@ -62,8 +63,9 @@ const migrated = await getAutomationSession();
 assert.equal(migrated.targetType, null);
 assert.equal(migrated.tabId, null);
 assert.equal(migrated.windowId, null);
-assert.equal(migrated.lastKnownUrl, "legacy-visible-tab-ignored");
-assert.deepEqual(localStore.get(AUTOMATION_SESSION_KEY), migrated);
+assert.equal(migrated.lastKnownUrl, null);
+assert.equal(localStore.has(LEGACY_AUTOMATION_WINDOW_STATE_KEY), false);
+assert.equal(localStore.has(AUTOMATION_SESSION_KEY), false);
 
 await markAutomationTargetReady({
   targetType: AUTOMATION_TARGET_TYPES.OFFSCREEN_FRAME,
@@ -85,16 +87,12 @@ assert.equal(active.currentConversationUrl, "https://chatgpt.com/c/thread");
 assert.equal(active.currentConversationKey, "thread");
 assert.equal(active.activeRequestId, "request-1");
 
-await clearAutomationTabIfMatches(999);
-assert.equal((await getAutomationSession()).tabId, null);
-
 await clearAutomationRequestActive("different-request");
 assert.equal((await getAutomationSession()).activeRequestId, "request-1");
 
 await clearAutomationRequestActive("request-1");
 assert.equal((await getAutomationSession()).activeRequestId, null);
 
-await clearAutomationTabIfMatches(100);
 const cleared = await getAutomationSession();
 
 assert.equal(cleared.tabId, null);

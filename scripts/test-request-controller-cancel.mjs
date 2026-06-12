@@ -14,7 +14,7 @@ const requests = new Map([
   ["offscreen-request", {
     id: "offscreen-request",
     profileLabel: "Custom Text Prompt",
-    state: REQUEST_STATES.CHATGPT_TAB_READY,
+    state: REQUEST_STATES.WORKSPACE_READY,
     automationTargetType: "offscreen-frame",
     chatTabId: null,
     events: []
@@ -22,7 +22,7 @@ const requests = new Map([
   ["legacy-visible-request", {
     id: "legacy-visible-request",
     profileLabel: "Custom Text Prompt",
-    state: REQUEST_STATES.CHATGPT_TAB_READY,
+    state: REQUEST_STATES.WORKSPACE_READY,
     automationTargetType: "legacy-visible-tab",
     chatTabId: 77,
     events: []
@@ -40,7 +40,6 @@ const requests = new Map([
 const offscreenMessages = [];
 const tabMessages = [];
 const clearedRequests = [];
-const disabledFocusRequests = [];
 const updatedRequests = [];
 
 const controller = createRequestController({
@@ -51,17 +50,12 @@ const controller = createRequestController({
   clearAutomationRequestActive: async (requestId) => {
     clearedRequests.push(requestId);
   },
-  disableFocusEmulationForRequest: async (requestId) => {
-    disabledFocusRequests.push(requestId);
-  },
-  findOrCreateChatGptTab: async () => ({ id: 99 }),
   getProfile() {
     return {
       inputKind: "manual_text"
     };
   },
   getRequest: async (id) => requests.get(id) || null,
-  getSourceFocusTarget: () => ({}),
   normalizeText(value) {
     return String(value || "").trim();
   },
@@ -74,16 +68,6 @@ const controller = createRequestController({
   restoreAttachmentPayloads: async () => [],
   sendMessageToOffscreenFrame: async (message) => {
     offscreenMessages.push(message);
-
-    return {
-      ok: true
-    };
-  },
-  sendMessageToTab: async (tabId, message) => {
-    tabMessages.push({
-      tabId,
-      message
-    });
 
     return {
       ok: true
@@ -109,7 +93,6 @@ assert.deepEqual(offscreenMessages, [{
   requestId: "offscreen-request"
 }]);
 assert.deepEqual(tabMessages, []);
-assert.deepEqual(disabledFocusRequests, ["offscreen-request"]);
 assert.deepEqual(clearedRequests, ["offscreen-request"]);
 assert.equal(requests.get("offscreen-request").state, REQUEST_STATES.ERROR_STATE);
 assert.equal(requests.get("offscreen-request").error, "Cancelled by user.");
@@ -120,7 +103,6 @@ await controller.cancelRequest("legacy-visible-request");
 
 assert.deepEqual(tabMessages, []);
 assert.equal(offscreenMessages.length, 1);
-assert.deepEqual(disabledFocusRequests, ["offscreen-request", "legacy-visible-request"]);
 assert.deepEqual(clearedRequests, ["offscreen-request", "legacy-visible-request"]);
 assert.equal(requests.get("legacy-visible-request").state, REQUEST_STATES.ERROR_STATE);
 assert.equal(requests.get("legacy-visible-request").error, "Cancelled by user.");

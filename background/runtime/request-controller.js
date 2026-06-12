@@ -1,6 +1,7 @@
 import {
   AUTOMATION_TARGET_TYPES,
   CHATGPT_AUTOMATION_MESSAGES,
+  OFFSCREEN_FRAME_ROLES,
   REQUEST_STATES,
   REQUEST_ERROR_CODES,
   VISIBILITY_MODES,
@@ -15,7 +16,6 @@ export function createRequestController({
   appendEvent,
   captureVisibleTabScreenshot,
   clearAutomationRequestActive = async () => null,
-  disableFocusEmulationForRequest,
   getProfile,
   getRequest,
   normalizeText,
@@ -242,7 +242,6 @@ export function createRequestController({
 
     void deliverAutomationCancel(request, cancelMessage);
 
-    await disableFocusEmulationForRequest(requestId).catch(() => null);
     await clearAutomationRequestActive(requestId).catch(() => null);
 
     if (request.completedAt || isTerminalState(request.state)) {
@@ -265,7 +264,9 @@ export function createRequestController({
       request.automationTargetType === AUTOMATION_TARGET_TYPES.OFFSCREEN_FRAME
       || request.automationVisibilityMode === VISIBILITY_MODES.HIDDEN
     ) {
-      await sendMessageToOffscreenFrame(cancelMessage).catch(() => null);
+      await sendMessageToOffscreenFrame(cancelMessage, undefined, {
+        frameRole: OFFSCREEN_FRAME_ROLES.CHAT
+      }).catch(() => null);
     }
   }
 

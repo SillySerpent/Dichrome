@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const css = await readFile(join(root, "sidepanel/sidepanel.css"), "utf8");
 const app = await readFile(join(root, "sidepanel/runtime/app.js"), "utf8");
-const html = await readFile(join(root, "sidepanel/sidepanel.html"), "utf8");
+const messageCards = await readFile(join(root, "sidepanel/runtime/message-cards.js"), "utf8");
+const pendingAttachments = await readFile(join(root, "sidepanel/runtime/pending-attachments.js"), "utf8");
+const shellHtml = await readFile(join(root, "sidepanel/sidepanel.html"), "utf8");
+const mode1Html = await readFile(join(root, "sidepanel/mode1.html"), "utf8");
 const responseView = await readFile(join(root, "sidepanel/runtime/response-view.js"), "utf8");
 const manifest = JSON.parse(await readFile(join(root, "manifest.json"), "utf8"));
 const iconSvg = await readFile(join(root, "assets/icon.svg"), "utf8");
@@ -61,11 +64,11 @@ const copyToolbarRule = findRule(".response-copy-toolbar");
 assert(copyToolbarRule.includes("transform: translateY(-2px)"), "Copy toolbar must stay hidden until the block is hovered or focused.");
 
 assert(
-  app.includes("image.width = 34;") && app.includes("image.height = 30;"),
+  pendingAttachments.includes("image.width = 34;") && pendingAttachments.includes("image.height = 30;"),
   "Attachment previews must declare fixed image dimensions before assigning src."
 );
 assert(
-  app.includes('image.decoding = "sync";') && app.includes('image.loading = "eager";'),
+  pendingAttachments.includes('image.decoding = "sync";') && pendingAttachments.includes('image.loading = "eager";'),
   "Attachment previews must avoid deferred first-paint sizing."
 );
 assert(
@@ -84,7 +87,7 @@ assert(
   "Chat history rendering must preserve scroll position when the reader is inspecting older messages."
 );
 assert(
-  app.includes("responseView.enhanceContainer(content);"),
+  messageCards.includes("responseView.enhanceContainer(content);"),
   "Historical assistant messages must receive the same copy controls as the active response."
 );
 assert(
@@ -92,11 +95,11 @@ assert(
   "Copy controls must work for response blocks outside the active streaming container."
 );
 assert(
-  html.includes("Mac <kbd>Option</kbd><kbd>Shift</kbd><kbd>D</kbd>")
-    && html.includes("Windows <kbd>Alt</kbd><kbd>Shift</kbd><kbd>D</kbd>")
-    && app.includes("function createShortcutHint()")
-    && app.includes('createKeyCap("Option")')
-    && app.includes('createKeyCap("Alt")'),
+  mode1Html.includes("Mac <kbd>Option</kbd><kbd>Shift</kbd><kbd>D</kbd>")
+    && mode1Html.includes("Windows <kbd>Alt</kbd><kbd>Shift</kbd><kbd>D</kbd>")
+    && messageCards.includes("function createShortcutHint()")
+    && messageCards.includes('createKeyCap("Option")')
+    && messageCards.includes('createKeyCap("Alt")'),
   "Fresh chat state must expose Mac and Windows side-panel shortcuts."
 );
 assert(
@@ -111,21 +114,28 @@ assert(
   "Extension-facing branding must use Dichrome."
 );
 assert(
-  html.includes("<title>Dichrome</title>") && html.includes("<h1>Dichrome</h1>"),
-  "Side panel title must use Dichrome."
+  shellHtml.includes("<title>Dichrome</title>")
+    && shellHtml.includes('id="modeFrame"')
+    && shellHtml.includes('value="mode2"')
+    && shellHtml.includes('value="mode1"'),
+  "Side panel shell must expose the switchable mode frame."
 );
 assert(
-  html.includes('id="settingsOverlay"')
-    && html.includes('Routing and model settings')
-    && html.includes('aria-label="Preferred model"'),
+  mode1Html.includes("<title>Dichrome</title>") && mode1Html.includes("<h1>Dichrome</h1>"),
+  "Mode 1 side panel title must use Dichrome."
+);
+assert(
+  mode1Html.includes('id="settingsOverlay"')
+    && mode1Html.includes('Routing and model settings')
+    && mode1Html.includes('aria-label="Preferred model"'),
   "Routing and model settings must live in the separate settings dialog."
 );
 assert(
-  html.includes("Open ChatGPT to sign in"),
+  mode1Html.includes("Open ChatGPT to sign in"),
   "Side panel must keep a clear user-triggered ChatGPT sign-in handoff."
 );
 assert(
-  !/(ChatGPT Relay|Message ChatGPT|ChatGPT routing|Focus ChatGPT|Routing, automation, and debug|Dump Debug|automation target|debug dump|event log)/i.test(html),
+  !/(ChatGPT Relay|Message ChatGPT|ChatGPT routing|Focus ChatGPT|Routing, automation, and debug|Dump Debug|automation target|debug dump|event log)/i.test(mode1Html),
   "Side panel visible text must not expose old branding or debug/repair internals."
 );
 assert(iconSvg.includes("Dichrome icon"), "Source icon must use Dichrome branding.");

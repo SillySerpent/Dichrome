@@ -10,7 +10,6 @@ export const PROJECT_CONVERSATION_MESSAGE_BATCH_SIZE = 12;
 export const STORAGE_KEYS = Object.freeze({
   PANEL_STATE: "panelState",
   LAST_SOURCE_TAB: "lastSourceTab",
-  AUTOMATION_WINDOW_STATE: "chatGptAutomationWindowState",
   AUTOMATION_SETTINGS: "chatGptAutomationSettings",
   AUTOMATION_SESSION: "chatGptAutomationSession"
 });
@@ -18,7 +17,7 @@ export const STORAGE_KEYS = Object.freeze({
 export const REQUEST_STATES = Object.freeze({
   IDLE: "IDLE",
   SELECTED_TEXT_RECEIVED: "SELECTED_TEXT_RECEIVED",
-  CHATGPT_TAB_READY: "CHATGPT_TAB_READY",
+  WORKSPACE_READY: "WORKSPACE_READY",
   PROJECT_READY: "PROJECT_READY",
   CONVERSATION_READY: "CONVERSATION_READY",
   MODEL_SELECTED: "MODEL_SELECTED",
@@ -28,6 +27,10 @@ export const REQUEST_STATES = Object.freeze({
   STREAMING_RESPONSE: "STREAMING_RESPONSE",
   RESPONSE_COMPLETE: "RESPONSE_COMPLETE",
   ERROR_STATE: "ERROR_STATE"
+});
+
+const LEGACY_REQUEST_STATE_ALIASES = Object.freeze({
+  CHATGPT_TAB_READY: REQUEST_STATES.WORKSPACE_READY
 });
 
 export const REQUEST_ERROR_CODES = Object.freeze({
@@ -51,7 +54,7 @@ export const STREAMING_STATES = Object.freeze([
   REQUEST_STATES.STREAMING_RESPONSE
 ]);
 
-export const VISIBILITY_SETTINGS_VERSION = 5;
+export const VISIBILITY_SETTINGS_VERSION = 6;
 export const VISIBILITY_MODES = Object.freeze({
   HIDDEN: "hidden",
   OFFSCREEN_FRAME: "offscreen-frame"
@@ -59,6 +62,11 @@ export const VISIBILITY_MODES = Object.freeze({
 
 export const AUTOMATION_TARGET_TYPES = Object.freeze({
   OFFSCREEN_FRAME: "offscreen-frame"
+});
+
+export const OFFSCREEN_FRAME_ROLES = Object.freeze({
+  CHAT: "chat",
+  HISTORY: "history"
 });
 
 export const PANEL_MESSAGES = Object.freeze({
@@ -121,6 +129,7 @@ export const CHATGPT_CONTENT_SCRIPT_FILES = Object.freeze([
   "content/chatgpt/runtime/adapter/composer-controls.js",
   "content/chatgpt/runtime/adapter/assistant-response.js",
   "content/chatgpt/runtime/response/extraction.js",
+  "content/chatgpt/runtime/history/project-history-data.js",
   "content/chatgpt/runtime/history/project-history.js",
   "content/chatgpt/runtime/network/capture-client.js",
   "content/chatgpt/runtime/offscreen/bridge.js",
@@ -177,9 +186,15 @@ export const RESPONSE_ALLOWED_ATTRIBUTES = Object.freeze([
 ]);
 
 export function isTerminalState(state) {
-  return TERMINAL_STATES.includes(state);
+  return TERMINAL_STATES.includes(normalizeRequestState(state));
 }
 
 export function isStreamingState(state) {
-  return STREAMING_STATES.includes(state);
+  return STREAMING_STATES.includes(normalizeRequestState(state));
+}
+
+export function normalizeRequestState(state) {
+  const value = String(state || "");
+
+  return LEGACY_REQUEST_STATE_ALIASES[value] || value;
 }

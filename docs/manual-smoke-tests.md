@@ -2,33 +2,67 @@
 
 Run `npm run check`, `npm test`, and `npm run package` before manual testing. Load the current unpacked extension after code changes so the browser sees the new target manifest and content script order.
 
-For Chrome or Chromium, load this repository directory through `chrome://extensions`. For Firefox, run `npm run package:firefox`, open `about:debugging#/runtime/this-firefox`, choose Load Temporary Add-on, and select `.dist/firefox/package/manifest.json`.
+Load this repository directory through `chrome://extensions` in Chrome or another Chromium browser.
 
-Run the core hidden-internal, logged-out, project-history, project-routing, follow-up, model-selection, attachment, and formatting checks in both Chrome/Chromium and Firefox before claiming cross-browser compatibility.
+Run the Mode 2 default, mode-switching, shared screenshot/selection, Mode 1 hidden-internal, logged-out, project-history, project-routing, follow-up, model-selection, attachment, and formatting checks in Chrome/Chromium before claiming browser compatibility.
 
-## Hidden Internal
+No separate non-Chromium package is built; browser smoke coverage is Chrome/Chromium only.
+
+## Mode 2 Default Sidebar
+
+1. Load the unpacked extension in a clean Chrome/Chromium profile.
+2. Open a normal webpage and press `Alt+Shift+D`.
+3. Confirm the root shell opens and the active mode label says `Mode 2 - ChatGPT Sidebar`.
+4. Confirm the embedded ChatGPT frame loads or presents a clear frame-policy/status message.
+5. Press `Open` and confirm a ChatGPT companion popup window opens or refocuses.
+6. Press `Reload` and confirm the embedded frame retries without reloading the extension.
+
+## Mode 2 Selection And Screenshot
+
+1. Highlight text on a normal webpage.
+2. Use the selection popover `Ask`, `Summarize`, `Explain`, and `Rewrite` actions.
+3. Confirm the side panel opens and the Mode 2 `Copy prompt` action appears with a prompt grounded in the selected text.
+4. Right-click selected text and repeat `Ask with Dichrome`, `Summarize with Dichrome`, `Explain with Dichrome`, `Rewrite with Dichrome`, and `Define with Dichrome`.
+5. Use `Shot`, the selection popover `Screenshot` action, the context-menu `Capture visible screenshot`, and the screenshot keyboard shortcut.
+6. Confirm Mode 2 stores the visible source-tab screenshot and exposes `Copy image` and `Save`.
+7. Confirm screenshots are not auto-sent to ChatGPT in Mode 2.
+
+## Mode Switching
+
+1. Open the root `Settings` control.
+2. Choose `Mode 1 - Original Dichrome Beta`.
+3. Confirm the early beta warning is visible and switching is blocked until the acknowledgement checkbox is selected.
+4. Save, then confirm the original Dichrome UI loads inside the shell.
+5. Switch back to `Mode 2 - ChatGPT Sidebar` and confirm the Mode 2 sidebar reloads without a browser extension reload.
+6. Start a Mode 1 request, then try to switch back while it is active.
+7. Confirm the switch is blocked unless `Cancel the active Mode 1 request before switching` is checked.
+
+## Mode 1 Hidden Internal
 
 1. Sign in to ChatGPT in the browser profile.
-2. Open a normal webpage, select text, and choose `Ask assistant about this`.
-3. Confirm no visible ChatGPT automation tab or window is created.
-4. Confirm the side panel streams response text and reaches `RESPONSE_COMPLETE`.
-5. Confirm the status text uses hidden workspace wording rather than tab-mode wording.
+2. Switch to `Mode 1 - Original Dichrome Beta`.
+3. Open a normal webpage, select text, and choose `Ask with Dichrome about "%s"`.
+4. Confirm no visible ChatGPT automation tab or window is created.
+5. Confirm the side panel streams response text and reaches `RESPONSE_COMPLETE`.
+6. Confirm the status text uses hidden workspace wording rather than tab-mode wording.
 
 ## Side Panel Shortcut And Narrow Layout
 
 1. Open a normal webpage and press `Alt+Shift+D`.
-2. Confirm the Dichrome side panel opens and the browser toolbar area remains separate from the extension content.
+2. Confirm the Dichrome side panel shell opens and the browser toolbar area remains separate from the extension content.
 3. Press `Alt+Shift+D` again in Chrome or Chromium and confirm the panel closes when the browser exposes side-panel close support.
 4. Drag the side-panel divider as narrow as the browser allows.
-5. Confirm the header, history area, response area, composer, screenshot button, file button, routing label, and send button remain usable without overlapping text.
+5. In Mode 2, confirm the header, embedded frame, screenshot button, reload button, fallback open button, and status bar remain usable without overlapping text.
+6. Switch to Mode 1 and confirm the header, history area, response area, composer, screenshot button, file button, routing label, and send button remain usable without overlapping text.
 
 ## Logged Out
 
 1. Use a fresh browser profile or sign out of ChatGPT.
-2. Open Dichrome and try a normal message and a project-history refresh.
-3. Confirm the sidebar says the user must sign in to ChatGPT.
-4. Click `Open ChatGPT to sign in` and complete authentication.
-5. Return to Dichrome, retry once, and confirm project history and normal sends recover predictably.
+2. Open Dichrome in Mode 2 and confirm the embedded frame or fallback window requires sign-in clearly.
+3. Switch to Mode 1 and try a normal message and a project-history refresh.
+4. Confirm the sidebar says the user must sign in to ChatGPT.
+5. Click `Open ChatGPT to sign in` and complete authentication.
+6. Return to Dichrome, retry once, and confirm project history and normal sends recover predictably.
 
 ## Project History
 
@@ -81,10 +115,12 @@ Run the core hidden-internal, logged-out, project-history, project-routing, foll
 ## Selection Sync
 
 1. Open Dichrome beside a normal webpage.
-2. Select text on the page and confirm the selected-text card appears after about three seconds without pressing the panel refresh button.
-3. Change the page selection and confirm the card updates to the new text after about three seconds.
-4. Clear the page selection and confirm the selected-text card disappears automatically after about three seconds.
-5. Press `Remove` on the selected-text card and confirm the same still-highlighted text does not reappear until the page selection changes or clears.
+2. In Mode 2, select text on the page and confirm the shared popover appears without disrupting the page selection.
+3. Switch to Mode 1.
+4. Select text on the page and confirm the selected-text card appears after about three seconds without pressing the panel refresh button.
+5. Change the page selection and confirm the card updates to the new text after about three seconds.
+6. Clear the page selection and confirm the selected-text card disappears automatically after about three seconds.
+7. Press `Remove` on the selected-text card and confirm the same still-highlighted text does not reappear until the page selection changes or clears.
 
 ## Usage Limits
 
