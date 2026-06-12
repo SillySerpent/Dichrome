@@ -32,7 +32,7 @@
         activeRun: run
       }));
 
-      emitState(request.id, REQUEST_STATES.CHATGPT_TAB_READY, {
+      emitState(request.id, REQUEST_STATES.WORKSPACE_READY, {
         detail: "Hidden ChatGPT workspace script is ready."
       });
 
@@ -40,7 +40,7 @@
       adapter.closeOpenMenu();
       await sleep(100);
 
-      emitState(request.id, REQUEST_STATES.CHATGPT_TAB_READY, {
+      emitState(request.id, REQUEST_STATES.WORKSPACE_READY, {
         detail: `ChatGPT page visibility: ${document.visibilityState}; focused: ${document.hasFocus() ? "yes" : "no"}.`
       });
       emitDebug(request.id, "app-shell-ready", collectRuntimeDebug({
