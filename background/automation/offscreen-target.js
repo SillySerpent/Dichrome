@@ -20,22 +20,23 @@ import {
 import {
   CHATGPT_AUTOMATION_MESSAGES,
   OFFSCREEN_FRAME_PORT_NAME,
+  OFFSCREEN_FRAME_ROLES,
   OFFSCREEN_MESSAGES
 } from "../../shared/contracts.js";
 
 const OFFSCREEN_DOCUMENT_PATH = "offscreen/automation-host.html";
-const FIREFOX_SIDEBAR_DOCUMENT_PATH = "sidepanel/sidepanel.html";
 const OFFSCREEN_HOST_READY_TIMEOUT_MS = CHATGPT_LOAD_TIMEOUT_MS;
 const OFFSCREEN_FRAME_BRIDGE_TIMEOUT_MS = 15000;
 const OFFSCREEN_FRAME_COMMAND_TIMEOUT_MS = 8000;
+const DEFAULT_FRAME_ROLE = OFFSCREEN_FRAME_ROLES.CHAT;
 
 let creatingOffscreenDocument = null;
 let probingOffscreenAutomationTarget = null;
-let offscreenFramePort = null;
-let offscreenFrameInfo = null;
 let offscreenCommandCounter = 0;
 let offscreenFrameDisconnectHandler = null;
 const pendingOffscreenCommands = new Map();
+const offscreenPortRoles = new WeakMap();
+const offscreenFrames = new Map(Object.values(OFFSCREEN_FRAME_ROLES).map((role) => [role, createOffscreenFrameState(role)]));
 
 export function setOffscreenFrameDisconnectHandler(handler) {
   offscreenFrameDisconnectHandler = typeof handler === "function" ? handler : null;
@@ -46,7 +47,7 @@ export function handleOffscreenFramePort(port) {
     return false;
   }
 
-  if (port.sender?.tab?.id && hasChromeOffscreenApi()) {
+  if (port.sender?.tab?.id) {
     port.disconnect();
     return false;
   }
@@ -63,54 +64,12 @@ export function handleOffscreenFramePort(port) {
     return false;
   }
 
-  const previousPort = offscreenFramePort && offscreenFramePort !== port
-    ? offscreenFramePort
-    : null;
-
-  offscreenFramePort = port;
-  offscreenFrameInfo = normalizeFrameInfo({
-    href: port.sender?.url || "",
-    readyState: "unknown",
-    connectedAt: new Date().toISOString()
-  });
-  void notifyOffscreenHostBridgeState(true);
-
   port.onMessage.addListener((message) => {
     handleOffscreenFramePortMessage(port, message);
   });
   port.onDisconnect.addListener(() => {
-    const wasActivePort = offscreenFramePort === port;
-
-    if (offscreenFramePort === port) {
-      offscreenFramePort = null;
-      offscreenFrameInfo = {
-        ...(offscreenFrameInfo || {}),
-        disconnectedAt: new Date().toISOString()
-      };
-      void notifyOffscreenHostBridgeState(false);
-      const disconnectNoticeTimer = globalThis.setTimeout(() => {
-        void notifyOffscreenFrameDisconnectedIfStillGone();
-      }, 2000);
-      disconnectNoticeTimer?.unref?.();
-    }
-
-    for (const [commandId, pending] of pendingOffscreenCommands.entries()) {
-      if (wasActivePort || pending.port === port) {
-        pending.reject(new Error("Offscreen ChatGPT frame disconnected."));
-        pendingOffscreenCommands.delete(commandId);
-      }
-    }
+    handleOffscreenFramePortDisconnected(port);
   });
-
-  if (previousPort) {
-    void notifyOffscreenFrameReplacedDuringActiveRequest();
-
-    try {
-      previousPort.disconnect();
-    } catch (_error) {
-      // The previous frame port may already be closed.
-    }
-  }
 
   return true;
 }
@@ -131,105 +90,51 @@ export async function probeOffscreenAutomationTarget() {
 async function probeOffscreenAutomationTargetOnce() {
   const session = await getAutomationSession();
 
-  if (session.offscreenCapability?.supported === true && hasConnectedOffscreenFrame()) {
+  if (session.offscreenCapability?.supported === true && hasConnectedOffscreenFrame(OFFSCREEN_FRAME_ROLES.CHAT)) {
     return session.offscreenCapability;
   }
 
   if (!hasChromeOffscreenApi()) {
-    return probeSidebarAutomationTarget();
+    return recordUnsupported(
+      "Chrome offscreen documents are unavailable. Dichrome hidden automation requires a Chromium browser with offscreen document support."
+    );
   }
 
   try {
     await ensureOffscreenDocument();
-    const response = await waitForOffscreenHostProbe();
+    const response = await waitForOffscreenHostProbe({
+      frameRole: OFFSCREEN_FRAME_ROLES.CHAT
+    });
 
     if (!response?.supported) {
       return recordUnsupported(response?.failureReason || "ChatGPT could not be loaded inside the offscreen host.");
     }
 
-    let frameStatus = await waitForOffscreenFrameBridge();
+    let frameStatus = await waitForOffscreenFrameBridge({
+      frameRole: OFFSCREEN_FRAME_ROLES.CHAT
+    });
 
-    if (!frameStatus.supported && await reloadOffscreenChatGptFrame()) {
-      const reloadProbe = await waitForOffscreenHostProbe();
+    if (!frameStatus.supported && await reloadOffscreenChatGptFrame(OFFSCREEN_FRAME_ROLES.CHAT)) {
+      const reloadProbe = await waitForOffscreenHostProbe({
+        frameRole: OFFSCREEN_FRAME_ROLES.CHAT
+      });
 
       if (!reloadProbe?.supported) {
         return recordUnsupported(reloadProbe?.failureReason || "ChatGPT could not be reloaded inside the offscreen host.");
       }
 
       frameStatus = await waitForOffscreenFrameBridge({
-        afterReload: true
+        afterReload: true,
+        frameRole: OFFSCREEN_FRAME_ROLES.CHAT
       });
     }
 
     if (!frameStatus.supported && shouldRetryWithBroadFramePolicy()) {
       const fallbackPolicy = await enableBroadOffscreenFramePolicyOverride("Non-tab-scoped rule installed but the hidden ChatGPT frame bridge did not connect; broadened to all ChatGPT subframes for this extension session.");
 
-      if (fallbackPolicy.enabled && await reloadOffscreenChatGptFrame()) {
-        const fallbackProbe = await waitForOffscreenHostProbe();
-
-        if (!fallbackProbe?.supported) {
-          return recordUnsupported(fallbackProbe?.failureReason || "ChatGPT could not be reloaded after broadening the frame-policy override.");
-        }
-
-        frameStatus = await waitForOffscreenFrameBridge({
-          afterReload: true,
-          afterFramePolicyFallback: true
-        });
-      }
-    }
-
-    if (!frameStatus.supported) {
-      return recordUnsupported(frameStatus.failureReason);
-    }
-
-    const capability = {
-      supported: true,
-      checkedAt: new Date().toISOString(),
-      failureReason: null
-    };
-
-    await setOffscreenCapability(capability);
-    await markAutomationTargetReady(getOffscreenTargetDescriptor());
-    return capability;
-  } catch (error) {
-    return recordUnsupported(error?.message || String(error));
-  }
-}
-
-async function probeSidebarAutomationTarget() {
-  try {
-    await enableOffscreenFramePolicyOverride();
-
-    const response = await waitForOffscreenHostProbe({
-      hostTimeoutMessage: "Timed out waiting for the Firefox sidebar automation host. Open the Dichrome sidebar, then retry."
-    });
-
-    if (!response?.supported) {
-      return recordUnsupported(response?.failureReason || "ChatGPT could not be loaded inside the Firefox sidebar automation host.");
-    }
-
-    let frameStatus = await waitForOffscreenFrameBridge();
-
-    if (!frameStatus.supported && await reloadOffscreenChatGptFrame()) {
-      const reloadProbe = await waitForOffscreenHostProbe({
-        hostTimeoutMessage: "Timed out waiting for the Firefox sidebar automation host after reloading ChatGPT."
-      });
-
-      if (!reloadProbe?.supported) {
-        return recordUnsupported(reloadProbe?.failureReason || "ChatGPT could not be reloaded inside the Firefox sidebar automation host.");
-      }
-
-      frameStatus = await waitForOffscreenFrameBridge({
-        afterReload: true
-      });
-    }
-
-    if (!frameStatus.supported && shouldRetryWithBroadFramePolicy()) {
-      const fallbackPolicy = await enableBroadOffscreenFramePolicyOverride("Firefox sidebar host loaded ChatGPT but the frame bridge did not connect; broadened to all ChatGPT subframes for this extension session.");
-
-      if (fallbackPolicy.enabled && await reloadOffscreenChatGptFrame()) {
+      if (fallbackPolicy.enabled && await reloadOffscreenChatGptFrame(OFFSCREEN_FRAME_ROLES.CHAT)) {
         const fallbackProbe = await waitForOffscreenHostProbe({
-          hostTimeoutMessage: "Timed out waiting for the Firefox sidebar automation host after broadening the frame-policy override."
+          frameRole: OFFSCREEN_FRAME_ROLES.CHAT
         });
 
         if (!fallbackProbe?.supported) {
@@ -238,7 +143,8 @@ async function probeSidebarAutomationTarget() {
 
         frameStatus = await waitForOffscreenFrameBridge({
           afterReload: true,
-          afterFramePolicyFallback: true
+          afterFramePolicyFallback: true,
+          frameRole: OFFSCREEN_FRAME_ROLES.CHAT
         });
       }
     }
@@ -261,12 +167,17 @@ async function probeSidebarAutomationTarget() {
   }
 }
 
-export function getOffscreenFrameStatus() {
+export function getOffscreenFrameStatus(frameRole = DEFAULT_FRAME_ROLE) {
+  const role = getRoutableFrameRole(frameRole);
+  const state = getFrameState(role);
+
   return {
-    connected: hasConnectedOffscreenFrame(),
-    frame: offscreenFrameInfo,
-    pendingCommandCount: pendingOffscreenCommands.size,
-    framePolicy: getOffscreenFramePolicyStatus()
+    frameRole: role,
+    connected: hasConnectedOffscreenFrame(role),
+    frame: state.info,
+    pendingCommandCount: countPendingCommands(role),
+    framePolicy: getOffscreenFramePolicyStatus(),
+    frames: collectOffscreenFrameStatuses()
   };
 }
 
@@ -288,9 +199,12 @@ export async function getOffscreenHostStatus() {
   };
 }
 
-export async function sendMessageToOffscreenFrame(message, timeoutMs = OFFSCREEN_FRAME_COMMAND_TIMEOUT_MS) {
-  if (!hasConnectedOffscreenFrame()) {
-    throw new Error("Hidden internal ChatGPT frame is not connected.");
+export async function sendMessageToOffscreenFrame(message, timeoutMs = OFFSCREEN_FRAME_COMMAND_TIMEOUT_MS, options = {}) {
+  const normalized = normalizeCommandOptions(timeoutMs, options);
+  const frameRole = getRoutableFrameRole(normalized.frameRole);
+
+  if (!hasConnectedOffscreenFrame(frameRole)) {
+    throw new Error(`Hidden internal ChatGPT ${frameRole} frame is not connected.`);
   }
 
   const commandId = `offscreen-command-${++offscreenCommandCounter}`;
@@ -298,12 +212,13 @@ export async function sendMessageToOffscreenFrame(message, timeoutMs = OFFSCREEN
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
       pendingOffscreenCommands.delete(commandId);
-      reject(new Error(`Timed out waiting for offscreen ChatGPT frame command: ${message?.type || "unknown"}`));
-    }, timeoutMs);
+      reject(new Error(`Timed out waiting for offscreen ChatGPT ${frameRole} frame command: ${message?.type || "unknown"}`));
+    }, normalized.timeoutMs);
 
-    const commandPort = offscreenFramePort;
+    const commandPort = getFrameState(frameRole).port;
 
     pendingOffscreenCommands.set(commandId, {
+      frameRole,
       port: commandPort,
       resolve: (value) => {
         clearTimeout(timeoutId);
@@ -329,19 +244,21 @@ export async function sendMessageToOffscreenFrame(message, timeoutMs = OFFSCREEN
   });
 }
 
-export async function navigateOffscreenFrameToConversation(conversationUrl) {
+export async function navigateOffscreenFrameToConversation(conversationUrl, options = {}) {
   return navigateOffscreenFrameToUrl(conversationUrl, {
     invalidUrlMessage: "The saved ChatGPT conversation URL is not a ChatGPT URL.",
     rejectedMessage: "The hidden ChatGPT frame rejected conversation navigation.",
     timeoutMessage: "Timed out waiting for the hidden ChatGPT frame to load the saved conversation."
-  });
+  }, options);
 }
 
 export async function navigateOffscreenFrameToUrl(url, {
   invalidUrlMessage = "The target ChatGPT URL is not valid.",
   rejectedMessage = "The hidden ChatGPT frame rejected navigation.",
   timeoutMessage = "Timed out waiting for the hidden ChatGPT frame to load the requested page."
-} = {}) {
+} = {}, options = {}) {
+  const frameRole = getRoutableFrameRole(options.frameRole);
+
   if (!isChatGptUrl(url)) {
     throw new Error(invalidUrlMessage);
   }
@@ -349,6 +266,8 @@ export async function navigateOffscreenFrameToUrl(url, {
   const response = await sendMessageToOffscreenFrame({
     type: CHATGPT_AUTOMATION_MESSAGES.NAVIGATE,
     url
+  }, OFFSCREEN_FRAME_COMMAND_TIMEOUT_MS, {
+    frameRole
   });
 
   if (!response?.ok) {
@@ -356,6 +275,38 @@ export async function navigateOffscreenFrameToUrl(url, {
   }
 
   const frameStatus = await waitForOffscreenFrameBridge({
+    frameRole,
+    url,
+    timeoutMessage
+  });
+
+  if (!frameStatus.supported) {
+    throw new Error(frameStatus.failureReason);
+  }
+
+  return frameStatus.frame;
+}
+
+export async function reloadOffscreenFrameToUrl(url, {
+  invalidUrlMessage = "The target ChatGPT URL is not valid.",
+  timeoutMessage = "Timed out waiting for the hidden ChatGPT frame to reload the requested page."
+} = {}, options = {}) {
+  const frameRole = getRoutableFrameRole(options.frameRole);
+
+  if (!isChatGptUrl(url)) {
+    throw new Error(invalidUrlMessage);
+  }
+
+  const reloaded = await requestOffscreenFrameReload(url, frameRole);
+
+  if (!reloaded) {
+    throw new Error("The hidden ChatGPT host did not reload the requested frame.");
+  }
+
+  markOffscreenFrameReloading(frameRole);
+
+  const frameStatus = await waitForOffscreenFrameBridge({
+    frameRole,
     url,
     timeoutMessage
   });
@@ -418,21 +369,24 @@ async function ensureOffscreenDocument() {
 }
 
 async function waitForOffscreenHostProbe({
+  frameRole = OFFSCREEN_FRAME_ROLES.CHAT,
   hostTimeoutMessage = "Timed out waiting for the offscreen ChatGPT host probe."
 } = {}) {
   const startedAt = Date.now();
+  const role = getRoutableFrameRole(frameRole);
   let lastResponse = null;
 
   while (Date.now() - startedAt < OFFSCREEN_HOST_READY_TIMEOUT_MS) {
     const response = await chrome.runtime.sendMessage({
       type: OFFSCREEN_MESSAGES.HOST_PROBE,
+      frameRole: role,
       url: CHATGPT_HOME_URL
     }).catch(() => null);
 
     if (response?.target === "offscreen-automation-host") {
       lastResponse = response;
 
-      if (response.supported || response.status?.frameFailed) {
+      if (response.supported || getHostFrameStatus(response.status, role)?.frameFailed) {
         return response;
       }
     }
@@ -444,7 +398,7 @@ async function waitForOffscreenHostProbe({
     return {
       ...lastResponse,
       supported: false,
-      failureReason: "Timed out waiting for ChatGPT iframe load in the offscreen host."
+      failureReason: `Timed out waiting for ChatGPT ${role} iframe load in the offscreen host.`
     };
   }
 
@@ -454,18 +408,25 @@ async function waitForOffscreenHostProbe({
   };
 }
 
-async function waitForOffscreenFrameBridge({ url = null, afterReload = false, afterFramePolicyFallback = false, timeoutMessage = "" } = {}) {
+async function waitForOffscreenFrameBridge({
+  frameRole = OFFSCREEN_FRAME_ROLES.CHAT,
+  url = null,
+  afterReload = false,
+  afterFramePolicyFallback = false,
+  timeoutMessage = ""
+} = {}) {
+  const role = getRoutableFrameRole(frameRole);
   const startedAt = Date.now();
   const expectedUrl = normalizeUrlForComparison(url);
 
   while (Date.now() - startedAt < OFFSCREEN_FRAME_BRIDGE_TIMEOUT_MS) {
-    if (hasConnectedOffscreenFrame()) {
-      const actualUrl = normalizeUrlForComparison(offscreenFrameInfo?.href || "");
+    if (hasConnectedOffscreenFrame(role)) {
+      const actualUrl = normalizeUrlForComparison(getFrameState(role).info?.href || "");
 
       if (!expectedUrl || actualUrl === expectedUrl) {
         return {
           supported: true,
-          frame: offscreenFrameInfo
+          frame: getFrameState(role).info
         };
       }
     }
@@ -476,15 +437,22 @@ async function waitForOffscreenFrameBridge({ url = null, afterReload = false, af
   return {
     supported: false,
     failureReason: expectedUrl
-      ? (timeoutMessage || "Timed out waiting for the hidden ChatGPT frame to load the requested ChatGPT URL.")
-      : `ChatGPT iframe loaded, but the ChatGPT frame content script did not connect from the offscreen iframe.${afterReload ? " Retried the offscreen iframe once." : ""}${afterFramePolicyFallback ? " Retried with a broader ChatGPT subframe frame-policy override." : ""}`
+      ? (timeoutMessage || `Timed out waiting for the hidden ChatGPT ${role} frame to load the requested ChatGPT URL.`)
+      : `ChatGPT iframe loaded, but the ChatGPT ${role} frame content script did not connect from the offscreen iframe.${afterReload ? " Retried the offscreen iframe once." : ""}${afterFramePolicyFallback ? " Retried with a broader ChatGPT subframe frame-policy override." : ""}`
   };
 }
 
-async function reloadOffscreenChatGptFrame() {
+async function reloadOffscreenChatGptFrame(frameRole = OFFSCREEN_FRAME_ROLES.CHAT) {
+  return requestOffscreenFrameReload(CHATGPT_HOME_URL, getRoutableFrameRole(frameRole));
+}
+
+async function requestOffscreenFrameReload(url, frameRole) {
+  const role = getRoutableFrameRole(frameRole);
+
   const response = await chrome.runtime.sendMessage({
     type: OFFSCREEN_MESSAGES.HOST_RELOAD_FRAME,
-    url: buildOffscreenReloadUrl(CHATGPT_HOME_URL)
+    frameRole: role,
+    url: buildOffscreenReloadUrl(url)
   }).catch(() => null);
 
   return response?.target === "offscreen-automation-host" && response.reloaded === true;
@@ -508,7 +476,6 @@ async function recordUnsupported(failureReason) {
   return capability;
 }
 
-
 function shouldRetryWithBroadFramePolicy() {
   const status = getOffscreenFramePolicyStatus();
 
@@ -523,38 +490,31 @@ function getOffscreenReason() {
 
 function handleOffscreenFramePortMessage(port, message) {
   if (message?.type === OFFSCREEN_MESSAGES.FRAME_READY) {
-    const nextFrameInfo = normalizeFrameInfo(message.frame);
+    const frameRole = normalizeFrameRole(message.frameRole || message.frame?.frameRole);
 
-    if (!isUsableOffscreenAutomationFrameUrl(nextFrameInfo.href)) {
-      if (offscreenFramePort === port) {
-        offscreenFramePort = null;
-        offscreenFrameInfo = {
-          ...nextFrameInfo,
-          lastError: "Rejected non-automation ChatGPT frame."
-        };
-        void notifyOffscreenHostBridgeState(false);
-      }
-
-      try {
-        port.disconnect();
-      } catch (_error) {
-        // Ignore already-closed nested frame ports.
-      }
-
+    if (isStaleReloadPort(port, frameRole)) {
       return;
     }
 
-    if (offscreenFramePort === port) {
-      offscreenFrameInfo = nextFrameInfo;
-      void notifyOffscreenHostBridgeState(true);
+    const nextFrameInfo = normalizeFrameInfo({
+      ...message.frame,
+      frameRole,
+      connectedAt: getFrameState(frameRole).info?.connectedAt || new Date().toISOString()
+    });
+
+    if (!isUsableOffscreenAutomationFrameUrl(nextFrameInfo.href)) {
+      rejectOffscreenFramePort(port, nextFrameInfo);
+      return;
     }
+
+    registerOffscreenFramePort(port, frameRole, nextFrameInfo);
     return;
   }
 
   if (message?.type === OFFSCREEN_MESSAGES.FRAME_COMMAND_RESPONSE) {
     const pending = pendingOffscreenCommands.get(message.commandId);
 
-    if (!pending) {
+    if (!pending || pending.port !== port) {
       return;
     }
 
@@ -563,8 +523,113 @@ function handleOffscreenFramePortMessage(port, message) {
   }
 }
 
-function hasConnectedOffscreenFrame() {
-  return Boolean(offscreenFramePort && isUsableOffscreenAutomationFrameUrl(offscreenFrameInfo?.href || ""));
+function handleOffscreenFramePortDisconnected(port) {
+  const frameRole = offscreenPortRoles.get(port);
+
+  offscreenPortRoles.delete(port);
+
+  if (frameRole) {
+    const state = getFrameState(frameRole);
+
+    if (state.port === port) {
+      state.port = null;
+      state.info = {
+        ...(state.info || {}),
+        frameRole,
+        disconnectedAt: new Date().toISOString()
+      };
+      void notifyOffscreenHostBridgeState(false, frameRole);
+
+      if (frameRole === OFFSCREEN_FRAME_ROLES.CHAT) {
+        const disconnectNoticeTimer = globalThis.setTimeout(() => {
+          void notifyOffscreenFrameDisconnectedIfStillGone(frameRole);
+        }, 2000);
+        disconnectNoticeTimer?.unref?.();
+      }
+    }
+  }
+
+  for (const [commandId, pending] of pendingOffscreenCommands.entries()) {
+    if (pending.port === port) {
+      pending.reject(new Error(`Offscreen ChatGPT ${pending.frameRole} frame disconnected.`));
+      pendingOffscreenCommands.delete(commandId);
+    }
+  }
+}
+
+function rejectOffscreenFramePort(port, frameInfo) {
+  const existingRole = offscreenPortRoles.get(port);
+
+  if (existingRole) {
+    const state = getFrameState(existingRole);
+
+    if (state.port === port) {
+      state.port = null;
+      state.info = {
+        ...frameInfo,
+        lastError: "Rejected non-automation ChatGPT frame."
+      };
+      void notifyOffscreenHostBridgeState(false, existingRole);
+    }
+  }
+
+  try {
+    port.disconnect();
+  } catch (_error) {
+    // Ignore already-closed nested frame ports.
+  }
+}
+
+function registerOffscreenFramePort(port, frameRole, frameInfo) {
+  const role = normalizeFrameRole(frameRole);
+  const previousRole = offscreenPortRoles.get(port);
+
+  if (previousRole && previousRole !== role) {
+    const previousState = getFrameState(previousRole);
+
+    if (previousState.port === port) {
+      previousState.port = null;
+      previousState.info = {
+        ...(previousState.info || {}),
+        disconnectedAt: new Date().toISOString()
+      };
+      void notifyOffscreenHostBridgeState(false, previousRole);
+    }
+  }
+
+  const state = getFrameState(role);
+  const previousPort = state.port && state.port !== port
+    ? state.port
+    : null;
+
+  offscreenPortRoles.set(port, role);
+  state.port = port;
+  state.reloadingAt = null;
+  state.reloadStalePorts.delete(port);
+  state.info = normalizeFrameInfo({
+    ...frameInfo,
+    frameRole: role,
+    connectedAt: frameInfo.connectedAt || new Date().toISOString()
+  });
+  void notifyOffscreenHostBridgeState(true, role);
+
+  if (previousPort) {
+    if (role === OFFSCREEN_FRAME_ROLES.CHAT) {
+      void notifyOffscreenFrameReplacedDuringActiveRequest(role);
+    }
+
+    try {
+      previousPort.disconnect();
+    } catch (_error) {
+      // The previous frame port may already be closed.
+    }
+  }
+}
+
+function hasConnectedOffscreenFrame(frameRole = OFFSCREEN_FRAME_ROLES.CHAT) {
+  const state = getFrameState(getRoutableFrameRole(frameRole));
+
+  return Boolean(!state.reloadingAt && state.port && isUsableOffscreenAutomationFrameUrl(state.info?.href || ""));
 }
 
 function isUsableOffscreenAutomationFrameUrl(value) {
@@ -585,10 +650,49 @@ function isUsableOffscreenAutomationFrameUrl(value) {
   }
 }
 
+function createOffscreenFrameState(frameRole) {
+  return {
+    role: frameRole,
+    port: null,
+    info: null,
+    reloadingAt: null,
+    reloadStalePorts: new WeakSet()
+  };
+}
+
+function getFrameState(frameRole) {
+  return offscreenFrames.get(normalizeFrameRole(frameRole)) || offscreenFrames.get(DEFAULT_FRAME_ROLE);
+}
+
+function normalizeFrameRole(value) {
+  return value === OFFSCREEN_FRAME_ROLES.HISTORY
+    ? OFFSCREEN_FRAME_ROLES.HISTORY
+    : OFFSCREEN_FRAME_ROLES.CHAT;
+}
+
+function getRoutableFrameRole(value) {
+  return normalizeFrameRole(value);
+}
+
+function normalizeCommandOptions(timeoutMs, options) {
+  if (timeoutMs && typeof timeoutMs === "object") {
+    return {
+      timeoutMs: OFFSCREEN_FRAME_COMMAND_TIMEOUT_MS,
+      frameRole: timeoutMs.frameRole
+    };
+  }
+
+  return {
+    timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : OFFSCREEN_FRAME_COMMAND_TIMEOUT_MS,
+    frameRole: options?.frameRole
+  };
+}
+
 function normalizeFrameInfo(value) {
   const source = value && typeof value === "object" ? value : {};
 
   return {
+    frameRole: normalizeFrameRole(source.frameRole),
     href: typeof source.href === "string" ? source.href : "",
     readyState: typeof source.readyState === "string" ? source.readyState : "",
     visibilityState: typeof source.visibilityState === "string" ? source.visibilityState : "",
@@ -613,7 +717,6 @@ function normalizeUrlForComparison(value) {
   }
 }
 
-
 function buildOffscreenReloadUrl(value) {
   try {
     const url = new URL(value);
@@ -629,24 +732,99 @@ function hasChromeOffscreenApi() {
 }
 
 function getAutomationHostDocumentUrl() {
-  if (hasChromeOffscreenApi()) {
-    return getOffscreenDocumentUrl();
-  }
-
-  return chrome.runtime.getURL(FIREFOX_SIDEBAR_DOCUMENT_PATH);
+  return getOffscreenDocumentUrl();
 }
 
-async function notifyOffscreenHostBridgeState(connected) {
+function collectOffscreenFrameStatuses() {
+  return Object.fromEntries(Object.values(OFFSCREEN_FRAME_ROLES).map((frameRole) => {
+    const state = getFrameState(frameRole);
+
+    return [frameRole, {
+      frameRole,
+      connected: hasConnectedOffscreenFrame(frameRole),
+      frame: state.info,
+      pendingCommandCount: countPendingCommands(frameRole),
+      reloading: Boolean(state.reloadingAt),
+      reloadingAt: state.reloadingAt
+    }];
+  }));
+}
+
+function countPendingCommands(frameRole) {
+  const role = getRoutableFrameRole(frameRole);
+  let count = 0;
+
+  for (const pending of pendingOffscreenCommands.values()) {
+    if (pending.frameRole === role) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
+function getHostFrameStatus(status, frameRole) {
+  return status?.frames?.[frameRole] || status || null;
+}
+
+function markOffscreenFrameReloading(frameRole) {
+  const role = getRoutableFrameRole(frameRole);
+  const state = getFrameState(role);
+  const previousPort = state.port;
+  const reloadingAt = new Date().toISOString();
+
+  if (previousPort) {
+    state.reloadStalePorts.add(previousPort);
+  }
+
+  state.port = null;
+  state.reloadingAt = reloadingAt;
+  state.info = normalizeFrameInfo({
+    ...(state.info || {}),
+    frameRole: role,
+    connectedAt: null,
+    disconnectedAt: reloadingAt
+  });
+
+  rejectPendingCommandsForRole(role, new Error(`Offscreen ChatGPT ${role} frame reloaded.`));
+  void notifyOffscreenHostBridgeState(false, role);
+
+  if (role === OFFSCREEN_FRAME_ROLES.CHAT) {
+    void notifyOffscreenFrameReplacedDuringActiveRequest(role);
+  }
+}
+
+function isStaleReloadPort(port, frameRole) {
+  const state = getFrameState(frameRole);
+
+  return Boolean(state.reloadingAt && state.reloadStalePorts.has(port));
+}
+
+function rejectPendingCommandsForRole(frameRole, error) {
+  const role = getRoutableFrameRole(frameRole);
+
+  for (const [commandId, pending] of pendingOffscreenCommands.entries()) {
+    if (pending.frameRole === role) {
+      pending.reject(error);
+      pendingOffscreenCommands.delete(commandId);
+    }
+  }
+}
+
+async function notifyOffscreenHostBridgeState(connected, frameRole = OFFSCREEN_FRAME_ROLES.CHAT) {
+  const role = getRoutableFrameRole(frameRole);
+
   await chrome.runtime.sendMessage({
     type: OFFSCREEN_MESSAGES.BRIDGE_STATUS,
+    frameRole: role,
     connected: Boolean(connected),
-    frame: offscreenFrameInfo,
+    frame: getFrameState(role).info,
     framePolicy: getOffscreenFramePolicyStatus()
   }).catch(() => null);
 }
 
-async function notifyOffscreenFrameDisconnectedIfStillGone() {
-  if (hasConnectedOffscreenFrame() || !offscreenFrameDisconnectHandler) {
+async function notifyOffscreenFrameDisconnectedIfStillGone(frameRole = OFFSCREEN_FRAME_ROLES.CHAT) {
+  if (getRoutableFrameRole(frameRole) !== OFFSCREEN_FRAME_ROLES.CHAT || hasConnectedOffscreenFrame(OFFSCREEN_FRAME_ROLES.CHAT) || !offscreenFrameDisconnectHandler) {
     return;
   }
 
@@ -662,8 +840,8 @@ async function notifyOffscreenFrameDisconnectedIfStillGone() {
   });
 }
 
-async function notifyOffscreenFrameReplacedDuringActiveRequest() {
-  if (!offscreenFrameDisconnectHandler) {
+async function notifyOffscreenFrameReplacedDuringActiveRequest(frameRole = OFFSCREEN_FRAME_ROLES.CHAT) {
+  if (getRoutableFrameRole(frameRole) !== OFFSCREEN_FRAME_ROLES.CHAT || !offscreenFrameDisconnectHandler) {
     return;
   }
 
