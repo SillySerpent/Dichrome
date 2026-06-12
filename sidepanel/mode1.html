@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dichrome</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <h1>Dichrome</h1>
+      </div>
+      <div class="header-actions">
+        <button id="settingsButton" class="ghost-button" type="button" title="Routing and model settings">Settings</button>
+        <button id="newChatButton" class="ghost-button" type="button" title="Start a separate new conversation">New</button>
+        <button id="refreshButton" class="icon-button" type="button" title="Refresh panel state">Refresh</button>
+      </div>
+    </header>
+
+    <main class="chat-shell">
+      <section class="history-panel" aria-label="Project conversations">
+        <div class="history-toolbar">
+          <div class="history-title">
+            <strong>Project history</strong>
+            <span id="historyStatus">Loading automatically</span>
+          </div>
+          <button id="historyRefreshButton" class="tiny-button" type="button">Refresh</button>
+        </div>
+        <div id="historyList" class="history-list hidden" aria-label="Project conversation list"></div>
+      </section>
+
+      <section id="chatMessages" class="chat-messages" aria-label="Conversation messages">
+        <div class="empty-chat">
+          <strong>Start a chat</strong>
+          <span>Type below, attach context, or select webpage text. Follow-ups continue this conversation until you press New.</span>
+          <div class="shortcut-hint" aria-label="Side panel shortcut">
+            <span>Mac <kbd>Option</kbd><kbd>Shift</kbd><kbd>D</kbd></span>
+            <span>Windows <kbd>Alt</kbd><kbd>Shift</kbd><kbd>D</kbd></span>
+          </div>
+        </div>
+      </section>
+
+      <section id="composerPanel" class="composer-panel" aria-label="Message composer">
+        <div id="selectedContextCard" class="context-card hidden">
+          <div class="context-header">
+            <strong>Selected webpage text</strong>
+            <button id="clearSelectedContextButton" class="tiny-button" type="button">Remove</button>
+          </div>
+          <div id="selectedContextPreview" class="context-preview"></div>
+          <div id="quickActions" class="quick-actions" aria-label="Selected text quick actions">
+            <button type="button" data-action="explain">Explain</button>
+            <button type="button" data-action="summarize">Summarize</button>
+            <button type="button" data-action="improve">Improve</button>
+            <button type="button" data-action="rewrite">Rewrite</button>
+            <button type="button" data-action="define">Define</button>
+          </div>
+        </div>
+
+        <label class="composer-label" for="manualText">Message</label>
+        <div id="composerDropZone" class="composer-box">
+          <input id="attachmentInput" class="hidden" type="file" multiple>
+          <div id="attachmentsTray" class="attachments-tray hidden" aria-label="Pending attachments"></div>
+          <textarea id="manualText" rows="3" spellcheck="true" placeholder="Message Dichrome..."></textarea>
+          <div class="composer-actions">
+            <div class="composer-left-actions">
+              <button id="composerScreenshotButton" class="icon-only-button" type="button" title="Attach screenshot">Screenshot</button>
+              <button id="composerAttachButton" class="icon-only-button" type="button" title="Attach files">Files</button>
+            </div>
+            <div class="composer-right-actions">
+              <span id="routingSummary" class="routing-summary" title="Current routing target">Project</span>
+              <button id="sendManualButton" class="primary-button send-button" type="button" title="Send message" aria-label="Send message">
+                <span aria-hidden="true">↑</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div id="errorBlock" class="error-block hidden"></div>
+        <div class="request-actions">
+          <button id="retryButton" type="button" disabled>Retry</button>
+          <button id="openChatGptButton" type="button" disabled>Open ChatGPT to sign in</button>
+          <button id="cancelButton" type="button" disabled>Cancel</button>
+          <span id="statusLine" class="status-line">Ready</span>
+        </div>
+      </section>
+
+      <div id="responseParking" class="hidden" aria-hidden="true">
+        <div id="responseText" class="response-content"></div>
+      </div>
+    </main>
+
+    <div id="settingsOverlay" class="settings-overlay hidden" role="presentation">
+      <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="settings-header">
+          <div>
+            <h2 id="settingsTitle">Routing and model settings</h2>
+            <p>Choose where Dichrome sends new ChatGPT conversations. These settings do not change the active conversation unless you press New or select history.</p>
+          </div>
+          <button id="settingsCloseButton" class="tiny-button" type="button">Close</button>
+        </div>
+
+        <div class="settings-grid">
+          <label class="settings-row settings-toggle-row">
+            <input id="projectRoutingEnabled" type="checkbox">
+            <span>Route new conversations into a ChatGPT project</span>
+          </label>
+
+          <label class="settings-row">
+            <span>Project name</span>
+            <input id="projectNameInput" type="text" maxlength="80" placeholder="Dichrome">
+          </label>
+
+          <label class="settings-row">
+            <span>Project URL or ID</span>
+            <input id="projectUrlInput" type="text" maxlength="220" placeholder="https://chatgpt.com/g/g-p-.../project">
+          </label>
+
+          <label class="settings-row settings-toggle-row">
+            <input id="projectCreateIfMissing" type="checkbox">
+            <span>Create the project if ChatGPT exposes the create-project control</span>
+          </label>
+
+          <label class="settings-row">
+            <span>Preferred model</span>
+            <select id="modelLabel" aria-label="Preferred model">
+              <option value="">Default</option>
+              <option value="Auto">Auto</option>
+              <option value="Instant">Instant</option>
+              <option value="Thinking">Thinking</option>
+              <option value="Extended">Extended</option>
+              <option value="Pro">Pro</option>
+              <option value="o3">o3</option>
+              <option value="o4">o4</option>
+            </select>
+          </label>
+
+          <label class="settings-row settings-toggle-row">
+            <input id="modelRequireExact" type="checkbox">
+            <span>Require exact model selection; fail clearly if unavailable</span>
+          </label>
+        </div>
+
+        <div class="settings-actions">
+          <span id="settingsStatus" class="status-line">Hidden internal automation only.</span>
+          <button id="settingsCancelButton" class="ghost-button" type="button">Cancel</button>
+          <button id="settingsSaveButton" class="primary-button" type="button">Save settings</button>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
