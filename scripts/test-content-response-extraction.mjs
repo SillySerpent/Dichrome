@@ -110,8 +110,11 @@ assert.equal(extraction.isFinishedBackendStatus("finished_successfully"), true);
 assert.equal(extraction.isFinishedBackendStatus("streaming"), false);
 assert.equal(extraction.isTransientAssistantStatusText("Thinking"), true);
 assert.equal(extraction.isTransientAssistantStatusText("Thought for a couple of seconds"), true);
+assert.equal(extraction.isTransientAssistantStatusText("Analyzing image"), true);
+assert.equal(extraction.isTransientAssistantStatusText("Analysing the attached file..."), true);
 assert.equal(extraction.isLowConfidenceDomResponse("Thinking", "Can you see this?"), true);
 assert.equal(extraction.isTransientAssistantStatusText("Thinking through the tradeoffs, this answer is complete."), false);
+assert.equal(extraction.isTransientAssistantStatusText("Analyzing image quality requires checking the light source."), false);
 
 const metadataFallback = extraction.selectConversationMessagesFromConversationData({
   mapping: {
