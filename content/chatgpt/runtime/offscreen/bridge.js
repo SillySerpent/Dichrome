@@ -4,6 +4,7 @@
 
   function createBridge({
     AUTOMATION_MESSAGES,
+    OFFSCREEN_FRAME_ROLES = Object.freeze({ CHAT: "chat", HISTORY: "history" }),
     OFFSCREEN_FRAME_PORT_NAME,
     handleAutomationMessage,
     isChatGptLocation,
@@ -47,6 +48,7 @@
 
         postToPort(port, {
           type: AUTOMATION_MESSAGES.offscreenFrameReady,
+          frameRole: getFrameRole(),
           frame: collectFrameInfo()
         });
       };
@@ -207,7 +209,7 @@
     function getExtensionOrigin() {
       try {
         const extensionUrl = chrome.runtime.getURL("");
-        const match = /^(chrome-extension|moz-extension):\/\/[^/]+/.exec(extensionUrl);
+        const match = /^chrome-extension:\/\/[^/]+/.exec(extensionUrl);
 
         return match ? match[0] : "";
       } catch (_error) {
@@ -217,6 +219,7 @@
 
     function collectFrameInfo() {
       return {
+        frameRole: getFrameRole(),
         href: location.href,
         readyState: document.readyState,
         visibilityState: document.visibilityState,
@@ -226,6 +229,20 @@
         bodyTextLength: document.body?.innerText?.length || 0,
         collectedAt: new Date().toISOString()
       };
+    }
+
+    function getFrameRole() {
+      return normalizeFrameRole(window.name);
+    }
+
+    function normalizeFrameRole(value) {
+      const text = String(value || "").toLowerCase();
+
+      if (text === OFFSCREEN_FRAME_ROLES.HISTORY || text.endsWith(`-${OFFSCREEN_FRAME_ROLES.HISTORY}`)) {
+        return OFFSCREEN_FRAME_ROLES.HISTORY;
+      }
+
+      return OFFSCREEN_FRAME_ROLES.CHAT;
     }
 
     return Object.freeze({
