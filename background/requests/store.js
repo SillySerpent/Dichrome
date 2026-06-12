@@ -4,7 +4,10 @@ import {
   PANEL_STATE_KEY,
   storageArea
 } from "../constants.js";
-import { PANEL_MESSAGES } from "../../shared/contracts.js";
+import {
+  PANEL_MESSAGES,
+  normalizeRequestState
+} from "../../shared/contracts.js";
 
 let panelStateWriteQueue = Promise.resolve();
 
@@ -111,6 +114,7 @@ function normalizePanelState(value) {
 
   const requests = Array.isArray(value.requests)
     ? value.requests.slice(0, HISTORY_LIMIT)
+      .map(normalizeRequestRecord)
     : [];
   const activeRequestId = value.activeRequestId && requests.some((request) => request.id === value.activeRequestId)
     ? value.activeRequestId
@@ -119,6 +123,17 @@ function normalizePanelState(value) {
   return {
     activeRequestId,
     requests
+  };
+}
+
+function normalizeRequestRecord(request) {
+  if (!request || typeof request !== "object") {
+    return request;
+  }
+
+  return {
+    ...request,
+    state: normalizeRequestState(request.state)
   };
 }
 
