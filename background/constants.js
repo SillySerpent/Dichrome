@@ -18,11 +18,19 @@ export {
 
 export const CHATGPT_HOSTS = new Set(CHATGPT_HOST_LIST);
 export const PANEL_STATE_KEY = STORAGE_KEYS.PANEL_STATE;
-export const REPAIR_SETTINGS_KEY = STORAGE_KEYS.REPAIR_SETTINGS;
 export const LAST_SOURCE_TAB_KEY = STORAGE_KEYS.LAST_SOURCE_TAB;
-export const AUTOMATION_WINDOW_STATE_KEY = STORAGE_KEYS.AUTOMATION_WINDOW_STATE;
 
-export const storageArea = chrome.storage.session || chrome.storage.local;
+export const storageArea = Object.freeze({
+  get(...args) {
+    return getStorageArea().get(...args);
+  },
+  set(...args) {
+    return getStorageArea().set(...args);
+  },
+  remove(...args) {
+    return getStorageArea().remove?.(...args);
+  }
+});
 
 export function isChatGptUrl(value) {
   try {
@@ -48,9 +56,13 @@ export function isExtensionUrl(value) {
 }
 
 function parseExtensionOrigin(value) {
-  const match = /^(chrome-extension|moz-extension):\/\/[^/]+/.exec(String(value || ""));
+  const match = /^chrome-extension:\/\/[^/]+/.exec(String(value || ""));
 
   return match ? match[0] : "";
+}
+
+function getStorageArea() {
+  return chrome.storage.session || chrome.storage.local;
 }
 
 export function getTabId(tabLike) {
