@@ -6,13 +6,15 @@
   "minimum_chrome_version": "116",
   "permissions": [
     "activeTab",
+    "clipboardWrite",
     "contextMenus",
     "declarativeNetRequestWithHostAccess",
     "offscreen",
     "scripting",
     "sidePanel",
     "storage",
-    "tabs"
+    "tabs",
+    "windows"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -20,13 +22,22 @@
     "https://chat.openai.com/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://chatgpt.com https://chat.openai.com;"
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://chatgpt.com https://*.chatgpt.com https://chat.openai.com https://*.openai.com;"
   },
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
   "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/shared/selection-popover.js"
+      ],
+      "run_at": "document_idle"
+    },
     {
       "matches": [
         "https://chatgpt.com/*",
@@ -49,6 +60,7 @@
         "content/chatgpt/runtime/adapter/composer-controls.js",
         "content/chatgpt/runtime/adapter/assistant-response.js",
         "content/chatgpt/runtime/response/extraction.js",
+        "content/chatgpt/runtime/history/project-history-data.js",
         "content/chatgpt/runtime/history/project-history.js",
         "content/chatgpt/runtime/network/capture-client.js",
         "content/chatgpt/runtime/offscreen/bridge.js",
@@ -58,6 +70,17 @@
         "content/chatgpt/runtime/runner/automation-runner.js",
         "content/chatgpt/runtime/app.js",
         "content/chatgpt/90-bootstrap.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "content/mode2/chatgpt-frame-theme.js"
       ],
       "run_at": "document_start",
       "all_frames": true
@@ -79,6 +102,27 @@
     "toggle-dichrome-side-panel": {
       "suggested_key": "Alt+Shift+D",
       "description": "Open or close the Dichrome side panel"
+    },
+    "capture-visible-screenshot": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+U",
+        "mac": "Command+Shift+U"
+      },
+      "description": "Capture the visible part of the current tab"
+    },
+    "summarize-selection": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Send selected text to Dichrome for summarization"
+    },
+    "explain-selection": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E",
+        "mac": "Command+Shift+E"
+      },
+      "description": "Send selected text to Dichrome for explanation"
     }
   },
   "icons": {
