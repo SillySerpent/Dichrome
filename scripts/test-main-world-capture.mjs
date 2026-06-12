@@ -4,7 +4,7 @@ import vm from "node:vm";
 
 const messages = [];
 const nowSeconds = Date.now() / 1000;
-const payload = {
+let responsePayload = {
   conversation_id: "conversation-1",
   mapping: {
     oldAssistant: {
@@ -45,7 +45,7 @@ const fakeResponse = {
     return this;
   },
   async json() {
-    return payload;
+    return responsePayload;
   }
 };
 const context = vm.createContext({
@@ -78,5 +78,39 @@ const latest = conversationMessages[conversationMessages.length - 1];
 assert.equal(latest.text, "New short answer");
 assert.equal(latest.messageId, "new-message");
 assert.equal(latest.conversationKey, "conversation-1");
+
+const previousMessageCount = conversationMessages.length;
+responsePayload = {
+  conversation_id: "conversation-2",
+  mapping: {
+    imageStatus: {
+      message: {
+        id: "image-status-message",
+        author: {
+          role: "assistant"
+        },
+        content: {
+          parts: ["Analyzing image"]
+        },
+        status: "finished_successfully",
+        update_time: Date.now() / 1000
+      }
+    }
+  }
+};
+
+await context.window.fetch("https://chatgpt.com/backend-api/conversation", {
+  method: "POST"
+});
+await new Promise((resolve) => setTimeout(resolve, 0));
+
+const statusMessages = messages
+  .filter((message) => message.type === "CHATGPT_CONVERSATION_RESPONSE")
+  .slice(previousMessageCount);
+const latestStatusMessage = statusMessages[statusMessages.length - 1];
+
+assert.ok(statusMessages.length);
+assert.equal(statusMessages.some((message) => message.text === "Analyzing image"), false);
+assert.equal(latestStatusMessage.text, "");
 
 console.log("Main-world capture tests passed.");
