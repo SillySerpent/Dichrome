@@ -3,7 +3,6 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { CHATGPT_CONTENT_SCRIPT_FILES } from "../shared/contracts.js";
-import { buildTargetManifest } from "./manifest-targets.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const requiredFiles = [
@@ -11,23 +10,27 @@ const requiredFiles = [
   "manifest.json",
   "background/service-worker.js",
   "background/constants.js",
+  "background/runtime/automation-events.js",
   "background/runtime/app.js",
   "background/runtime/conversation-run-options.js",
   "background/runtime/context-menu.js",
+  "background/runtime/error-classification.js",
   "background/runtime/fresh-conversation-url.js",
   "background/runtime/message-router.js",
   "background/runtime/project-history-controller.js",
   "background/runtime/request-controller.js",
+  "background/runtime/request-orchestrator.js",
   "background/runtime/settings-repository.js",
+  "background/runtime/side-panel-state.js",
+  "background/runtime/workspace-readiness.js",
+  "background/mode2/companion-controller.js",
   "background/automation/offscreen-target.js",
   "background/automation/offscreen-frame-policy.js",
   "background/automation/project-target.js",
   "background/automation/source-focus.js",
   "background/automation/session.js",
   "background/automation/settings.js",
-  "background/automation/tab-target.js",
   "background/debug-dump.js",
-  "background/focus-emulation.js",
   "background/requests/store.js",
   "background/state-machine.js",
   "content/chatgpt/00-namespace.js",
@@ -46,6 +49,7 @@ const requiredFiles = [
   "content/chatgpt/runtime/adapter/composer-controls.js",
   "content/chatgpt/runtime/adapter/assistant-response.js",
   "content/chatgpt/runtime/response/extraction.js",
+  "content/chatgpt/runtime/history/project-history-data.js",
   "content/chatgpt/runtime/history/project-history.js",
   "content/chatgpt/runtime/network/capture-client.js",
   "content/chatgpt/runtime/offscreen/bridge.js",
@@ -56,9 +60,14 @@ const requiredFiles = [
   "content/chatgpt/runtime/app.js",
   "content/chatgpt/90-bootstrap.js",
   "content/chatgpt/main-world-capture.js",
+  "content/mode2/chatgpt-frame-theme.js",
+  "content/shared/selection-popover.js",
+  "docs/architecture.md",
   "docs/hidden-internal-invariants.md",
   "docs/manual-smoke-tests.md",
+  "docs/mode-integration-plan.md",
   "docs/module-map.md",
+  "docs/PLANS.md",
   "docs/setup-and-usage.md",
   "docs/chrome-web-store-submission.md",
   "docs/privacy-policy.md",
@@ -71,6 +80,7 @@ const requiredFiles = [
   "assets/icon.svg",
   "scripts/test.mjs",
   "scripts/test-offscreen-frame-policy.mjs",
+  "scripts/test-offscreen-automation-host.mjs",
   "scripts/test-offscreen-target.mjs",
   "scripts/test-automation-session.mjs",
   "scripts/test-request-records.mjs",
@@ -96,21 +106,32 @@ const requiredFiles = [
   "scripts/test-composer-attachment-upload-status.mjs",
   "scripts/test-response-animation.mjs",
   "scripts/test-conversation-thread.mjs",
+  "scripts/test-sidepanel-message-cards.mjs",
   "scripts/test-sidepanel-attachment-limits.mjs",
   "scripts/test-sidepanel-attachments.mjs",
+  "scripts/test-sidepanel-pending-attachments.mjs",
   "scripts/test-sidepanel-drop-content.mjs",
   "scripts/test-sidepanel-selection-context.mjs",
   "scripts/test-sidepanel-layout-css.mjs",
+  "scripts/test-sidepanel-status-formatting.mjs",
   "scripts/test-contracts.mjs",
   "scripts/test-response-formatting.mjs",
   "scripts/test-manifest-targets.mjs",
-  "scripts/test-firefox-automation-host.mjs",
+  "scripts/test-modes.mjs",
+  "scripts/test-mode-shell.mjs",
   "scripts/test-offscreen-bridge-origin.mjs",
+  "scripts/test-utils/fake-dom.mjs",
   "scripts/package-extension.mjs",
   "scripts/manifest-targets.mjs",
   "sidepanel/sidepanel.html",
+  "sidepanel/shell.css",
+  "sidepanel/shell.js",
+  "sidepanel/mode1.html",
   "sidepanel/sidepanel.css",
   "sidepanel/sidepanel.js",
+  "sidepanel/mode2/sidepanel.html",
+  "sidepanel/mode2/sidepanel.css",
+  "sidepanel/mode2/sidepanel.js",
   "sidepanel/runtime/app.js",
   "sidepanel/runtime/attachment-limits.js",
   "sidepanel/runtime/attachments.js",
@@ -118,15 +139,20 @@ const requiredFiles = [
   "sidepanel/runtime/conversation-thread.js",
   "sidepanel/runtime/dom.js",
   "sidepanel/runtime/drop-content.js",
-  "sidepanel/runtime/firefox-automation-host.js",
+  "sidepanel/runtime/message-cards.js",
+  "sidepanel/runtime/pending-attachments.js",
   "sidepanel/runtime/project-history-state.js",
   "sidepanel/runtime/response-animation.js",
   "sidepanel/runtime/response-view.js",
   "sidepanel/runtime/selection-context.js",
   "sidepanel/runtime/settings-dialog.js",
   "sidepanel/runtime/state.js",
+  "sidepanel/runtime/status-formatting.js",
   "shared/contracts.js",
   "shared/error-messages.js",
+  "shared/modes.js",
+  "shared/response/escaping.js",
+  "shared/response/sanitizer.js",
   "shared/response-formatting.js"
 ];
 const javascriptFiles = requiredFiles.filter((file) => file.endsWith(".js"));
@@ -164,28 +190,34 @@ const moduleScriptFiles = [
   "scripts/test-composer-attachment-upload-status.mjs",
   "scripts/test-response-animation.mjs",
   "scripts/test-conversation-thread.mjs",
+  "scripts/test-sidepanel-message-cards.mjs",
   "scripts/test-sidepanel-attachment-limits.mjs",
   "scripts/test-sidepanel-attachments.mjs",
+  "scripts/test-sidepanel-pending-attachments.mjs",
   "scripts/test-sidepanel-drop-content.mjs",
   "scripts/test-sidepanel-selection-context.mjs",
   "scripts/test-sidepanel-layout-css.mjs",
+  "scripts/test-sidepanel-status-formatting.mjs",
   "scripts/test-offscreen-frame-policy.mjs",
+  "scripts/test-offscreen-automation-host.mjs",
   "scripts/test-offscreen-target.mjs",
   "scripts/test-automation-session.mjs",
   "scripts/test-request-records.mjs",
   "scripts/test-contracts.mjs",
   "scripts/test-response-formatting.mjs",
   "scripts/manifest-targets.mjs",
-  "sidepanel/runtime/firefox-automation-host.js",
   "scripts/test-manifest-targets.mjs",
-  "scripts/test-firefox-automation-host.mjs",
-  "scripts/test-offscreen-bridge-origin.mjs"
+  "scripts/test-modes.mjs",
+  "scripts/test-mode-shell.mjs",
+  "scripts/test-offscreen-bridge-origin.mjs",
+  "scripts/test-utils/fake-dom.mjs"
 ];
 
 await validateManifest();
 await validateFilesExist();
 await validateRepositoryHygiene();
 await validateLayeredContentRuntime();
+await validateNoVisibleAutomationRoute();
 await validateStoreReviewReadiness();
 await validateNoUserFacingDebugControls();
 await validateNoRemoteCodeExecution();
@@ -215,12 +247,34 @@ async function validateManifest() {
     manifest.commands?.["toggle-dichrome-side-panel"]?.description === "Open or close the Dichrome side panel",
     "Manifest shortcut description must explain the side-panel toggle."
   );
+  assert(
+    manifest.commands?.["capture-visible-screenshot"],
+    "Manifest must register the shared visible screenshot shortcut."
+  );
+  assert(
+    manifest.commands?.["summarize-selection"],
+    "Manifest must register the shared summarize-selection shortcut."
+  );
+  assert(
+    manifest.commands?.["explain-selection"],
+    "Manifest must register the shared explain-selection shortcut."
+  );
   assert(manifest.icons?.["128"] === "icons/icon-128.png", "manifest 128px icon path is wrong.");
   assert(manifest.action?.default_icon?.["32"] === "icons/icon-32.png", "action 32px icon path is wrong.");
   assert(Array.isArray(manifest.content_scripts), "Missing ChatGPT content script registration.");
+  const selectionPopoverScript = manifest.content_scripts.find((script) => {
+    return script.js?.includes("content/shared/selection-popover.js");
+  });
   const chatGptContentScript = manifest.content_scripts.find((script) => {
     return script.matches?.includes("https://chatgpt.com/*") && script.matches?.includes("https://chat.openai.com/*");
   });
+  const mode2FrameThemeScript = manifest.content_scripts.find((script) => {
+    return script.js?.includes("content/mode2/chatgpt-frame-theme.js");
+  });
+
+  assert(selectionPopoverScript, "Missing shared selection popover content script.");
+  assert(selectionPopoverScript.matches?.includes("<all_urls>"), "Shared selection popover must run on normal webpage hosts.");
+  assert(selectionPopoverScript.run_at === "document_idle", "Shared selection popover must run after normal page content is available.");
   assert(chatGptContentScript, "Missing ChatGPT content script matches.");
   assert(chatGptContentScript.all_frames === true, "ChatGPT content script must run in all frames for offscreen iframe probing.");
   assert(chatGptContentScript.run_at === "document_start", "ChatGPT content script must connect the offscreen iframe bridge at document_start.");
@@ -228,6 +282,9 @@ async function validateManifest() {
     JSON.stringify(chatGptContentScript.js) === JSON.stringify(CHATGPT_CONTENT_SCRIPT_FILES),
     "ChatGPT content script order must match shared contract order."
   );
+  assert(mode2FrameThemeScript, "Missing Mode 2 ChatGPT frame theme content script.");
+  assert(mode2FrameThemeScript.all_frames === true, "Mode 2 frame theme must run in embedded ChatGPT frames.");
+  assert(mode2FrameThemeScript.run_at === "document_start", "Mode 2 frame theme must run before ChatGPT frame rendering settles.");
 
   const webAccessibleResources = manifest.web_accessible_resources || [];
   const chatGptCaptureResource = webAccessibleResources.find((resource) => {
@@ -240,11 +297,10 @@ async function validateManifest() {
 
   const permissions = new Set(manifest.permissions || []);
 
-  for (const permission of ["activeTab", "contextMenus", "declarativeNetRequestWithHostAccess", "offscreen", "scripting", "sidePanel", "storage", "tabs"]) {
+  for (const permission of ["activeTab", "clipboardWrite", "contextMenus", "declarativeNetRequestWithHostAccess", "offscreen", "scripting", "sidePanel", "storage", "tabs", "windows"]) {
     assert(permissions.has(permission), `Missing permission: ${permission}`);
   }
   assert(!permissions.has("debugger"), "Debugger permission must not return for hidden-internal-only builds.");
-  assert(!permissions.has("windows"), "Windows permission must not return unless a visible automation route is reintroduced.");
 
   const hostPermissions = new Set(manifest.host_permissions || []);
   const optionalHostPermissions = manifest.optional_host_permissions || [];
@@ -257,51 +313,11 @@ async function validateManifest() {
     `Visible screenshot capture uses required host access, not runtime optional prompts: ${optionalHostPermissions.join(", ")}`
   );
   assert(
-    manifest.content_security_policy?.extension_pages?.includes("frame-src https://chatgpt.com https://chat.openai.com"),
+    manifest.content_security_policy?.extension_pages?.includes("frame-src https://chatgpt.com")
+      && manifest.content_security_policy?.extension_pages?.includes("https://chat.openai.com"),
     "Extension CSP must allow ChatGPT offscreen iframe probe hosts."
   );
 
-  validateFirefoxManifest(buildTargetManifest(manifest, "firefox"));
-}
-
-function validateFirefoxManifest(manifest) {
-  assert(manifest.manifest_version === 3, "Firefox manifest_version must be 3.");
-  assert(manifest.name === "Dichrome", "Firefox manifest name must match the extension brand.");
-  assert(!("minimum_chrome_version" in manifest), "Firefox manifest must not include minimum_chrome_version.");
-  assert(!manifest.side_panel, "Firefox manifest must not include Chrome side_panel.");
-  assert(manifest.sidebar_action?.default_panel === "sidepanel/sidepanel.html", "Firefox sidebar panel path is wrong.");
-  assert(manifest.sidebar_action?.default_title === "Open Dichrome", "Firefox sidebar title must match the extension brand.");
-  assert(manifest.sidebar_action?.open_at_install === false, "Firefox sidebar must not open automatically at install.");
-  assert(manifest.background?.scripts?.[0] === "background/service-worker.js", "Firefox background script path is wrong.");
-  assert(!manifest.background?.service_worker, "Firefox manifest must not include Chrome background service_worker.");
-  assert(manifest.background?.type === "module", "Firefox background script must be an ES module.");
-  assert(manifest.browser_specific_settings?.gecko?.id === "dichrome@local", "Firefox manifest must declare a stable Gecko id.");
-
-  const permissions = new Set(manifest.permissions || []);
-
-  for (const permission of ["activeTab", "contextMenus", "declarativeNetRequestWithHostAccess", "scripting", "storage", "tabs"]) {
-    assert(permissions.has(permission), `Firefox manifest missing permission: ${permission}`);
-  }
-
-  for (const chromeOnlyPermission of ["offscreen", "sidePanel"]) {
-    assert(!permissions.has(chromeOnlyPermission), `Firefox manifest must not include Chrome-only permission: ${chromeOnlyPermission}`);
-  }
-
-  const chatGptContentScript = manifest.content_scripts?.find((script) => {
-    return script.matches?.includes("https://chatgpt.com/*") && script.matches?.includes("https://chat.openai.com/*");
-  });
-
-  assert(chatGptContentScript, "Firefox manifest missing ChatGPT content script matches.");
-  assert(chatGptContentScript.all_frames === true, "Firefox ChatGPT content script must run in all frames.");
-  assert(chatGptContentScript.run_at === "document_start", "Firefox ChatGPT content script must run at document_start.");
-  assert(
-    JSON.stringify(chatGptContentScript.js) === JSON.stringify(CHATGPT_CONTENT_SCRIPT_FILES),
-    "Firefox ChatGPT content script order must match shared contract order."
-  );
-  assert(
-    manifest.content_security_policy?.extension_pages?.includes("frame-src https://chatgpt.com https://chat.openai.com"),
-    "Firefox manifest CSP must allow ChatGPT iframe hosts."
-  );
 }
 
 async function validateFilesExist() {
@@ -315,6 +331,7 @@ async function validateRepositoryHygiene() {
 
   assert(rootEntries.includes(".gitignore"), "Repository ignore rules must live in .gitignore.");
   assert(!rootEntries.includes(".gitIgnore"), "Use .gitignore, not .gitIgnore.");
+  assert(!rootEntries.includes("Mode_2"), "Standalone Mode_2 prototype folder must not return to the shipping workspace.");
 
   const gitignore = await readFile(join(root, ".gitignore"), "utf8");
 
@@ -334,6 +351,41 @@ async function validateLayeredContentRuntime() {
     flatRuntimeFiles.length === 0,
     `Content runtime helpers must live in layered subdirectories, not flat runtime files: ${flatRuntimeFiles.join(", ")}`
   );
+}
+
+async function validateNoVisibleAutomationRoute() {
+  const runtimeFiles = await listFiles(extensionRuntimeRoots);
+  const removedRouteFiles = new Set([
+    "background/automation/tab-target.js",
+    "background/focus-emulation.js"
+  ]);
+
+  for (const file of runtimeFiles) {
+    assert(!removedRouteFiles.has(file), `${file} must not return; Dichrome uses hidden internal automation only.`);
+  }
+
+  const forbiddenRuntimePatterns = [
+    /automation\/tab-target/,
+    /focus-emulation/,
+    /\bsendMessageToTab\b/,
+    /\binjectAutomationScript\b/,
+    /\benableFocusEmulation\b/,
+    /\bdisableFocusEmulationForRequest\b/,
+    /\busesSingleTabAutomation\b/,
+    /\busesSidecarWindow\b/,
+    /\busesFocusedAutomation\b/,
+    /\bAUTOMATION_WINDOW_STATE\b/,
+    /"single-tab"/,
+    /"sidecar"/
+  ];
+
+  for (const file of runtimeFiles.filter((entry) => entry.endsWith(".js"))) {
+    const source = await readFile(join(root, file), "utf8");
+
+    for (const pattern of forbiddenRuntimePatterns) {
+      assert(!pattern.test(source), `${file} must not reintroduce visible-tab automation route code: ${pattern}`);
+    }
+  }
 }
 
 async function validateStoreReviewReadiness() {
@@ -369,6 +421,7 @@ async function validateStoreReviewReadiness() {
 
 async function validateNoUserFacingDebugControls() {
   const sidepanelHtml = await readFile(join(root, "sidepanel/sidepanel.html"), "utf8");
+  const mode1Html = await readFile(join(root, "sidepanel/mode1.html"), "utf8");
   const sidepanelDom = await readFile(join(root, "sidepanel/runtime/dom.js"), "utf8");
   const sidepanelApp = await readFile(join(root, "sidepanel/runtime/app.js"), "utf8");
 
@@ -383,6 +436,7 @@ async function validateNoUserFacingDebugControls() {
     "modelSelectionEnabled"
   ]) {
     assert(!sidepanelHtml.includes(phrase), `Side panel HTML must not expose debug/repair controls: ${phrase}`);
+    assert(!mode1Html.includes(phrase), `Mode 1 side panel HTML must not expose debug/repair controls: ${phrase}`);
     assert(!sidepanelDom.includes(phrase), `Side panel DOM bindings must not expose debug/repair controls: ${phrase}`);
   }
 
