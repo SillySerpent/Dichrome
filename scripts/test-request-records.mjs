@@ -44,4 +44,39 @@ assert.equal(normal.conversationMode, "new");
 assert.equal(normal.chatConversationUrl, null);
 assert.equal(normal.chatConversationKey, null);
 
+const sessionStore = new Map();
+globalThis.chrome = {
+  runtime: {
+    sendMessage: async () => null
+  },
+  storage: {
+    session: {
+      async get(key) {
+        return {
+          [key]: sessionStore.get(key)
+        };
+      },
+      async set(values) {
+        for (const [key, value] of Object.entries(values)) {
+          sessionStore.set(key, value);
+        }
+      }
+    },
+    local: null
+  }
+};
+
+sessionStore.set("panelState", {
+  activeRequestId: "legacy-ready",
+  requests: [{
+    id: "legacy-ready",
+    state: "CHATGPT_TAB_READY"
+  }]
+});
+
+const { getPanelState } = await import("../background/requests/store.js");
+const panelState = await getPanelState();
+
+assert.equal(panelState.requests[0].state, REQUEST_STATES.WORKSPACE_READY);
+
 console.log("Request record tests passed.");
