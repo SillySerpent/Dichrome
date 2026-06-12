@@ -322,6 +322,10 @@
       return true;
     }
 
+    if (/^(analy[sz]ing|reading|processing|reviewing|inspecting|examining)\s+(?:(?:a|an|the|this|that|your|attached|uploaded)\s+)*(?:image|images|photo|photos|picture|pictures|screenshot|screenshots|attachment|attachments|file|files|document|documents)$/.test(comparable)) {
+      return true;
+    }
+
     return /^thought for\b/.test(comparable)
       || /^(thinking|reasoning|working|generating|processing|analy[sz]ing|reading|searching)\s+(for|about)\b/.test(comparable);
   }
