@@ -32,7 +32,7 @@ assert.match(mode2ControllerSource, /BACKGROUND_MESSAGE_TYPES/, "Mode 2 controll
 assert.match(frameThemeSource, /dichrome\.mode2\.chatGptFrameUrl/, "Mode 2 frame theme must persist namespaced frame URL state");
 assert.match(mode2Css, /\.status-bar\.is-empty/, "Mode 2 status text must collapse when no action needs attention");
 assert.match(mode2Source, /dichrome:mode2:attach-screenshot/, "Mode 2 must send captured screenshots into the embedded ChatGPT frame");
-assert.match(mode2Source, /postMessage\(payload, origin\)/, "Mode 2 screenshot handoff must target ChatGPT frame origins");
+assert.match(mode2Source, /postMessage\(payload, task\.origin\)/, "Mode 2 screenshot handoff must target the verified document origin");
 assert.match(composerBridgeSource, /adapterComposerControls/, "Mode 2 ChatGPT frame must reuse the shared composer attachment controls");
 assert.match(composerBridgeSource, /attachFiles\(\[attachment\]/, "Mode 2 ChatGPT frame must wait for ChatGPT to accept the screenshot attachment");
 
