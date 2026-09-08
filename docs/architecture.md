@@ -120,7 +120,7 @@ Mode 2 inserts prompts only when the user chooses Insert into ChatGPT, and never
 }
 ```
 
-The user can edit, insert, copy, or clear that prompt. The composer bridge validates its extension parent, request ID, and prompt size, protects an existing draft, and acknowledges retained text. Screenshot upload uses the shared attachment adapter and acknowledges accepted uploads. The sidebar resets readiness on navigation and waits for the replacement document’s composer handshake; an iframe load alone is insufficient. Session drafts and the last acknowledged screenshot ID survive panel reloads but are cleared with their corresponding context. When embedding is unavailable or unreliable, Mode 2 opens a focused ChatGPT popup window through the `windows` permission.
+The user can edit, insert, copy, or clear that prompt. The composer bridge announces its live document ID and origin to the extension parent. The parent queues requests until that verified announcement and targets only that origin. Each reply must match the document ID and request ID; unload/reload invalidates the connection. The bridge validates its extension parent, request ID, document ID, and prompt size, protects an existing draft, and acknowledges retained text. Screenshot upload uses the shared attachment adapter and acknowledges accepted uploads. The sidebar resets readiness on navigation and waits for the replacement document’s composer handshake; an iframe load alone is insufficient. Session drafts and the last acknowledged screenshot ID survive panel reloads but are cleared with their corresponding context. When embedding is unavailable or unreliable, Mode 2 opens a focused ChatGPT popup window through the `windows` permission.
 
 ## Project Routing
 
