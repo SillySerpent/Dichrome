@@ -1,301 +1,193 @@
 (() => {
-  if (!shouldInstallSelectionPopover()) {
-    return;
-  }
+  if (!["http:", "https:"].includes(location.protocol)
+    || ["chatgpt.com", "chat.openai.com"].includes(location.hostname)
+    || document.querySelector("[data-chatgpt-sidebar-popover]")) return;
 
-  const MESSAGE_TYPES = Object.freeze({
-    CAPTURE_VISIBLE_TAB: "chatgpt-sidebar:capture-visible-tab",
-    SELECTION_ACTION: "chatgpt-sidebar:selection-action",
-    GET_SELECTION: "chatgpt-sidebar:get-selection"
+  const prefix = "chatgpt-sidebar:";
+  let host, shadow, feedback, more, timer, frame;
+  let selectedText = "";
+  let busy = false;
+  let interacting = false;
+  let dismissedText = "";
+
+  const inside = (event) => host && event.composedPath().includes(host);
+  document.addEventListener("pointerdown", (event) => {
+    interacting = Boolean(inside(event));
+    if (!interacting) hide();
+  }, true);
+  document.addEventListener("pointerup", (event) => {
+    if (!inside(event)) schedule();
+    setTimeout(() => { interacting = false; }, 0);
+  }, true);
+  document.addEventListener("pointercancel", () => { interacting = false; }, true);
+  document.addEventListener("selectionchange", () => {
+    if (!interacting && !busy) schedule();
   });
-
-  const ACTIONS = [
-    { id: "ask", label: "Ask" },
-    { id: "summarize", label: "Summarize" },
-    { id: "explain", label: "Explain" },
-    { id: "rewrite", label: "Rewrite" },
-    { id: "screenshot", label: "Screenshot" }
-  ];
-
-  const MIN_SELECTION_LENGTH = 2;
-  const MAX_SELECTION_LENGTH = 24000;
-  const POPOVER_MARGIN = 8;
-
-  let host = null;
-  let shadow = null;
-  let latestSelectionText = "";
-  let showTimer = 0;
-  let suppressNextDocumentClick = false;
-
-  document.addEventListener("mouseup", () => schedulePopoverUpdate(), true);
   document.addEventListener("keyup", (event) => {
     if (event.key === "Escape") {
-      hidePopover();
-      return;
-    }
-
-    schedulePopoverUpdate();
+      dismissedText = selectedText;
+      hide();
+    } else if (!inside(event)) schedule();
   }, true);
-  document.addEventListener("selectionchange", () => schedulePopoverUpdate(), true);
-  document.addEventListener("contextmenu", () => schedulePopoverUpdate(0), true);
-  document.addEventListener("mousedown", (event) => {
-    if (suppressNextDocumentClick) {
-      suppressNextDocumentClick = false;
-      return;
-    }
-
-    if (host && event.composedPath().includes(host)) {
-      return;
-    }
-
-    hidePopover();
-  }, true);
-  window.addEventListener("scroll", hidePopover, true);
-  window.addEventListener("resize", hidePopover, true);
-
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type !== MESSAGE_TYPES.GET_SELECTION) {
-      return false;
-    }
-
-    const selection = readSelection();
-    sendResponse({
-      selectedText: selection?.text || "",
-      pageTitle: document.title || "",
-      pageUrl: location.href
-    });
+  window.addEventListener("scroll", hide, true);
+  window.addEventListener("resize", hide);
+  chrome.runtime.onMessage.addListener((message, _sender, respond) => {
+    if (message?.type !== `${prefix}get-selection`) return false;
+    respond({ selectedText: readSelection()?.text || "", pageTitle: document.title, pageUrl: location.href });
     return false;
   });
 
-  function schedulePopoverUpdate(delay = 80) {
-    window.clearTimeout(showTimer);
-    showTimer = window.setTimeout(updatePopoverFromSelection, delay);
-  }
-
-  function updatePopoverFromSelection() {
-    const selection = readSelection();
-    if (!selection) {
-      hidePopover();
-      return;
-    }
-
-    latestSelectionText = selection.text;
-    showPopover(selection.rect);
+  function schedule() {
+    clearTimeout(timer);
+    if (busy || interacting) return;
+    timer = setTimeout(() => {
+      const selection = readSelection();
+      if (!selection) { dismissedText = ""; hide(); return; }
+      if (selection.text === dismissedText) return;
+      selectedText = selection.text;
+      show(selection.rect);
+    }, 80);
   }
 
   function readSelection() {
     const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
-      return null;
-    }
-
-    const text = selection
-      .toString()
-      .replace(/\s+\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-
-    if (text.length < MIN_SELECTION_LENGTH) {
-      return null;
-    }
-
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+    if (selection.anchorNode?.parentElement?.closest('input, textarea, [contenteditable="true"]')) return null;
+    const text = selection.toString().trim();
+    if (text.length < 2) return null;
     const range = selection.getRangeAt(selection.rangeCount - 1);
-    const rect = getUsableSelectionRect(range);
-    if (!rect) {
-      return null;
-    }
-
-    return {
-      rect,
-      text: text.length > MAX_SELECTION_LENGTH ? text.slice(0, MAX_SELECTION_LENGTH) : text
-    };
+    const rects = [...range.getClientRects()].filter((rect) => rect.width && rect.height);
+    const rect = rects.at(-1) || range.getBoundingClientRect();
+    return rect.width && rect.height ? { text, rect } : null;
   }
 
-  function getUsableSelectionRect(range) {
-    const rects = Array.from(range.getClientRects()).filter(
-      (rect) => rect.width > 0 && rect.height > 0
-    );
-
-    if (rects.length > 0) {
-      return rects[rects.length - 1];
-    }
-
-    const boundingRect = range.getBoundingClientRect();
-    if (boundingRect.width > 0 && boundingRect.height > 0) {
-      return boundingRect;
-    }
-
-    return null;
-  }
-
-  function showPopover(selectionRect) {
+  function show(rect) {
     ensurePopover();
-    renderPopover();
-
-    host.style.visibility = "hidden";
-    host.style.display = "block";
-
-    requestAnimationFrame(() => {
-      const popoverRect = host.getBoundingClientRect();
-      const left = clamp(
-        selectionRect.left,
-        POPOVER_MARGIN,
-        window.innerWidth - popoverRect.width - POPOVER_MARGIN
-      );
-      const preferredTop = selectionRect.bottom + POPOVER_MARGIN;
-      const fallbackTop = selectionRect.top - popoverRect.height - POPOVER_MARGIN;
-      const top =
-        preferredTop + popoverRect.height <= window.innerHeight - POPOVER_MARGIN
-          ? preferredTop
-          : Math.max(POPOVER_MARGIN, fallbackTop);
-
-      host.style.left = `${Math.round(left)}px`;
-      host.style.top = `${Math.round(top)}px`;
-      host.style.visibility = "visible";
+    feedback.hidden = true;
+    more.hidden = true;
+    shadow.querySelector('[aria-expanded]').setAttribute("aria-expanded", "false");
+    host.style.setProperty("display", "block", "important");
+    host.style.setProperty("visibility", "hidden", "important");
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      const box = host.getBoundingClientRect();
+      const left = Math.max(8, Math.min(rect.left, innerWidth - box.width - 8));
+      const below = rect.bottom + 6;
+      const top = below + box.height < innerHeight - 8 ? below : Math.max(8, rect.top - box.height - 6);
+      host.style.setProperty("left", `${Math.round(left)}px`, "important");
+      host.style.setProperty("top", `${Math.round(top)}px`, "important");
+      host.style.setProperty("visibility", "visible", "important");
     });
   }
 
   function ensurePopover() {
-    if (host && shadow) {
-      return;
-    }
-
+    if (host) return;
     host = document.createElement("div");
     host.setAttribute("data-chatgpt-sidebar-popover", "true");
-    host.style.position = "fixed";
-    host.style.zIndex = "2147483647";
-    host.style.display = "none";
-    host.style.left = "0";
-    host.style.top = "0";
+    for (const [property, value] of Object.entries({
+      all: "initial", position: "fixed", "z-index": "2147483647", display: "none",
+      "max-width": "calc(100vw - 16px)", "color-scheme": "dark"
+    })) host.style.setProperty(property, value, "important");
     shadow = host.attachShadow({ mode: "closed" });
-    document.documentElement.appendChild(host);
-  }
-
-  function renderPopover() {
-    shadow.textContent = "";
-
     const style = document.createElement("style");
     style.textContent = `
-      .toolbar {
-        align-items: center;
-        background: #ffffff;
-        border: 1px solid #d8dee4;
-        border-radius: 8px;
-        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
-        color: #1f2328;
-        display: flex;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        gap: 4px;
-        padding: 6px;
-      }
-
-      button {
-        appearance: none;
-        background: transparent;
-        border: 0;
-        border-radius: 6px;
-        color: #1f2328;
-        cursor: pointer;
-        font: 500 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        padding: 8px 9px;
-        white-space: nowrap;
-      }
-
-      button:hover,
-      button:focus {
-        background: #eef6f4;
-        color: #0f766e;
-        outline: none;
-      }
-
-      .divider {
-        background: #d8dee4;
-        height: 20px;
-        margin: 0 2px;
-        width: 1px;
-      }
+      * {box-sizing:border-box} [hidden] {display:none!important}
+      .surface {padding:3px;background:#202826;color:#edf5f1;border:1px solid #45534e;
+        border-radius:9px;box-shadow:0 4px 16px #0003;font:12px/1.4 system-ui,sans-serif;max-width:calc(100vw - 16px)}
+      .toolbar,.more {display:flex;align-items:center;gap:1px;flex-wrap:wrap}
+      button {font:500 12px/1 system-ui,sans-serif;color:inherit;border:0;border-radius:5px;
+        background:transparent;cursor:pointer;padding:8px 7px;min-height:28px}
+      button:hover {background:#35483f} button:focus-visible {outline:2px solid #8ce6b9;outline-offset:-2px}
+      button:disabled {opacity:.5;cursor:wait} .ask {color:#9aebc1} .more {border-top:1px solid #45534e;margin-top:3px;padding-top:3px}
+      .feedback {max-width:260px;padding:6px 8px;color:#b9f3d3;white-space:normal}
+      .feedback[data-error=true] {color:#ffd2bd}
     `;
-
+    const surface = document.createElement("div");
+    surface.className = "surface";
     const toolbar = document.createElement("div");
     toolbar.className = "toolbar";
     toolbar.setAttribute("role", "toolbar");
-    toolbar.setAttribute("aria-label", "ChatGPT selection shortcuts");
-
-    ACTIONS.forEach((action, index) => {
-      if (action.id === "screenshot" && index > 0) {
-        const divider = document.createElement("span");
-        divider.className = "divider";
-        toolbar.appendChild(divider);
-      }
-
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = action.label;
-      button.addEventListener("mousedown", (event) => {
-        suppressNextDocumentClick = true;
-        event.preventDefault();
-        event.stopPropagation();
-      });
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        void handleShortcutClick(action.id);
-      });
-      toolbar.appendChild(button);
-    });
-
-    shadow.append(style, toolbar);
-  }
-
-  async function handleShortcutClick(action) {
-    const selectedText = latestSelectionText || readSelection()?.text || "";
-    hidePopover();
-
-    if (action === "screenshot") {
-      await sendMessage({
-        type: MESSAGE_TYPES.CAPTURE_VISIBLE_TAB,
-        source: "selection-popover"
-      });
-      return;
+    toolbar.setAttribute("aria-label", "Dichrome selection actions");
+    more = document.createElement("div");
+    more.className = "more";
+    more.hidden = true;
+    more.id = "moreActions";
+    for (const [action, label] of [["ask", "Ask"], ["summarize", "Summarize"], ["explain", "Explain"]]) {
+      const button = makeButton(label, () => runAction(action));
+      if (action === "ask") button.className = "ask";
+      toolbar.append(button);
     }
-
-    await sendMessage({
-      type: MESSAGE_TYPES.SELECTION_ACTION,
-      action,
-      selectedText,
-      pageTitle: document.title || "",
-      pageUrl: location.href
+    const expand = makeButton("···", () => {
+      more.hidden = !more.hidden;
+      expand.setAttribute("aria-expanded", String(!more.hidden));
+      const rect = host.getBoundingClientRect();
+      if (rect.bottom > innerHeight - 8) host.style.setProperty("top", `${Math.max(8, innerHeight - rect.height - 8)}px`, "important");
     });
+    expand.setAttribute("aria-label", "More selection actions");
+    expand.setAttribute("aria-expanded", "false");
+    expand.setAttribute("aria-controls", "moreActions");
+    toolbar.append(expand);
+    for (const [action, label] of [["rewrite", "Rewrite"], ["define", "Define"], ["screenshot", "Screenshot"]]) {
+      more.append(makeButton(label, () => runAction(action)));
+    }
+    feedback = document.createElement("div");
+    feedback.className = "feedback";
+    feedback.setAttribute("role", "status");
+    feedback.hidden = true;
+    surface.append(toolbar, more, feedback);
+    shadow.append(style, surface);
+    document.documentElement.append(host);
   }
 
-  async function sendMessage(payload) {
+  function makeButton(label, action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", (event) => { event.stopPropagation(); void action(); });
+    return button;
+  }
+
+  async function runAction(action) {
+    if (busy) return;
+    busy = true;
+    clearTimeout(timer);
+    const buttons = [...shadow.querySelectorAll("button")];
+    buttons.forEach((button) => { button.disabled = true; });
+    feedback.hidden = false;
+    feedback.dataset.error = "false";
+    feedback.textContent = "Opening Dichrome…";
     try {
-      const response = await chrome.runtime.sendMessage(payload);
-      if (!response?.ok) {
-        throw new Error(response?.error || "Extension action failed.");
+      // Keep this send in the click gesture, before any asynchronous work.
+      const response = await chrome.runtime.sendMessage(action === "screenshot" ? {
+        type: `${prefix}capture-visible-tab`, source: "selection-popover"
+      } : {
+        type: `${prefix}selection-action`, action, selectedText,
+        pageTitle: document.title, pageUrl: location.href
+      });
+      if (!response?.ok || response.queued === false) throw new Error(response?.error || "Select some text and try again.");
+      if (response.panelOpened === false) {
+        feedback.textContent = "Context saved. Open Dichrome from the extension toolbar.";
+        feedback.dataset.error = "true";
+      } else {
+        feedback.textContent = "Ready in Dichrome. Review your context in the sidebar.";
+        dismissedText = selectedText;
+        timer = setTimeout(hide, 2400);
       }
-    } catch {
-      // The extension may have been reloaded while the page was already open.
-      // Failing quietly avoids breaking the host page.
+    } catch (error) {
+      feedback.dataset.error = "true";
+      feedback.textContent = /context invalidated|receiving end/i.test(error?.message || "")
+        ? "Dichrome was reloaded. Refresh this page and try again."
+        : error?.message || "Could not open Dichrome. Try again.";
+    } finally {
+      busy = false;
+      buttons.forEach((button) => { button.disabled = false; });
     }
   }
 
-  function hidePopover() {
-    window.clearTimeout(showTimer);
-    if (host) {
-      host.style.display = "none";
-    }
-  }
-
-  function clamp(value, min, max) {
-    return Math.min(Math.max(value, min), max);
-  }
-
-  function shouldInstallSelectionPopover() {
-    if (!["http:", "https:"].includes(location.protocol)) {
-      return false;
-    }
-
-    return !["chatgpt.com", "chat.openai.com"].includes(location.hostname);
+  function hide() {
+    clearTimeout(timer);
+    cancelAnimationFrame(frame);
+    host?.style.setProperty("display", "none", "important");
   }
 })();
