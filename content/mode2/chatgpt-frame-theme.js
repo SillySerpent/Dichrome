@@ -82,6 +82,9 @@
 
   function prepareEmbeddedChatGptLink(event) {
     const link = event.target?.closest?.("a[href]");
+    if (!link) {
+      return;
+    }
     const url = getAllowedChatGptUrl(link?.href);
     if (!url) {
       return;
@@ -103,6 +106,9 @@
   }
 
   function getAllowedChatGptUrl(value) {
+    if (typeof value !== "string" || !value.trim()) {
+      return null;
+    }
     try {
       const url = new URL(value, location.href);
       if (url.protocol === "https:" && (url.hostname === "chatgpt.com" || url.hostname === "chat.openai.com")) {
