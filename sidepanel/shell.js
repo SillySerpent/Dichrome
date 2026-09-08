@@ -64,7 +64,8 @@ function bindEvents() {
   });
   // Listen for messages from the iframe (mode2) to open settings
   window.addEventListener("message", (event) => {
-    if (event.data?.type === "mode-settings:open") {
+    if (event.source === dom.modeFrame.contentWindow && event.origin === location.origin
+      && event.data?.type === "mode-settings:open") {
       openSettings();
     }
   });

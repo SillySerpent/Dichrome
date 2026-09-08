@@ -148,7 +148,6 @@ export function createMode2CompanionController({
         kind: "warning",
         message: "No selected text was found on the active page."
       });
-      await openSourceSidePanel(sourceTab);
       return null;
     }
 
@@ -181,7 +180,6 @@ export function createMode2CompanionController({
         kind: "warning",
         message: "No selected text was available for this shortcut."
       });
-      await openSourceSidePanel(sourceTab);
       return {
         queued: false
       };
@@ -216,12 +214,11 @@ export function createMode2CompanionController({
       [STORAGE_KEYS.LATEST_NOTICE]: {
         id: createId(),
         kind: "success",
-        message: `${actionConfig.label} prompt is ready. Copy it into ChatGPT or use the embedded sidebar.`,
+        message: `${actionConfig.label} is ready. Review the prompt, then insert it into ChatGPT.`,
         createdAt: new Date().toISOString()
       }
     });
 
-    await openSourceSidePanel(tab || sourceTab);
     return {
       queued: true,
       prompt: record
@@ -260,14 +257,12 @@ export function createMode2CompanionController({
         }
       });
 
-      await openSourceSidePanel(tab);
       return screenshot;
     } catch (error) {
       await storeNotice({
         kind: "error",
         message: `Screenshot capture failed: ${serializeError(error)}`
       });
-      await openSourceSidePanel(tab).catch(() => null);
       throw error;
     }
   }

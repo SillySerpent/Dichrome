@@ -32,12 +32,12 @@ Mode labels are intentionally user-facing:
 - `Mode 2 - ChatGPT Sidebar`
 - `Mode 1 - Original Dichrome Beta`
 
-The root side-panel page is `sidepanel/sidepanel.html`. It loads `sidepanel/mode2/sidepanel.html` or `sidepanel/mode1.html` in an extension iframe and keeps the mode switcher available as a compact floating control over both mode apps. Switching into Mode 1 requires acknowledging the early beta copy. Switching away from Mode 1 is blocked while `chatGptAutomationSession.activeRequestId` is set unless the user explicitly asks to cancel that active request.
+The root side-panel page is `sidepanel/sidepanel.html`. It loads `sidepanel/mode2/sidepanel.html` or `sidepanel/mode1.html` in an extension iframe and exposes Mode settings through the Mode 2 options menu and retains the original Mode 1 control. Switching into Mode 1 requires acknowledging the early beta copy. Switching away from Mode 1 is blocked while `chatGptAutomationSession.activeRequestId` is set unless the user explicitly asks to cancel that active request.
 
 Mode state is intentionally separated:
 
 - Shared: active mode, source-tab memory, context-menu dispatch, screenshot capture.
-- Mode 2: `dichrome.mode2.chatGptFrameUrl`, `dichrome.mode2.chatGptWindowId`, `dichrome.mode2.latestNotice`, `dichrome.mode2.latestPrompt`, and `dichrome.mode2.latestScreenshot`.
+- Mode 2: `dichrome.mode2.chatGptFrameUrl`, `dichrome.mode2.chatGptWindowId`, `dichrome.mode2.latestNotice`, `dichrome.mode2.latestPrompt`, `dichrome.mode2.latestScreenshot`, `dichrome.mode2.promptDraft`, and `dichrome.mode2.attachedScreenshotId`.
 - Mode 1: original automation settings/session/request/history/attachment state.
 
 ## State Machine
@@ -110,7 +110,7 @@ Non-Chromium packages are out of scope for this project.
 
 Mode 2 uses the same local ChatGPT subframe header override as the hidden automation probe, but for a visible extension side-panel iframe instead of background automation. It requests the frame-policy setup before loading the embedded ChatGPT frame, stores the last valid ChatGPT frame URL locally, and rewrites embedded ChatGPT links to remain inside the frame where possible.
 
-Mode 2 deliberately does not insert prompts or click ChatGPT's send button. Its selected-text actions produce a local prompt record:
+Mode 2 inserts prompts only when the user chooses Insert into ChatGPT, and never clicks ChatGPT's send button. Its selected-text actions produce a local prompt record:
 
 ```json
 {
@@ -120,7 +120,7 @@ Mode 2 deliberately does not insert prompts or click ChatGPT's send button. Its 
 }
 ```
 
-The user can copy that prompt or interact directly with the embedded ChatGPT frame. When embedding is unavailable or unreliable, Mode 2 opens a focused ChatGPT popup window through the `windows` permission.
+The user can edit, insert, copy, or clear that prompt. The composer bridge announces its live document ID and origin to the extension parent. The parent queues requests until that verified announcement and targets only that origin. Each reply must match the document ID and request ID; unload/reload invalidates the connection. The bridge validates its extension parent, request ID, document ID, and prompt size, protects an existing draft, and acknowledges retained text. Screenshot upload uses the shared attachment adapter and acknowledges accepted uploads. The sidebar resets readiness on navigation and waits for the replacement document’s composer handshake; an iframe load alone is insufficient. Session drafts and the last acknowledged screenshot ID survive panel reloads but are cleared with their corresponding context. When embedding is unavailable or unreliable, Mode 2 opens a focused ChatGPT popup window through the `windows` permission.
 
 ## Project Routing
 
@@ -198,7 +198,7 @@ Response tracking is deliberately scoped. The script selects the newest assistan
 
 ## Shared Source Actions
 
-Context menus, the source-page selection popover, visible screenshot capture, and keyboard screenshot/selection shortcuts enter a shared routing layer first.
+Context menus, the source-page selection popover, visible screenshot capture, and keyboard screenshot/selection shortcuts enter a shared routing layer first. The browser event boundary invokes sidePanel.open synchronously, before awaiting mode lookup, storage, or capture. The prompt/screenshot persistence controller never tries to reopen the panel after asynchronous work; a rejected panel-open attempt is surfaced by the source popover with instructions to open the extension toolbar.
 
 - In Mode 2, selected-text actions create a Mode 2 prompt record and screenshots create a Mode 2 screenshot record. The Mode 2 side panel then asks the extension-hosted ChatGPT iframe to attach recent screenshots into the ChatGPT composer, with copy/save controls kept as fallback.
 - In Mode 1, selected-text actions start the matching original Dichrome request profile and screenshots start the Mode 1 visible-screenshot attachment request.

@@ -38,8 +38,21 @@ export function createContextMenuController({
   startRequest,
   updateRequest
 }) {
-  async function createContextMenus() {
-    await new Promise((resolve) => chrome.contextMenus.removeAll(resolve));
+  let menuSetup = null;
+
+  function createContextMenus() {
+    if (!menuSetup) {
+      menuSetup = replaceContextMenus().finally(() => { menuSetup = null; });
+    }
+    return menuSetup;
+  }
+
+  async function replaceContextMenus() {
+    await new Promise((resolve, reject) => chrome.contextMenus.removeAll(() => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(error.message));
+      else resolve();
+    }));
 
     await createContextMenuItem({
       id: MENU_IDS.OPEN_CHATGPT_WINDOW,
