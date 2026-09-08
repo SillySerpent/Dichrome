@@ -65,6 +65,7 @@ import {
   createCodedError
 } from "./error-classification.js";
 import { createSidePanelState } from "./side-panel-state.js";
+import { openPanelForUserAction } from "./panel-gesture.js";
 import { createWorkspaceReadinessController } from "./workspace-readiness.js";
 import { createRequestOrchestrator } from "./request-orchestrator.js";
 import { createAutomationEventController } from "./automation-events.js";
@@ -221,6 +222,9 @@ chrome.action.onClicked.addListener((tab) => {
 
 chrome.commands?.onCommand?.addListener?.((command, tab) => {
   if (command !== SIDE_PANEL_TOGGLE_COMMAND) {
+    if (Object.values(MODE2_COMMANDS).includes(command)) {
+      void sidePanelState.openSidePanel(tab?.id);
+    }
     void handleShortcutCommand(command, tab).catch((error) => {
       console.error("Dichrome shortcut command failed", error);
     });
@@ -244,7 +248,12 @@ chrome.sidePanel?.onClosed?.addListener?.((info) => {
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  void contextMenuController.handleContextMenuClick(info, tab);
+  if (info.menuItemId !== "dichrome:open-chatgpt-window") {
+    void sidePanelState.openSidePanel(tab?.id);
+  }
+  void contextMenuController.handleContextMenuClick(info, tab).catch((error) => {
+    console.error("Dichrome context action failed", error);
+  });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -260,8 +269,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  const panelOpening = openPanelForUserAction(message, sender, sidePanelState.openSidePanel);
   handleRuntimeMessage(message, sender)
-    .then((payload) => sendResponse({ ok: true, ...payload }))
+    .then(async (payload) => sendResponse({ ok: true, ...payload, ...await panelOpening }))
     .catch((error) => {
       console.error("ChatGPT relay background error", error);
       sendResponse({
