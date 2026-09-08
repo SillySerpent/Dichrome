@@ -160,3 +160,10 @@ No separate non-Chromium package is built; browser smoke coverage is Chrome/Chro
 5. Reload the extension while a source page remains open. Click its old popover and confirm a page-refresh instruction appears.
 
 Automated coverage is in `scripts/browser/sidebar.spec.js` and uses controlled documents, not a signed-in account. Run `npm run test:browser` after `npm ci` and `npx playwright install chromium`. Complete the signed-in checks above before claiming compatibility with the account’s current ChatGPT UI.
+
+## Reported Runtime Errors
+
+1. Clear old entries in the extension's Errors view, reload the extension, and refresh source and ChatGPT pages. Click the embedded composer, body text, and actual conversation links; no null-target errors should reappear.
+2. Open/reload the sidebar and navigate between the allowed ChatGPT hosts. Confirm the live composer becomes Connected without repeated postMessage target-origin errors.
+3. Restart Chrome and reload the extension. Confirm all eight context-menu entries are present and no duplicate-ID or unhandled initialization rejection is logged.
+4. Exercise these steps with Chrome's extension Errors view open. Old entries can remain until cleared, so distinguish historical errors from new ones.
