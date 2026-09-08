@@ -23,3 +23,8 @@ reports/
 .env
 models/*.json
 !models/.gitkeep
+
+# JavaScript dependencies and browser verification artifacts
+node_modules/
+test-results/
+playwright-report/
