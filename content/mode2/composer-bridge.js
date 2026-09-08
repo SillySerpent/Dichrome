@@ -1,22 +1,32 @@
 (() => {
   if (window.top === window || !chrome.runtime?.id) return;
+  if (window.origin !== location.origin || !["https://chatgpt.com", "https://chat.openai.com"].includes(window.origin)) return;
   const parentOrigin = `chrome-extension://${chrome.runtime.id}`;
   if ((location.ancestorOrigins?.[0] || new URL(document.referrer || "about:blank").origin) !== parentOrigin) return;
   const COMPOSER_READY_TIMEOUT_MS = 15000;
   let activeOperation = false;
   const completed = new Map();
+  const documentId = crypto.randomUUID();
 
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent || event.origin !== parentOrigin) return;
     const { type, requestId } = event.data || {};
+    if (event.data?.documentId !== documentId) return;
     if (typeof requestId !== "string" || !requestId || requestId.length > 128) return;
     if (!["dichrome:mode2:ping", "dichrome:mode2:insert-prompt", "dichrome:mode2:attach-screenshot"].includes(type)) return;
     void handleRequest(event.data);
   });
 
+  const announce = () => postParentMessage(parentOrigin, { type: "dichrome:mode2:bridge-ready", documentId });
+  window.addEventListener("pageshow", announce);
+  window.addEventListener("pagehide", () => {
+    postParentMessage(parentOrigin, { type: "dichrome:mode2:bridge-unload", documentId });
+  });
+  announce();
+
   async function handleRequest(message) {
     const { type, requestId } = message;
-    const reply = (result) => postParentMessage(parentOrigin, { ...result, type: `${type}-result`, requestId });
+    const reply = (result) => postParentMessage(parentOrigin, { ...result, type: `${type}-result`, requestId, documentId });
     if (type === "dichrome:mode2:ping") {
       try {
         const { adapter } = createMode2ComposerAdapter();
