@@ -25,6 +25,7 @@ Future cross-surface constants and formatting rules belong here first. Do not du
 - `background/runtime/request-controller.js` owns panel-facing request actions: manual request, screenshot request, follow-up, retry, cancel, and opening ChatGPT only for sign-in/setup.
 - `background/runtime/request-orchestrator.js` owns request record creation, automation setting resolution, hidden-workspace readiness checks, fresh/follow-up navigation, and chat-frame run dispatch.
 - `background/runtime/settings-repository.js` owns stored automation settings access.
+- `background/runtime/panel-gesture.js` opens the panel at the runtime message gesture boundary and returns explicit opening results.
 - `background/runtime/side-panel-state.js` owns Chrome side-panel open/close tracking.
 - `background/runtime/workspace-readiness.js` owns hidden workspace probing retries and readiness presentation.
 - `background/debug-dump.js` owns internal diagnostic summarization for packaged runtime status events.
@@ -99,14 +100,14 @@ Ownership:
 - `content/chatgpt/runtime/app.js` owns top-level dependency wiring, adapter method composition, extension message registration, active-run/history locking, and module startup.
 - `content/chatgpt/90-bootstrap.js` stays a small marker/entrypoint after runtime modules have loaded.
 - `content/chatgpt/main-world-capture.js` runs in the page world and emits plain text as the canonical response payload. Final HTML rendering and sanitization belongs in the side panel through `shared/response-formatting.js`.
-- `content/mode2/chatgpt-frame-theme.js` runs only in direct extension-hosted ChatGPT iframes. It owns Mode 2 frame dark-theme hints, same-frame ChatGPT link behavior, `dichrome.mode2.chatGptFrameUrl` persistence, and the screenshot attachment handoff from the side-panel parent into the ChatGPT composer. It must not take over top-level ChatGPT tabs.
+- `content/mode2/chatgpt-frame-theme.js` runs only in direct extension-hosted ChatGPT iframes. It owns Mode 2 frame dark-theme hints, same-frame ChatGPT link behavior, `dichrome.mode2.chatGptFrameUrl` persistence. `content/mode2/composer-bridge.js` owns the validated parent handshake, draft-preserving prompt insertion, and acknowledged screenshot attachment through the shared composer adapter. It must not take over top-level ChatGPT tabs.
 
 Future content-runtime changes should usually land in the concern-specific module above. Keep `runtime/app.js` as wiring only unless a change genuinely crosses module boundaries.
 
 ## Side Panel
 
-- `sidepanel/sidepanel.html`, `sidepanel/shell.css`, and `sidepanel/shell.js` are the root side-panel shell. The shell owns mode iframe loading, the compact floating mode/settings control, mode settings, the Mode 1 beta acknowledgement, and active Mode 1 request switch guarding.
-- `sidepanel/mode2/sidepanel.html`, `sidepanel/mode2/sidepanel.css`, and `sidepanel/mode2/sidepanel.js` own the default Mode 2 ChatGPT sidebar companion UI, including compact floating frame controls and the parent side of screenshot attachment messaging.
+- `sidepanel/sidepanel.html`, `sidepanel/shell.css`, and `sidepanel/shell.js` are the root side-panel shell. The shell owns mode iframe loading, the Mode 2 options-menu settings handoff, mode settings, the Mode 1 beta acknowledgement, and active Mode 1 request switch guarding.
+- `sidepanel/mode2/sidepanel.html`, `sidepanel/mode2/sidepanel.css`, and `sidepanel/mode2/sidepanel.js` own the default Mode 2 ChatGPT sidebar companion UI, including the responsive toolbar, context drawer, loading/recovery states, and status footer. `context-controller.js` owns session records, editable drafts, clear/copy/save actions, and screenshot queuing; `frame-client.js` owns request correlation, origin checks, timeouts, and navigation cancellation.
 - `sidepanel/mode1.html` hosts the original Dichrome Mode 1 beta app.
 - `sidepanel/sidepanel.js` is the Mode 1 HTML entrypoint and imports `sidepanel/runtime/app.js`.
 - `sidepanel/runtime/app.js` owns panel initialization, event binding, panel state loading, request actions, project-history UI state, sign-in handoff, and top-level rendering.
@@ -145,3 +146,5 @@ Keep side-panel DOM ids stable unless the HTML/CSS are changed in the same pass.
 - Other `scripts/test-*.mjs` files cover settings, request records, automation session storage, target manifests, offscreen frame policy, bridge origin checks, and hidden target behavior.
 
 Add narrowly scoped Node tests when extracting pure logic. Add manual smoke-test notes when behavior depends on browser APIs, ChatGPT UI state, login state, or Chrome offscreen document behavior.
+
+- `scripts/browser/sidebar.spec.js` exercises the loaded extension in Chromium with controlled source and composer documents. `scripts/test-frame-client.mjs` covers origin/correlation/cancellation and gesture timing; `scripts/test-mode2-handoff.mjs` covers selection persistence and validation.
