@@ -3,46 +3,70 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ChatGPT Sidebar</title>
+    <title>Dichrome · ChatGPT sidebar</title>
     <link rel="stylesheet" href="sidepanel.css">
   </head>
   <body>
     <main class="app-shell">
-      <header class="top-bar" aria-label="ChatGPT sidebar controls">
-        <div class="top-bar-row">
-          <button id="modeButton" class="tool-button" type="button" title="Mode settings">Mode</button>
-          <div class="brand">
-            <strong>ChatGPT</strong>
-            <span id="frameStatus" class="status-pill" data-state="idle">Ready</span>
-          </div>
-          <div class="primary-actions">
-            <button id="captureScreenshot" class="tool-button primary" type="button" title="Capture the visible tab screenshot">Shot</button>
-            <button id="reloadChatGptFrame" class="tool-button" type="button" title="Reload ChatGPT in the sidebar">Reload</button>
-            <button id="openChatGptWindow" class="tool-button" type="button" title="Open ChatGPT in a fallback window">Open</button>
-          </div>
+      <header class="top-bar" aria-label="Dichrome controls">
+        <div class="brand-row">
+          <div class="brand"><img src="../../icons/icon-32.png" alt="" width="24" height="24"><strong>Dichrome</strong></div>
+          <span id="frameStatus" class="status-pill" data-state="loading">Connecting</span>
+          <details class="menu" id="toolsMenu">
+            <summary aria-label="Sidebar options" title="Sidebar options">···</summary>
+            <div class="menu-items">
+              <button id="reloadChatGptFrame" type="button">Reload ChatGPT</button>
+              <button id="openChatGptWindow" type="button">Open ChatGPT window ↗</button>
+              <button id="modeButton" type="button">Mode settings</button>
+            </div>
+          </details>
         </div>
-        <div id="contextualActions" class="contextual-actions hidden">
-          <button id="copyPrompt" class="tool-button hidden" type="button" title="Copy the latest selected-text prompt">Copy prompt</button>
-          <button id="copyScreenshot" class="tool-button hidden" type="button" title="Copy the latest screenshot image">Copy image</button>
-          <button id="downloadScreenshot" class="tool-button hidden" type="button" title="Download the latest screenshot">Save</button>
+        <div class="action-row">
+          <button id="captureScreenshot" class="tool-button primary" type="button" title="Capture the visible part of your current page">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5l1-2h4l1 2h3a1 1 0 0 1 1 1v10H3V6a1 1 0 0 1 1-1z"/><circle cx="10" cy="10" r="3"/></svg>
+            Screenshot
+          </button>
+          <button id="contextToggle" class="tool-button" type="button" aria-expanded="false" aria-controls="contextPanel">Context <span id="contextCount" class="count">0</span></button>
         </div>
       </header>
 
-      <section class="frame-area" aria-label="Embedded ChatGPT">
-        <iframe
-          id="chatGptFrame"
-          class="chatgpt-frame"
-          title="Embedded ChatGPT"
-          allow="clipboard-read; clipboard-write; microphone; camera; fullscreen; display-capture"
-          referrerpolicy="strict-origin-when-cross-origin"
-        ></iframe>
+      <section id="contextPanel" class="context-panel" aria-label="Page context" hidden>
+        <div class="section-heading"><h1>Page context</h1><span>Review before inserting</span></div>
+        <div id="emptyContext" class="empty-context">
+          <strong>Bring your page into the conversation.</strong>
+          <p>Highlight text and choose Ask, Summarize, or Explain. Capture a screenshot to add what you see.</p>
+          <p class="hint">Your context stays here until you clear it or close the browser.</p>
+        </div>
+        <article id="promptCard" class="context-card" hidden>
+          <div class="card-heading"><span id="promptLabel" class="eyebrow">Selected text</span><button id="clearPrompt" class="text-button" type="button">Clear text</button></div>
+          <a id="promptSource" class="source" target="_blank" rel="noopener noreferrer"></a>
+          <label class="sr-only" for="promptText">Prompt to insert into ChatGPT</label>
+          <textarea id="promptText" spellcheck="true" maxlength="30000" rows="5"></textarea>
+          <div class="card-actions"><button id="insertPrompt" class="tool-button primary" type="button">Insert into ChatGPT</button><button id="copyPrompt" class="tool-button" type="button">Copy</button></div>
+        </article>
+        <article id="screenshotCard" class="context-card" hidden>
+          <div class="card-heading"><span class="eyebrow">Screenshot</span><button id="clearScreenshot" class="text-button" type="button">Clear image</button></div>
+          <img id="screenshotPreview" class="screenshot-preview" alt="Captured page screenshot">
+          <p id="screenshotSource" class="source"></p>
+          <div class="card-actions"><button id="attachScreenshot" class="tool-button primary" type="button">Attach image</button><button id="copyScreenshot" class="tool-button" type="button">Copy image</button><button id="downloadScreenshot" class="tool-button" type="button">Save</button></div>
+        </article>
       </section>
 
-      <footer id="statusBar" class="status-bar is-empty" data-kind="" aria-live="polite">
-        <span id="statusText">Ready.</span>
+      <section class="frame-area" aria-label="ChatGPT conversation">
+        <div id="frameNotice" class="frame-notice" role="status">
+          <div id="loadingIndicator" class="loading-indicator" aria-hidden="true"></div>
+          <strong id="frameNoticeTitle">Connecting to ChatGPT</strong>
+          <p id="frameNoticeText">Your conversation will appear here.</p>
+          <div id="frameRecovery" class="card-actions" hidden><button id="retryFrame" class="tool-button" type="button">Try again</button><button id="openFallback" class="tool-button primary" type="button">Open ChatGPT ↗</button></div>
+        </div>
+        <iframe id="chatGptFrame" class="chatgpt-frame" title="Embedded ChatGPT"
+          allow="clipboard-read; clipboard-write; microphone; camera; fullscreen; display-capture"
+          referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      </section>
+      <footer id="statusBar" class="status-bar is-empty" data-kind="" role="status" aria-live="polite">
+        <span id="statusText"></span><button id="dismissStatus" class="text-button" type="button" aria-label="Dismiss notification">×</button>
       </footer>
     </main>
-
-    <script src="sidepanel.js"></script>
+    <script type="module" src="sidepanel.js"></script>
   </body>
 </html>
