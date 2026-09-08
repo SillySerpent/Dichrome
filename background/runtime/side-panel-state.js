@@ -9,13 +9,16 @@ export function createSidePanelState() {
   };
 
   async function openSidePanel(tabId) {
-    if (tabId && chrome.sidePanel?.open) {
-      await chrome.sidePanel.open({ tabId }).then(() => {
+    if (Number.isInteger(tabId) && chrome.sidePanel?.open) {
+      try {
+        await chrome.sidePanel.open({ tabId });
         markSidePanelOpen({ tabId });
-      }).catch(() => null);
-      return;
+        return { opened: true };
+      } catch (error) {
+        return { opened: false, error: error?.message || String(error) };
+      }
     }
-
+    return { opened: false, error: "Open Dichrome from the extension toolbar to view your context." };
   }
 
   async function closeSidePanel(tab) {
