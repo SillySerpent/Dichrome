@@ -72,6 +72,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 async function loadFrame() {
+  frameClient.disconnect();
   const generation = beginConnection();
   try {
     const response = await sendRuntimeMessage("enable-chatgpt-frame-policy");
