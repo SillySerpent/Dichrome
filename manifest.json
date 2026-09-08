@@ -80,6 +80,7 @@
         "https://chat.openai.com/*"
       ],
       "js": [
+        "content/mode2/composer-bridge.js",
         "content/mode2/chatgpt-frame-theme.js"
       ],
       "run_at": "document_start",
