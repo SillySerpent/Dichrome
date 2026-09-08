@@ -6,14 +6,14 @@ This draft is intended to be published at the privacy policy URL used in the Chr
 
 ## Summary
 
-Dichrome provides a local Chrome side-panel companion for the user's signed-in ChatGPT web session. By default, Mode 2 embeds ChatGPT in the side panel, prepares copyable prompts from selected webpage text, and captures visible screenshots for attachment into the embedded ChatGPT composer with copy/download fallback controls. Optional Mode 1, labelled as the original Dichrome beta, can route user-selected webpage text, user-entered prompts, optional attachments, and visible-tab screenshots into ChatGPT through the ChatGPT web interface. Dichrome does not run a developer-operated backend, does not use the OpenAI API, does not sell data, and does not include advertising or analytics.
+Dichrome provides a local Chrome side-panel companion for the user's signed-in ChatGPT web session. By default, Mode 2 embeds ChatGPT in the side panel, prepares editable prompts from selected webpage text, and captures visible screenshots for attachment into the embedded ChatGPT composer with copy/download fallback controls. Optional Mode 1, labelled as the original Dichrome beta, can route user-selected webpage text, user-entered prompts, optional attachments, and visible-tab screenshots into ChatGPT through the ChatGPT web interface. Dichrome does not run a developer-operated backend, does not use the OpenAI API, does not sell data, and does not include advertising or analytics.
 
 ## Data handled by the extension
 
 Dichrome may handle the following data when the user invokes a feature:
 
 - Prompts typed by the user into the Mode 1 side-panel composer.
-- Mode 2 copyable prompt records prepared from selected text.
+- Mode 2 prompt records prepared from selected text and edits saved in the Context drawer.
 - Selected text from the active webpage when the user chooses a Dichrome context-menu action, selection-popover action, keyboard shortcut, or uses selected text in the side panel.
 - Visible-tab screenshots when the user invokes a screenshot control, screenshot context-menu/popover action, or screenshot keyboard shortcut on a normal webpage.
 - Uploaded or attached files selected by the user in Mode 1, including image previews and file metadata such as name, MIME type, and size.
@@ -26,7 +26,7 @@ Dichrome may handle the following data when the user invokes a feature:
 
 Dichrome uses this data only to provide the user-requested assistant workflow:
 
-- Build Mode 2 copyable prompts from selected text.
+- Build and edit Mode 2 prompts from selected text; insert them into the embedded ChatGPT composer only when the user chooses Insert into ChatGPT. The extension does not press Send in Mode 2.
 - Capture Mode 2 screenshots and attach them to the embedded ChatGPT composer at the user's request when ChatGPT accepts the image upload; local copy/download controls remain available as a fallback.
 - Build Mode 1 prompts from selected text, typed instructions, screenshots, and user-selected attachments.
 - Insert Mode 1 prompts and attachments into ChatGPT using the user's existing ChatGPT browser session.
@@ -38,15 +38,17 @@ Dichrome uses this data only to provide the user-requested assistant workflow:
 
 ## Data sharing
 
-Dichrome shares prompt content, selected webpage text, screenshots, and attachments with ChatGPT only when the user sends, pastes, attaches, or otherwise uses that information in their ChatGPT session, or asks the extension to load project/conversation information from their ChatGPT session. Mode 2 selected-text prompts are prepared locally for user-controlled copy/paste. Mode 2 screenshots are attached to the embedded ChatGPT composer after a user screenshot action when the frame accepts the image upload, and remain locally available for copy/download fallback. ChatGPT processing is governed by the user's account relationship with ChatGPT/OpenAI.
+Dichrome shares prompt content, selected webpage text, screenshots, and attachments with ChatGPT only when the user sends, pastes, attaches, or otherwise uses that information in their ChatGPT session, or asks the extension to load project/conversation information from their ChatGPT session. Mode 2 selected-text prompts and edits are prepared locally for user-controlled insertion or copy/paste. Inserting text exposes it to the ChatGPT page even before the user presses Send. Mode 2 screenshots are attached to the embedded ChatGPT composer after a user screenshot action when the frame accepts the image upload, and remain locally available for copy/download fallback. ChatGPT processing is governed by the user's account relationship with ChatGPT/OpenAI.
 
 Dichrome does not send user data to a developer-operated server, does not sell user data, does not transfer user data for advertising, and does not allow humans associated with the developer to read user data through a hosted service.
 
 ## Storage and retention
 
-Active mode, Mode 2 frame URL state, and Mode 1 automation settings are stored in browser extension local storage. Mode 2 prompt/screenshot notices and Mode 1 request state, recent request history, and attachment payloads are stored in browser extension session storage when available, with local storage used only as a browser fallback. Recent request history is bounded by the extension's configured history limit.
+Active mode, Mode 2 frame URL state, and Mode 1 automation settings are stored in browser extension local storage. Mode 2 prompts, draft edits, screenshots, notices, the last acknowledged screenshot ID, and Mode 1 request state, recent request history, and attachment payloads are stored in browser extension session storage when available, with local storage used only as a browser fallback. Recent request history is bounded by the extension's configured history limit.
 
-Users can clear stored extension data by removing the extension or clearing the extension's site/app data in their browser.
+Mode 2 users can remove the latest local text and its draft using Clear text, or the latest local screenshot and acknowledgment using Clear image. Clearing local context does not delete content already inserted or uploaded into ChatGPT. Session storage is cleared when the browser session ends; the local-storage fallback persists until cleared.
+
+Users can clear all stored extension data by removing the extension or clearing the extension's site/app data in their browser.
 
 ## Permissions
 
