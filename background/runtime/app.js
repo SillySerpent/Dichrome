@@ -207,12 +207,16 @@ setOffscreenFrameDisconnectHandler((event) => {
 
 chrome.runtime.onInstalled.addListener(() => {
   void configureSidePanel();
-  void contextMenuController.createContextMenus();
+  void contextMenuController.createContextMenus().catch((error) => {
+    console.error("Dichrome context menu setup failed", error);
+  });
 });
 
 chrome.runtime.onStartup?.addListener(() => {
   void configureSidePanel();
-  void contextMenuController.createContextMenus();
+  void contextMenuController.createContextMenus().catch((error) => {
+    console.error("Dichrome context menu setup failed", error);
+  });
 });
 
 chrome.action.onClicked.addListener((tab) => {
