@@ -99,7 +99,7 @@ Use `docs/privacy-policy.md` as the source for the public privacy policy page. T
 3. Confirm the side panel opens in `Mode 2 - ChatGPT Sidebar`.
 4. Open a normal webpage, select text, right-click, and choose `Ask with Dichrome about "%s"`.
 5. Confirm Mode 2 prepares a copyable prompt and keeps the user in control of the embedded ChatGPT frame or fallback companion window.
-6. Press `Shot` on a normal webpage and confirm the screenshot appears as an attachment in the embedded ChatGPT composer when available, or exposes copy/download fallback controls if the frame cannot accept it. Confirm ChatGPT does not send until the user presses ChatGPT's send button.
+6. Press `Screenshot` on a normal webpage and confirm the screenshot appears as an attachment in the embedded ChatGPT composer when available, or keeps a preview and Attach image, Copy image, Save, and Clear image controls in Context if the frame cannot accept it. Confirm ChatGPT does not send until the user presses ChatGPT's send button.
 7. Open root `Settings`, choose `Mode 1 - Original Dichrome Beta`, and confirm the early beta warning must be acknowledged before switching.
 8. In Mode 1, select webpage text, choose a Dichrome selected-text action, and confirm the selected text is routed to ChatGPT and the generated response appears in the side panel.
 9. Open Mode 1 `Settings`, change the ChatGPT project routing target, save, and confirm the history panel reflects the configured project.
