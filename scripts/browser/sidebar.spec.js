@@ -6,13 +6,23 @@ import { resolve, join } from "node:path";
 let context;
 let profile;
 let extensionId;
+let runtimeErrors = [];
 const promptKey = "dichrome.mode2.latestPrompt";
+
+test.beforeEach(() => { runtimeErrors = []; });
+test.afterEach(() => { expect(runtimeErrors, "No uncaught extension errors or origin mismatch messages").toEqual([]); });
 
 test.beforeAll(async () => {
   profile = await mkdtemp(join(tmpdir(), "dichrome-browser-"));
   context = await chromium.launchPersistentContext(profile, {
     channel: "chromium", headless: true,
     args: [`--disable-extensions-except=${resolve(".")}`, `--load-extension=${resolve(".")}`]
+  });
+  context.on("page", (page) => {
+    page.on("pageerror", (error) => runtimeErrors.push(error.message));
+    page.on("console", (message) => {
+      if (/postMessage|target origin/.test(message.text()) && message.type() === "error") runtimeErrors.push(message.text());
+    });
   });
   const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
   extensionId = new URL(worker.url()).host;
@@ -261,5 +271,61 @@ test("production shell keeps the current mode full width and opens settings from
   await expect(page.locator("#modeSelect")).toHaveValue("mode2");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toBeHidden();
+  await page.close();
+});
+
+test("ordinary composer clicks and frame messaging produce no extension console errors", async () => {
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => { if (message.type() === "error" && /postMessage|target origin/.test(message.text())) errors.push(message.text()); });
+  await page.goto(`chrome-extension://${extensionId}/sidepanel/mode2/sidepanel.html`);
+  await expect(page.locator("#frameStatus")).toHaveText("Connected");
+  await page.frameLocator("#chatGptFrame").getByRole("textbox").click();
+  await page.frameLocator("#chatGptFrame").locator("h2").click();
+  expect(errors).toEqual([]);
+  await page.close();
+});
+
+test("main-world capture leaves sandboxed opaque documents alone", async () => {
+  const page = await context.newPage();
+  const errors = [];
+  page.on("console", (message) => { if (message.type() === "error" && /postMessage/.test(message.text())) errors.push(message.text()); });
+  await page.goto("https://example.com/");
+  await page.evaluate(() => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("sandbox", "allow-scripts");
+    iframe.src = "https://chatgpt.com/opaque-test";
+    document.body.append(iframe);
+  });
+  await expect.poll(() => page.frames().some((frame) => frame.url().endsWith("/opaque-test"))).toBe(true);
+  const frame = page.frames().find((frame) => frame.url().endsWith("/opaque-test"));
+  await expect(frame.getByRole("textbox")).toBeVisible();
+  expect(await frame.evaluate(() => window.origin)).toBe("null");
+  await frame.addScriptTag({ path: "content/chatgpt/main-world-capture.js" });
+  expect(await frame.evaluate(() => window.__chatGptRelayMainWorldCaptureInstalled)).toBeUndefined();
+  expect(errors).toEqual([]);
+  await page.close();
+});
+
+test("a legacy ChatGPT URL redirects and uses the actual document origin", async () => {
+  await seedPrompt();
+  await context.serviceWorkers()[0].evaluate(() => chrome.storage.local.set({
+    "dichrome.mode2.chatGptFrameUrl": "https://chat.openai.com/"
+  }));
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("https://chat.openai.com/**", (route) => route.fulfill({
+    // A fresh navigation lets the controlled destination route run as well.
+    contentType: "text/html", body: '<script>location.replace("https://chatgpt.com/")</script>'
+  }));
+  await page.goto(`chrome-extension://${extensionId}/sidepanel/mode2/sidepanel.html`);
+  await expect(page.locator("#frameStatus")).toHaveText("Connected");
+  expect(page.frames().some((frame) => frame.url() === "https://chatgpt.com/")).toBe(true);
+  await page.locator("#insertPrompt").click();
+  await expect(page.frameLocator("#chatGptFrame").getByRole("textbox")).toHaveValue(/A useful selected passage/);
+  await expect(page.locator("#statusText")).toContainText("Prompt inserted");
+  expect(errors).toEqual([]);
   await page.close();
 });
