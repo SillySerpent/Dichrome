@@ -12,25 +12,25 @@ No separate non-Chromium package is built; browser smoke coverage is Chrome/Chro
 
 1. Load the unpacked extension in a clean Chrome/Chromium profile.
 2. Open a normal webpage and press `Alt+Shift+D`.
-3. Confirm the root shell opens with only a compact floating mode/settings control and the embedded Mode 2 ChatGPT sidebar gets nearly all vertical space.
+3. Confirm Screenshot and Context appear in a responsive header, with no duplicate shell header. Open the options menu for Reload ChatGPT, Open ChatGPT window, and Mode settings.
 4. Confirm the embedded ChatGPT frame loads or presents a clear frame-policy/status message.
-5. Press `Open` and confirm a ChatGPT companion popup window opens or refocuses.
-6. Press `Reload` and confirm the embedded frame retries without reloading the extension.
+5. Choose `Open ChatGPT window` from the options menu and confirm a ChatGPT companion popup window opens or refocuses.
+6. Choose `Reload ChatGPT` from the options menu and confirm the embedded frame retries without reloading the extension.
 
 ## Mode 2 Selection And Screenshot
 
 1. Highlight text on a normal webpage.
-2. Use the selection popover `Ask`, `Summarize`, `Explain`, and `Rewrite` actions.
-3. Confirm the side panel opens and the Mode 2 `Copy prompt` action appears with a prompt grounded in the selected text.
+2. Use the compact popover’s Ask, Summarize, Explain, and more-actions → Rewrite / Define actions. Hold a button briefly before releasing it and confirm the click still works. Escape, page clicks, and scroll should dismiss the popover.
+3. Confirm the side panel opens with a source link and editable prompt in Context. Insert into ChatGPT, verify the exact text, and confirm nothing is sent. Repeat with an existing draft and confirm insertion refuses to replace it. Edit, reload the panel, then clear the context and verify it stays cleared.
 4. Right-click selected text and repeat `Ask with Dichrome`, `Summarize with Dichrome`, `Explain with Dichrome`, `Rewrite with Dichrome`, and `Define with Dichrome`.
-5. Use `Shot`, the selection popover `Screenshot` action, the context-menu `Capture visible screenshot`, and the screenshot keyboard shortcut.
+5. Use `Screenshot`, the selection popover more-actions → `Screenshot` action, the context-menu `Capture visible screenshot`, and the screenshot keyboard shortcut.
 6. Confirm Mode 2 attaches the visible source-tab screenshot as an image chip in the embedded ChatGPT composer when the frame is loaded.
 7. Confirm `Copy image` and `Save` remain available as compact fallback controls if the embedded frame is unavailable or ChatGPT rejects the image upload.
-8. Confirm screenshots are not auto-sent to ChatGPT in Mode 2; the user must still press ChatGPT's send button.
+8. Confirm screenshots are not auto-sent to ChatGPT in Mode 2; the user must still press ChatGPT's send button. Capture another image during an upload and verify the newest image attaches afterward. Copy/save actions must remain available until the image is cleared.
 
 ## Mode Switching
 
-1. Open the root `Settings` control.
+1. Open the sidebar options menu → `Mode settings`.
 2. Choose `Mode 1 - Original Dichrome Beta`.
 3. Confirm the early beta warning is visible and switching is blocked until the acknowledgement checkbox is selected.
 4. Save, then confirm the original Dichrome UI loads inside the shell.
@@ -53,7 +53,7 @@ No separate non-Chromium package is built; browser smoke coverage is Chrome/Chro
 2. Confirm the Dichrome side panel shell opens and the browser toolbar area remains separate from the extension content.
 3. Press `Alt+Shift+D` again in Chrome or Chromium and confirm the panel closes when the browser exposes side-panel close support.
 4. Drag the side-panel divider as narrow as the browser allows.
-5. In Mode 2, confirm the compact floating Shot, Reload, Open, frame-status, fallback action, and toast controls remain usable without covering the ChatGPT composer.
+5. In Mode 2, verify Screenshot, Context, the options menu, and the status footer at 280, 320, 360, and 480px widths. Open both context cards; the drawer must scroll without covering the composer. Confirm all actions can be reached with Tab and focus is visible.
 6. Switch to Mode 1 and confirm the header, history area, response area, composer, screenshot button, file button, routing label, and send button remain usable without overlapping text.
 
 ## Logged Out
@@ -150,3 +150,13 @@ No separate non-Chromium package is built; browser smoke coverage is Chrome/Chro
 2. Confirm writing directives do not appear as raw fence text in the side panel.
 3. Confirm code and display-math copy buttons are hidden until their block is hovered or keyboard-focused.
 4. Select and copy a larger section of the rendered response, then confirm copied text does not include the side panel's copy-button labels.
+
+## Mode 2 Frame Recovery Regressions
+
+1. Load a working conversation, then reload with a slow network. Connected must not appear until the replacement document’s composer responds.
+2. Navigate the embedded frame to a sign-in page. Verify the recovery message remains visible and local context can still be copied.
+3. Reload during an attachment. Confirm cancellation is reported and Attach image can be retried after the connection recovers.
+4. Verify a normal top-level ChatGPT tab keeps its own theme and is not controlled by the embedded composer bridge.
+5. Reload the extension while a source page remains open. Click its old popover and confirm a page-refresh instruction appears.
+
+Automated coverage is in `scripts/browser/sidebar.spec.js` and uses controlled documents, not a signed-in account. Run `npm run test:browser` after `npm ci` and `npx playwright install chromium`. Complete the signed-in checks above before claiming compatibility with the account’s current ChatGPT UI.
