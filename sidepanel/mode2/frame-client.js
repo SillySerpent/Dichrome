@@ -17,10 +17,24 @@ export function sanitizeChatGptUrl(value) {
 
 export function createFrameClient(frame) {
   const pending = new Map();
+  let peer = null;
   const onMessage = (event) => {
     if (event.source !== frame.contentWindow || !ORIGINS.includes(event.origin)) return;
-    const task = pending.get(event.data?.requestId);
-    if (!task || event.data.type !== `${task.type}-result`) return;
+    const message = event.data;
+    if (message?.type === "dichrome:mode2:bridge-ready") {
+      if (typeof message.documentId !== "string" || !message.documentId || message.documentId.length > 128) return;
+      if (peer && peer.documentId !== message.documentId) cancel();
+      peer = { origin: event.origin, documentId: message.documentId };
+      for (const task of pending.values()) if (!task.sent) send(task);
+      return;
+    }
+    if (message?.type === "dichrome:mode2:bridge-unload") {
+      if (peer && peer.documentId === message.documentId) disconnect();
+      return;
+    }
+    const task = pending.get(message?.requestId);
+    if (!task?.sent || event.origin !== task.origin || message.documentId !== task.documentId
+      || message.type !== `${task.type}-result`) return;
     clearTimeout(task.timeout);
     pending.delete(event.data.requestId);
     if (event.data.ok) task.resolve(event.data);
@@ -38,10 +52,24 @@ export function createFrameClient(frame) {
         pending.delete(requestId);
         reject(new Error("ChatGPT did not respond. Check sign-in, then retry or use Copy."));
       }, timeoutMs);
-      pending.set(requestId, { type, timeout, resolve, reject });
-      const payload = { ...values, type, requestId };
-      for (const origin of ORIGINS) frame.contentWindow.postMessage(payload, origin);
+      const task = { type, values, requestId, timeout, resolve, reject, sent: false };
+      pending.set(requestId, task);
+      if (peer) send(task);
     });
+  }
+
+  function send(task) {
+    task.sent = true;
+    task.origin = peer.origin;
+    task.documentId = peer.documentId;
+    const payload = { ...task.values, type: task.type, requestId: task.requestId, documentId: task.documentId };
+    try {
+      frame.contentWindow.postMessage(payload, task.origin);
+    } catch (error) {
+      clearTimeout(task.timeout);
+      pending.delete(task.requestId);
+      task.reject(error);
+    }
   }
 
   function cancel() {
@@ -52,5 +80,10 @@ export function createFrameClient(frame) {
     pending.clear();
   }
 
-  return Object.freeze({ request, cancel });
+  function disconnect() {
+    peer = null;
+    cancel();
+  }
+
+  return Object.freeze({ request, cancel, disconnect });
 }
