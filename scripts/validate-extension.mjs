@@ -122,6 +122,7 @@ const requiredFiles = [
   "scripts/test-modes.mjs",
   "scripts/test-mode-shell.mjs",
   "scripts/test-mode2-handoff.mjs",
+  "scripts/test-context-menu-initialization.mjs",
   "scripts/test-frame-client.mjs",
   "scripts/test-offscreen-bridge-origin.mjs",
   "scripts/test-utils/fake-dom.mjs",
