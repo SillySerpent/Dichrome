@@ -23,7 +23,7 @@ npm run check
 npm test
 ```
 
-The unit runner contains 43 suites. Added coverage checks selected-text persistence and truncation, synchronous panel opening, rejected panel opening, frame origin/source validation, request correlation, URL allowlisting, timeouts, and cancellation.
+The unit runner contains 44 suites. Added coverage checks selected-text persistence and truncation, synchronous panel opening, rejected panel opening, frame origin/source validation, request correlation, URL allowlisting, timeouts, and cancellation.
 
 Run browser checks:
 
@@ -33,7 +33,7 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-The nine Chromium scenarios load the actual unpacked extension in a temporary browser profile:
+The twelve Chromium scenarios load the actual unpacked extension in a temporary browser profile:
 
 1. Compact popover geometry, the slow-click regression, saved selection, and successful native-panel opening feedback.
 2. Layouts at 280, 320, 360, and 480px; no horizontal overflow or header/frame overlap; edited prompt persistence through storage changes and reload.
@@ -44,6 +44,11 @@ The nine Chromium scenarios load the actual unpacked extension in a temporary br
 7. A second capture queues behind an outstanding upload and records the correct acknowledgment.
 8. Contenteditable insertion retains rendered multiline text and does not submit.
 9. The production root shell at 280px, its Mode 2 menu-to-settings handoff, and Escape dismissal.
+10. Ordinary composer/body clicks do not throw null-target errors, and frame messages produce no origin errors.
+11. A sandboxed ChatGPT document with an opaque origin does not install main-world capture or publish messages.
+12. Navigation from the legacy ChatGPT host uses the live destination document's announced origin for prompt insertion.
+
+Every browser scenario also checks for uncaught page errors and postMessage origin errors.
 
 The popup click, delayed reload, and overlapping screenshot regressions were observed failing before their fixes and passing afterward. An independent code review found the two race conditions; follow-up review confirmed their fixes without further high or medium severity findings.
 
@@ -57,9 +62,17 @@ npm run package:chrome
 
 Output: `.dist/chrome/dichrome-0.1.0-chrome.zip`. The same current source directory can be loaded unpacked. After reloading the extension at `chrome://extensions`, refresh existing source pages so they receive the updated popover script, then reopen the sidebar.
 
+## Runtime error follow-up
+
+The reported duplicate menu ID, null link target, and opaque-origin postMessage errors were reproduced with regression tests. Context-menu creation now shares one in-flight rebuild across overlapping install/startup calls, checks both removal and creation failures, and permits retry after failure. The embedded link handler ignores non-link clicks and empty URL values.
+
+Main-world response capture checks the effective window origin before installation and each publication, skipping opaque or detached documents. Sidebar messaging waits for an allowed frame document to announce its identity. Requests go once to that verified origin and require the same document ID in the reply; explicit reload and document unload invalidate pending work. Origins remain allowlisted, with no wildcard targets or null-origin acceptance.
+
+The first UI verification did not assert on uncaught browser errors. The new browser assertions cover that gap. Unit tests also exercise menu setup concurrency and recovery, origin handshakes, unmatched unload notices, and navigation cancellation.
+
 ## Commit accounting
 
-Every file modified or created for this change is committed once, in its own local commit, with a file-specific message and no tool-authorship attribution. The commit inventory is the union of tracked changes and untracked source files; dependencies, browser artifacts, and generated packages are ignored. Compare against the upstream baseline:
+Within each development batch, every modified or created file receives its own local commit, with a file-specific message and no tool-authorship attribution. The commit inventory is the union of tracked changes and untracked source files; dependencies, browser artifacts, and generated packages are ignored. Compare against the upstream baseline:
 
 ```bash
 git diff --name-only origin/master...HEAD
