@@ -58,6 +58,7 @@ const context = vm.createContext({
     hostname: "chatgpt.com"
   },
   window: {
+    origin: "https://chatgpt.com",
     fetch: async () => fakeResponse,
     postMessage(message) {
       messages.push(message);
@@ -114,3 +115,21 @@ assert.equal(statusMessages.some((message) => message.text === "Analyzing image"
 assert.equal(latestStatusMessage.text, "");
 
 console.log("Main-world capture tests passed.");
+
+const opaqueMessages = [];
+const opaqueFetch = async () => fakeResponse;
+const opaqueContext = vm.createContext({
+  URL, Date, TextDecoder,
+  location: context.location,
+  window: { origin: "null", fetch: opaqueFetch, postMessage: (...args) => opaqueMessages.push(args) }
+});
+vm.runInContext(source, opaqueContext);
+assert.equal(opaqueMessages.length, 0, "Opaque ChatGPT frames must not publish to their URL's non-opaque origin.");
+assert.equal(opaqueContext.window.fetch, opaqueFetch, "Opaque frames must keep their own fetch implementation.");
+
+const beforeDetach = messages.length;
+context.window.origin = "null";
+await context.window.fetch("https://chatgpt.com/backend-api/conversation", { method: "POST" });
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(messages.length, beforeDetach, "A detached capture must stop publishing to a replaced document.");
+console.log("Main-world opaque and detached document tests passed.");
