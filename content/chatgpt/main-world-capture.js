@@ -1,4 +1,8 @@
 (() => {
+  // Sandboxed frames can have a ChatGPT URL but an opaque ("null") origin.
+  if (window.origin !== location.origin || !["https://chatgpt.com", "https://chat.openai.com"].includes(window.origin)) {
+    return;
+  }
   if (window.__chatGptRelayMainWorldCaptureInstalled) {
     return;
   }
@@ -544,6 +548,10 @@
   }
 
   function publish(payload = {}, force = false) {
+    // A streaming fetch can outlive its document during navigation.
+    if (window.origin !== location.origin || window.origin === "null") {
+      return;
+    }
     const text = normalizeText(payload.text ?? streamState.text);
     const now = Date.now();
 
