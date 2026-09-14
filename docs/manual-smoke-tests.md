@@ -21,7 +21,7 @@ No separate non-Chromium package is built; browser smoke coverage is Chrome/Chro
 
 1. Highlight text on a normal webpage.
 2. Use the compact popover’s Ask, Summarize, Explain, and more-actions → Rewrite / Define actions. Hold a button briefly before releasing it and confirm the click still works. Escape, page clicks, and scroll should dismiss the popover.
-3. Confirm the side panel opens with a source link and editable prompt in Context. Insert into ChatGPT, verify the exact text, and confirm nothing is sent. Repeat with an existing draft and confirm insertion refuses to replace it. Edit, reload the panel, then clear the context and verify it stays cleared.
+3. Confirm the side panel opens with Context collapsed and its count updated. Hover over the top toolbar, then move into Context to review the source link and editable prompt. Move into ChatGPT or outside the sidebar and confirm the drawer collapses; hover again and confirm edits remain. New selections and screenshots must not reopen it while the pointer is away. Insert into ChatGPT, verify the exact text, and confirm nothing is sent. Repeat with an existing draft and confirm insertion refuses to replace it. Edit, reload the panel, then clear the context and verify it stays cleared.
 4. Right-click selected text and repeat `Ask with Dichrome`, `Summarize with Dichrome`, `Explain with Dichrome`, `Rewrite with Dichrome`, and `Define with Dichrome`.
 5. Use `Screenshot`, the selection popover more-actions → `Screenshot` action, the context-menu `Capture visible screenshot`, and the screenshot keyboard shortcut.
 6. Confirm Mode 2 attaches the visible source-tab screenshot as an image chip in the embedded ChatGPT composer when the frame is loaded.
@@ -150,6 +150,14 @@ No separate non-Chromium package is built; browser smoke coverage is Chrome/Chro
 2. Confirm writing directives do not appear as raw fence text in the side panel.
 3. Confirm code and display-math copy buttons are hidden until their block is hovered or keyboard-focused.
 4. Select and copy a larger section of the rendered response, then confirm copied text does not include the side panel's copy-button labels.
+
+## Mode 2 Context Keyboard And Touch
+
+1. With the mouse away from the toolbar, tab to Context and press Enter or Space. Tab through the drawer controls and edit the prompt. Moving the mouse away must not interrupt a drawer being used through the keyboard.
+2. Press Escape while focused inside the drawer. Confirm it closes and focus returns to Context without immediately reopening. Activate Context again, then tab out of the toolbar/drawer into ChatGPT; confirm it collapses.
+3. On a touch device or with browser touch emulation, tap Context to open it, use its controls, and tap Context again to close it. A tap must not open and immediately close the drawer because of a synthetic hover event.
+4. Briefly move outside the drawer and return within its 160 ms grace period; it should remain open. Leave again and confirm a smooth collapse. Enable reduced motion in the system/browser and confirm the expansion and collapse animation is disabled.
+5. Open a long ChatGPT conversation and scroll near the bottom. Open and close Context repeatedly; it should overlay the chat without moving the conversation, resizing its viewport, or changing its scroll position.
 
 ## Mode 2 Frame Recovery Regressions
 

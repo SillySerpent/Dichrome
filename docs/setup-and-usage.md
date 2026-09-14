@@ -35,7 +35,7 @@ The default side-panel shortcut is `Alt+Shift+D`. It can be changed from `chrome
 3. Confirm the Screenshot and Context buttons appear above the embedded ChatGPT conversation.
 4. If the embedded ChatGPT frame loads, use it normally. If it does not, use the options menu → `Open ChatGPT window` to launch the companion window.
 5. Select text on the source page and use the selection popover or context menu to prepare a prompt.
-6. Open Context, review the editable prompt, and press `Insert into ChatGPT`. If ChatGPT already has a draft, use `Copy` and paste it yourself or clear the draft first.
+6. Hover over the top toolbar to reveal Context, review the editable prompt, and press `Insert into ChatGPT`. Move into the drawer to use its controls; moving outside the toolbar and drawer collapses it without clearing your context. Keyboard users can activate Context with Enter or Space, tab through its controls, and press Escape to close it; touch users can tap Context. If ChatGPT already has a draft, use `Copy` and paste it yourself or clear the draft first.
 7. If ChatGPT asks for sign-in, human verification, account selection, or another modal, resolve it in ChatGPT and reload the embedded frame or retry the action.
 
 Fresh installs open Mode 2 by default. Existing local installs that already have original Dichrome automation settings or session state migrate to Mode 1 so the prior workflow is not hidden unexpectedly.
@@ -66,7 +66,7 @@ Switching back to Mode 2 is immediate when Mode 1 has no active request. If a Mo
    - `Rewrite with Dichrome`
    - `Define with Dichrome`
 4. The side panel opens for the source tab.
-5. In Mode 2, Dichrome opens the Context drawer with the source link and editable prompt. Edits are saved for the browser session. Choose `Insert into ChatGPT` or `Copy`, and use `Clear text` to remove the local context.
+5. In Mode 2, Dichrome updates the Context count with the source link and editable prompt, keeping the drawer collapsed until you hover over the top toolbar or activate Context with the keyboard or touch. Edits are saved for the browser session. Choose `Insert into ChatGPT` or `Copy`, and use `Clear text` to remove the local context.
 6. In Mode 1, Dichrome routes the prompt into the configured ChatGPT project and streams the newest assistant response back into the panel.
 
 The source webpage should stay focused during normal Mode 1 hidden-internal automation.

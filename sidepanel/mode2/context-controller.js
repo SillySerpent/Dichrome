@@ -1,4 +1,5 @@
 import { FRAME_MESSAGES } from "./frame-client.js";
+import { createContextDisclosure } from "./context-disclosure.js";
 
 export const CONTEXT_KEYS = Object.freeze({
   prompt: "dichrome.mode2.latestPrompt",
@@ -20,17 +21,13 @@ export function createContextController({ elements, frameClient, showStatus }) {
   let draftWrites = Promise.resolve();
   const attemptedImages = new Set();
   let attachmentTask = null;
-  const setOpen = (open) => {
-    elements.contextPanel.hidden = !open;
-    elements.contextToggle.setAttribute("aria-expanded", String(open));
-  };
+  const { setOpen } = createContextDisclosure(elements);
   const run = (button, action) => async () => {
     button.disabled = true;
     try { await action(); } catch (error) { showStatus(error.message || String(error), "error"); }
     finally { button.disabled = button === elements.insertPrompt && !frameReady; }
   };
 
-  elements.contextToggle.addEventListener("click", () => setOpen(elements.contextPanel.hidden));
   elements.promptText.addEventListener("input", () => {
     if (!prompt) return;
     const draft = { promptId: prompt.id, text: elements.promptText.value };
@@ -86,7 +83,6 @@ export function createContextController({ elements, frameClient, showStatus }) {
     if (currentRevision !== revision) return;
     const nextPrompt = state[CONTEXT_KEYS.prompt] || null;
     const nextImage = state[CONTEXT_KEYS.screenshot] || null;
-    const hasNewPrompt = nextPrompt?.id && nextPrompt.id !== prompt?.id;
     const hasNewImage = nextImage?.id && nextImage.id !== screenshot?.id;
     if (hasNewImage && Date.now() - Date.parse(nextImage.createdAt) < 30000) pendingImageId = nextImage.id;
     if (nextPrompt?.id !== prompt?.id) {
@@ -106,7 +102,6 @@ export function createContextController({ elements, frameClient, showStatus }) {
     const count = Number(Boolean(prompt?.prompt)) + Number(Boolean(screenshot?.dataUrl));
     elements.contextCount.textContent = String(count);
     elements.emptyContext.hidden = count > 0;
-    if (hasNewPrompt || hasNewImage) setOpen(true);
     const notice = state[CONTEXT_KEYS.notice];
     if (notice?.id && notice.id !== noticeId && !attachmentTask) {
       noticeId = notice.id;

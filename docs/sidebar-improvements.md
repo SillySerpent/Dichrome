@@ -70,6 +70,20 @@ Main-world response capture checks the effective window origin before installati
 
 The first UI verification did not assert on uncaught browser errors. The new browser assertions cover that gap. Unit tests also exercise menu setup concurrency and recovery, origin handshakes, unmatched unload notices, and navigation cancellation.
 
+## Context hover refinement — 2026-09-14
+
+Context starts collapsed and opens when the mouse enters the top toolbar. The toolbar and drawer form one interaction area. Leaving schedules collapse after 160 ms; returning cancels it. New prompt, screenshot, and notice records update the existing DOM without opening the drawer. A 180 ms overlay slide with a short fade softens opening/closing without resizing the ChatGPT frame, and reduced-motion preferences disable animation.
+
+Enter/Space and touch still activate Context. Keyboard navigation keeps it open while its controls are being used; Escape dismisses it and returns focus to the Context control. Closing makes the transitioning drawer inert so its disappearing controls cannot receive focus or clicks. Edited drafts and screenshot attachment state remain owned by the existing context controller.
+
+Five new Chromium scenarios cover hover boundaries and retained edits, delayed-close cancellation and reduced motion, storage/reload behavior, touch activation, and keyboard/focus dismissal. The existing production-shell case also checks hover and dismissal inside the mode iframe. Existing capture/insertion scenarios explicitly reveal Context before using its controls.
+
+Final verification passed: `npm run check`, `npm test`, all 18 `npm run test:browser` scenarios, and `npm run package:chrome`. The short/narrow-window animation regression failed before the responsive starting-style order was corrected and passed afterward. A subsequent 200-message conversation regression reproduced the height animation resizing the chat; the overlay fix keeps frame geometry and scroll position unchanged, with zero iframe resize events across opening and closing. All 98 files in the generated archive were compared byte-for-byte with the current source.
+
+Chromium's CDP input injection skips parent pointer boundary events when targeting a cross-origin iframe; this was reproduced on a static page without extension code, in both headed and headless tests. Pointer-exit regressions therefore use a real parent-document footer or leave the viewport. Keyboard focus transfer into the ChatGPT fixture remains covered. The user separately confirmed the mouse-hover behavior in their live browser before the smoothing refinement; that confirmation does not constitute live-account verification of other ChatGPT operations.
+
+See [daily-use feature recommendations](daily-use-roadmap.md) for the code-grounded proposed additions.
+
 ## Commit accounting
 
 Within each development batch, every modified or created file receives its own local commit, with a file-specific message and no tool-authorship attribution. The commit inventory is the union of tracked changes and untracked source files; dependencies, browser artifacts, and generated packages are ignored. Compare against the upstream baseline:
