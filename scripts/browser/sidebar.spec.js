@@ -9,7 +9,13 @@ let extensionId;
 let runtimeErrors = [];
 const promptKey = "dichrome.mode2.latestPrompt";
 
-test.beforeEach(() => { runtimeErrors = []; });
+test.beforeEach(async () => {
+  runtimeErrors = [];
+  await context.serviceWorkers()[0].evaluate(() => chrome.storage.session.remove([
+    "dichrome.mode2.latestPrompt", "dichrome.mode2.latestScreenshot", "dichrome.mode2.latestNotice",
+    "dichrome.mode2.promptDraft", "dichrome.mode2.attachedScreenshotId"
+  ]));
+});
 test.afterEach(() => { expect(runtimeErrors, "No uncaught extension errors or origin mismatch messages").toEqual([]); });
 
 test.beforeAll(async () => {
@@ -68,6 +74,199 @@ async function seedPrompt() {
   }, promptKey);
 }
 
+async function revealContext(page) {
+  await page.locator(".top-bar").hover();
+  await expect(page.locator("#contextPanel")).toBeVisible();
+}
+
+test("context opens on toolbar hover and collapses after leaving the toolbar and drawer", async () => {
+  await seedPrompt();
+  const page = await openSidebar();
+  await page.mouse.move(180, 700);
+  await expect(page.locator("#promptText")).toHaveValue(/A useful selected passage/);
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await expect(page.locator("#contextToggle")).toHaveAttribute("aria-expanded", "false");
+  await page.evaluate(() => chrome.storage.session.set({
+    "dichrome.mode2.latestNotice": { id: "hover-help", message: "Context ready", kind: "info" }
+  }));
+
+  await revealContext(page);
+  await expect(page.locator("#contextToggle")).toHaveAttribute("aria-expanded", "true");
+  await page.locator("#contextToggle").click();
+  await expect(page.locator("#contextPanel")).toBeVisible();
+  await page.locator("#promptText").hover();
+  await expect(page.locator("#contextPanel")).toBeVisible();
+  await page.locator("#promptText").click();
+  await page.keyboard.type("My retained edit");
+  const editedPrompt = await page.locator("#promptText").inputValue();
+  // CDP routes cross-origin iframe mouse input directly to the child, omitting parent boundary events.
+  // A real parent-document destination exercises native pointerleave without synthesizing events.
+  await page.locator("#statusText").hover();
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await expect(page.locator("#contextToggle")).toBeFocused();
+  await expect(page.locator("#contextToggle")).toHaveAttribute("aria-expanded", "false");
+
+  await revealContext(page);
+  await expect(page.locator("#promptText")).toHaveValue(editedPrompt);
+  await page.locator("#promptText").hover();
+  await page.locator(".brand").hover();
+  await expect(page.locator("#contextPanel")).toBeVisible();
+  await page.mouse.move(-10, 30);
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await page.close();
+});
+
+test("long conversations keep their viewport and scroll position when context opens and closes", async () => {
+  await seedPrompt();
+  const page = await openSidebar();
+  await page.mouse.move(180, 700);
+  await expect(page.locator("#frameStatus")).toHaveText("Connected");
+  await page.evaluate(() => chrome.storage.session.set({
+    "dichrome.mode2.latestNotice": { id: "long-chat", message: "Context ready", kind: "info" }
+  }));
+  await expect(page.locator("#statusText")).toHaveText("Context ready");
+  const conversation = page.frameLocator("#chatGptFrame").locator("main");
+  await conversation.evaluate((main) => {
+    const history = document.createElement("section");
+    history.id = "longConversation";
+    history.style.cssText = "flex:1;min-height:0;overflow:auto";
+    for (let index = 0; index < 200; index++) {
+      const message = document.createElement("p");
+      message.textContent = `Message ${index}: A long conversation with several lines of content to read.`;
+      history.append(message);
+    }
+    main.prepend(history);
+    window.chatResizeCount = 0;
+    window.addEventListener("resize", () => { window.chatResizeCount++; });
+  });
+  const history = page.frameLocator("#chatGptFrame").locator("#longConversation");
+  const scrollTop = await history.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    return element.scrollTop;
+  });
+  expect(scrollTop).toBeGreaterThan(5000);
+  const frameBox = await page.locator("#chatGptFrame").boundingBox();
+  await revealContext(page);
+  await page.locator("#contextPanel").evaluate((panel) => Promise.all(panel.getAnimations().map((animation) => animation.finished)));
+  expect(await page.locator("#chatGptFrame").boundingBox()).toEqual(frameBox);
+  expect(await history.evaluate((element) => element.scrollTop)).toBe(scrollTop);
+  await page.locator("#statusText").hover();
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  expect(await page.locator("#chatGptFrame").boundingBox()).toEqual(frameBox);
+  expect(await history.evaluate((element) => element.scrollTop)).toBe(scrollTop);
+  expect(await conversation.evaluate(() => window.chatResizeCount)).toBe(0);
+  await page.close();
+});
+
+test("context cancels delayed collapse on reentry and respects reduced motion", async () => {
+  const page = await openSidebar();
+  await page.evaluate(() => chrome.storage.session.set({
+    "dichrome.mode2.latestNotice": { id: "reentry", message: "Context ready", kind: "info" }
+  }));
+  await revealContext(page);
+  await expect(page.locator("#contextPanel")).toHaveCSS("opacity", "1");
+  await page.locator("#statusText").hover();
+  await expect(page.locator("#contextToggle")).toHaveAttribute("aria-expanded", "true");
+  await page.locator("#emptyContext").hover();
+  await page.waitForTimeout(220); // Exceed the dismissal grace period to detect an uncancelled timer.
+  await expect(page.locator("#contextToggle")).toHaveAttribute("aria-expanded", "true");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.locator("#contextPanel")).toHaveCSS("transition-duration", "0s");
+  await page.locator("#statusText").hover();
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await expect(page.locator("#contextPanel")).toHaveJSProperty("inert", true);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 280, height: 480 });
+  await page.locator(".top-bar").hover();
+  const transitions = await page.locator("#contextPanel").evaluate((panel) =>
+    panel.getAnimations().map((animation) => animation.transitionProperty));
+  expect(transitions, "Short, narrow panels also animate their opening slide").toContain("transform");
+  await page.close();
+});
+
+test("new context and reloads stay collapsed until the toolbar is hovered", async () => {
+  const page = await openSidebar();
+  await page.mouse.move(180, 700);
+  await seedPrompt();
+  await expect(page.locator("#promptText")).toHaveValue(/A useful selected passage/);
+  const dataUrl = `data:image/png;base64,${(await page.screenshot()).toString("base64")}`;
+  await page.evaluate((dataUrl) => chrome.storage.session.set({
+    "dichrome.mode2.latestScreenshot": { id: "hover-screenshot", dataUrl, sourceTitle: "Hover test" },
+    "dichrome.mode2.latestNotice": { id: "hover-notice", message: "Context updated", kind: "success" }
+  }), dataUrl);
+  await expect(page.locator("#contextCount")).toHaveText("2");
+  await expect(page.locator("#statusText")).toHaveText("Context updated");
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await revealContext(page);
+  await expect(page.locator("#screenshotPreview")).toBeVisible();
+  await page.mouse.move(180, 700);
+  await page.reload();
+  await expect(page.locator("#contextCount")).toHaveText("2");
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await page.close();
+});
+
+test("context supports touch opening and closing without synthetic hover toggling it twice", async () => {
+  const page = await openSidebar();
+  const session = await context.newCDPSession(page);
+  await session.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+  const toggle = await page.locator("#contextToggle").boundingBox();
+  const tapToggle = async () => {
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart", touchPoints: [{ x: toggle.x + toggle.width / 2, y: toggle.y + toggle.height / 2 }]
+    });
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  };
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await tapToggle();
+  await expect(page.locator("#contextPanel")).toBeVisible();
+  await expect(page.locator("#emptyContext")).toBeVisible();
+  await tapToggle();
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await expect(page.locator("#contextToggle")).toHaveAttribute("aria-expanded", "false");
+  await session.detach();
+  await page.close();
+});
+
+test("context supports keyboard opening, editing, Escape, and focus leaving the drawer", async () => {
+  await seedPrompt();
+  const page = await openSidebar();
+  await page.evaluate(() => chrome.storage.session.set({
+    "dichrome.mode2.latestNotice": { id: "keyboard-help", message: "Context ready", kind: "info" }
+  }));
+  await page.mouse.move(180, 700);
+  await page.locator("#contextToggle").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#contextPanel")).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#clearPrompt")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#promptText")).toBeFocused();
+  await page.keyboard.type("Keyboard edit");
+  await page.locator(".brand").hover();
+  await page.locator("#statusText").hover();
+  await expect(page.locator("#contextPanel")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await expect(page.locator("#contextToggle")).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(page.locator("#contextPanel")).toBeVisible();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.locator("#captureScreenshot")).toBeFocused();
+  await expect(page.locator("#contextPanel")).toBeVisible();
+  await page.frameLocator("#chatGptFrame").getByRole("textbox").focus();
+  await expect(page.locator("#contextPanel")).toBeHidden();
+
+  await revealContext(page);
+  await page.locator("#contextToggle").focus();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await page.locator(".brand").hover();
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await page.close();
+});
+
 // Inspect the closed production shadow root through Chromium's DOM domain.
 async function inspectPopover(page, label) {
   const session = await context.newCDPSession(page);
@@ -122,6 +321,7 @@ test("sidebar fits narrow widths and retains editable context through screenshot
   await seedPrompt();
   const page = await openSidebar();
   await expect(page.locator("#promptText")).toHaveValue(/A useful selected passage/);
+  await revealContext(page);
   await page.locator("#promptText").fill("My edited prompt");
   for (const width of [280, 320, 360, 480]) {
     await page.setViewportSize({ width, height: 720 });
@@ -139,6 +339,7 @@ test("sidebar fits narrow widths and retains editable context through screenshot
   await expect(page.locator("#promptText")).toHaveValue("My edited prompt");
   await page.setViewportSize({ width: 360, height: 800 });
   await expect(page.locator("#frameStatus")).toHaveText("Connected");
+  await revealContext(page);
   await page.screenshot({ path: "test-results/sidebar-context.png" });
   await page.close();
 });
@@ -152,6 +353,8 @@ test("screenshot capture attaches once and keeps preview, save, and clear action
   await source.locator("#passage").selectText();
   await clickPopover(source, "···");
   await clickPopover(source, "Screenshot");
+  await page.bringToFront();
+  await revealContext(page);
   await expect(page.locator("#screenshotPreview")).toBeVisible();
   expect(await page.evaluate(async () => (await chrome.storage.session.get("dichrome.mode2.latestScreenshot"))["dichrome.mode2.latestScreenshot"].sourceUrl)).toBe("https://example.com/");
   await expect(page.locator("#statusText")).toContainText("Screenshot attached", { timeout: 12000 });
@@ -183,6 +386,7 @@ test("unavailable frame exposes recovery and retains copyable context", async ()
   await page.goto(`chrome-extension://${extensionId}/sidepanel/mode2/sidepanel.html`);
   await expect(page.locator("#frameStatus")).toHaveText("Needs attention", { timeout: 20000 });
   await expect(page.locator("#frameRecovery")).toBeVisible();
+  await revealContext(page);
   await expect(page.locator("#copyPrompt")).toBeVisible();
   await page.screenshot({ path: "test-results/sidebar-recovery.png" });
   await page.close();
@@ -194,14 +398,17 @@ test("insert is acknowledged, preserves a draft, and never sends", async () => {
   const composer = page.frameLocator("#chatGptFrame").getByRole("textbox");
   await expect(composer).toBeVisible();
   await composer.fill("Existing draft");
+  await revealContext(page);
   await page.locator("#insertPrompt").click();
   await expect(page.locator("#statusText")).toContainText("already has a draft");
   await expect(composer).toHaveValue("Existing draft");
   await composer.fill("");
+  await revealContext(page);
   await page.locator("#insertPrompt").click();
   await expect(composer).toHaveValue(/A useful selected passage/);
   await expect(page.locator("#statusText")).toContainText("Review it");
   expect(await composer.evaluate(() => document.body.dataset.sent)).toBeUndefined();
+  await revealContext(page);
   await page.locator("#clearPrompt").click();
   await expect(page.locator("#promptCard")).toBeHidden();
   await page.reload();
@@ -236,6 +443,7 @@ test("a second screenshot queues behind an upload and receives its own acknowled
   await storeImage("image-B");
   await expect.poll(() => page.evaluate(async () => (await chrome.storage.session.get("dichrome.mode2.attachedScreenshotId"))["dichrome.mode2.attachedScreenshotId"]), { timeout: 10000 }).toBe("image-B");
   await expect(page.frameLocator("#chatGptFrame").locator('[data-testid="attachment"]')).toHaveCount(2);
+  await revealContext(page);
   await page.locator("#clearScreenshot").click();
   await page.close();
 });
@@ -249,6 +457,7 @@ test("contenteditable insertion retains multiline text without submitting", asyn
   await page.goto(`chrome-extension://${extensionId}/sidepanel/mode2/sidepanel.html`);
   await expect(page.locator("#frameStatus")).toHaveText("Connected");
   const text = "Explain these points:\nFirst <example> & context.\nSecond point.";
+  await revealContext(page);
   await page.locator("#promptText").fill(text);
   await page.locator("#insertPrompt").click();
   const composer = page.frameLocator("#chatGptFrame").getByRole("textbox");
@@ -263,6 +472,13 @@ test("production shell keeps the current mode full width and opens settings from
   await page.goto(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`);
   const mode = page.frameLocator("#modeFrame");
   await expect(mode.locator("#frameStatus")).toHaveText("Connected");
+  await expect(mode.locator("#contextPanel")).toBeHidden();
+  await revealContext(mode);
+  await expect(mode.locator("#emptyContext")).toBeVisible();
+  await mode.locator("#emptyContext").hover();
+  await expect(mode.locator("#contextPanel")).toBeVisible();
+  await page.mouse.move(-10, 180);
+  await expect(mode.locator("#contextPanel")).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(280);
   expect((await page.locator("#modeFrame").boundingBox()).y).toBe(0);
   await mode.locator("#toolsMenu summary").click();
@@ -323,6 +539,7 @@ test("a legacy ChatGPT URL redirects and uses the actual document origin", async
   await page.goto(`chrome-extension://${extensionId}/sidepanel/mode2/sidepanel.html`);
   await expect(page.locator("#frameStatus")).toHaveText("Connected");
   expect(page.frames().some((frame) => frame.url() === "https://chatgpt.com/")).toBe(true);
+  await revealContext(page);
   await page.locator("#insertPrompt").click();
   await expect(page.frameLocator("#chatGptFrame").getByRole("textbox")).toHaveValue(/A useful selected passage/);
   await expect(page.locator("#statusText")).toContainText("Prompt inserted");
