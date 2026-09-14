@@ -8,7 +8,7 @@
   </head>
   <body>
     <main class="app-shell">
-      <header class="top-bar" aria-label="Dichrome controls">
+      <header id="topBar" class="top-bar" aria-label="Dichrome controls">
         <div class="brand-row">
           <div class="brand"><img src="../../icons/icon-32.png" alt="" width="24" height="24"><strong>Dichrome</strong></div>
           <span id="frameStatus" class="status-pill" data-state="loading">Connecting</span>
@@ -26,7 +26,7 @@
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5l1-2h4l1 2h3a1 1 0 0 1 1 1v10H3V6a1 1 0 0 1 1-1z"/><circle cx="10" cy="10" r="3"/></svg>
             Screenshot
           </button>
-          <button id="contextToggle" class="tool-button" type="button" aria-expanded="false" aria-controls="contextPanel">Context <span id="contextCount" class="count">0</span></button>
+          <button id="contextToggle" class="tool-button" type="button" aria-expanded="false" aria-controls="contextPanel" title="Hover over the toolbar to show context, or use Enter or Space">Context <span id="contextCount" class="count">0</span></button>
         </div>
       </header>
 
