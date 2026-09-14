@@ -48,13 +48,13 @@ button:focus-visible, summary:focus-visible, a:focus-visible, textarea:focus-vis
 
 .app-shell {
   height: 100dvh;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template: auto minmax(0, 1fr) auto / minmax(0, 1fr);
   overflow: hidden;
 }
 
 .top-bar {
-  flex: 0 0 auto;
+  grid-area: 1 / 1;
   padding: 12px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -220,8 +220,10 @@ button:focus-visible, summary:focus-visible, a:focus-visible, textarea:focus-vis
 }
 
 .context-panel {
-  flex: 0 1 auto;
-  max-height: 44%;
+  grid-area: 2 / 1;
+  align-self: start;
+  z-index: 2;
+  max-height: 44dvh;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -229,6 +231,12 @@ button:focus-visible, summary:focus-visible, a:focus-visible, textarea:focus-vis
   background: #131a16;
   padding: 12px;
   border-bottom: 1px solid var(--border);
+  transition: transform 180ms ease, opacity 140ms ease, display 180ms allow-discrete;
+}
+
+.context-panel[hidden] {
+  transform: translateY(-6px);
+  opacity: 0;
 }
 
 .section-heading {
@@ -362,7 +370,7 @@ textarea {
 }
 
 .frame-area {
-  flex: 1 1 0;
+  grid-area: 2 / 1;
   min-height: 100px;
   overflow: hidden;
   position: relative;
@@ -442,7 +450,7 @@ textarea {
 
 .status-bar {
   display: flex;
-  flex: 0 0 auto;
+  grid-area: 3 / 1;
   align-items: flex-start;
   gap: 8px;
   padding: 8px 12px;
@@ -493,6 +501,9 @@ textarea {
   .loading-indicator {
     animation: none;
   }
+  .context-panel {
+    transition: none;
+  }
 }
 
 @media (max-width: 300px) {
@@ -506,12 +517,19 @@ textarea {
 
 @media (max-height: 500px) {
   .context-panel {
-    max-height: 38%;
+    max-height: 38dvh;
   }
   .top-bar {
     padding-block: 7px;
   }
   .brand-row {
     margin-bottom: 6px;
+  }
+}
+
+@starting-style {
+  .context-panel {
+    transform: translateY(-6px);
+    opacity: 0;
   }
 }
