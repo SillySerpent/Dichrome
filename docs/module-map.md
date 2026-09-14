@@ -107,7 +107,7 @@ Future content-runtime changes should usually land in the concern-specific modul
 ## Side Panel
 
 - `sidepanel/sidepanel.html`, `sidepanel/shell.css`, and `sidepanel/shell.js` are the root side-panel shell. The shell owns mode iframe loading, the Mode 2 options-menu settings handoff, mode settings, the Mode 1 beta acknowledgement, and active Mode 1 request switch guarding.
-- `sidepanel/mode2/sidepanel.html`, `sidepanel/mode2/sidepanel.css`, and `sidepanel/mode2/sidepanel.js` own the default Mode 2 ChatGPT sidebar companion UI, including the responsive toolbar, context drawer, loading/recovery states, and status footer. `context-controller.js` owns session records, editable drafts, clear/copy/save actions, and screenshot queuing; `frame-client.js` owns request correlation, origin checks, timeouts, and navigation cancellation.
+- `sidepanel/mode2/sidepanel.html`, `sidepanel/mode2/sidepanel.css`, and `sidepanel/mode2/sidepanel.js` own the default Mode 2 ChatGPT sidebar companion UI, including the responsive toolbar, context drawer, loading/recovery states, and status footer. `context-controller.js` owns session records, editable drafts, clear/copy/save actions, and screenshot queuing; `context-disclosure.js` owns toolbar hover, drawer dismissal, and keyboard/touch access independently of captured data; `frame-client.js` owns request correlation, origin checks, timeouts, and navigation cancellation.
 - `sidepanel/mode1.html` hosts the original Dichrome Mode 1 beta app.
 - `sidepanel/sidepanel.js` is the Mode 1 HTML entrypoint and imports `sidepanel/runtime/app.js`.
 - `sidepanel/runtime/app.js` owns panel initialization, event binding, panel state loading, request actions, project-history UI state, sign-in handoff, and top-level rendering.
