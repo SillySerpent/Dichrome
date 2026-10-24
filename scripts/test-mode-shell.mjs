@@ -9,7 +9,7 @@ const mode2Html = await readFile(new URL("../sidepanel/mode2/sidepanel.html", im
 const mode2Css = await readFile(new URL("../sidepanel/mode2/sidepanel.css", import.meta.url), "utf8");
 const mode2Source = (await Promise.all(["sidepanel.js", "frame-client.js", "context-controller.js"].map((file) =>
   readFile(new URL(`../sidepanel/mode2/${file}`, import.meta.url), "utf8")))).join("\n");
-const frameThemeSource = await readFile(new URL("../content/mode2/chatgpt-frame-theme.js", import.meta.url), "utf8");
+const frameNavigationSource = await readFile(new URL("../content/mode2/chatgpt-frame-navigation.js", import.meta.url), "utf8");
 const composerBridgeSource = await readFile(new URL("../content/mode2/composer-bridge.js", import.meta.url), "utf8");
 const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url), "utf8"));
 
@@ -29,7 +29,7 @@ assert.match(mode2Html, /id="captureScreenshot"/, "Mode 2 must keep a screenshot
 assert.match(mode2Source, /dichrome\.mode2\.chatGptFrameUrl/, "Mode 2 frame URL storage must be namespaced");
 assert.match(mode2Source, /dichrome\.mode2\.latestPrompt/, "Mode 2 prompt storage must be namespaced");
 assert.match(mode2ControllerSource, /BACKGROUND_MESSAGE_TYPES/, "Mode 2 controller must distinguish background messages from content-only messages");
-assert.match(frameThemeSource, /dichrome\.mode2\.chatGptFrameUrl/, "Mode 2 frame theme must persist namespaced frame URL state");
+assert.match(frameNavigationSource, /dichrome\.mode2\.chatGptFrameUrl/, "Mode 2 frame navigation must persist namespaced frame URL state");
 assert.match(mode2Css, /\.status-bar\.is-empty/, "Mode 2 status text must collapse when no action needs attention");
 assert.match(mode2Source, /dichrome:mode2:attach-screenshot/, "Mode 2 must send captured screenshots into the embedded ChatGPT frame");
 assert.match(mode2Source, /postMessage\(payload, task\.origin\)/, "Mode 2 screenshot handoff must target the verified document origin");
@@ -39,16 +39,16 @@ assert.match(composerBridgeSource, /attachFiles\(\[attachment\]/, "Mode 2 ChatGP
 const selectionScript = manifest.content_scripts.find((script) => {
   return script.js?.includes("content/shared/selection-popover.js");
 });
-const mode2ThemeScript = manifest.content_scripts.find((script) => {
-  return script.js?.includes("content/mode2/chatgpt-frame-theme.js");
+const mode2NavigationScript = manifest.content_scripts.find((script) => {
+  return script.js?.includes("content/mode2/chatgpt-frame-navigation.js");
 });
 
 assert.ok(selectionScript, "manifest must register the shared selection popover");
 assert.deepEqual(selectionScript.matches, ["<all_urls>"], "shared selection popover should be available on normal webpages");
 assert.equal(selectionScript.run_at, "document_idle");
-assert.ok(mode2ThemeScript, "manifest must register the Mode 2 ChatGPT frame theme");
-assert.equal(mode2ThemeScript.all_frames, true, "Mode 2 frame theme must run in embedded ChatGPT frames");
-assert.ok(mode2ThemeScript.js.includes("content/mode2/composer-bridge.js"), "Mode 2 composer bridge must ship with the frame theme");
+assert.ok(mode2NavigationScript, "manifest must register the Mode 2 ChatGPT frame navigation script");
+assert.equal(mode2NavigationScript.all_frames, true, "Mode 2 frame navigation must run in embedded ChatGPT frames");
+assert.ok(mode2NavigationScript.js.includes("content/mode2/composer-bridge.js"), "Mode 2 composer bridge must ship with the frame navigation script");
 assert.ok(manifest.permissions.includes("clipboardWrite"), "Mode 2 copy controls require clipboardWrite");
 assert.ok(manifest.permissions.includes("windows"), "Mode 2 fallback window requires windows permission");
 

@@ -415,6 +415,25 @@ test("the named offscreen chat frame retains Mode 1 network capture", async () =
   await page.close();
 });
 
+test("Mode 2 preserves ChatGPT's own theme state during loading", async () => {
+  await context.serviceWorkers()[0].evaluate(() => chrome.storage.local.set({
+    "dichrome.mode2.chatGptFrameUrl": "https://chatgpt.com/"
+  }));
+  const page = await context.newPage();
+  await page.route("https://chatgpt.com/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: '<!doctype html><html class="light"><body><main><form><textarea aria-label="Message ChatGPT" placeholder="Message ChatGPT"></textarea><button type="button">Send</button></form></main></body></html>'
+  }));
+  await page.goto(`chrome-extension://${extensionId}/sidepanel/mode2/sidepanel.html`);
+  await expect(page.locator("#frameStatus")).toHaveText("Connected");
+  const theme = await page.frameLocator("#chatGptFrame").locator("html").evaluate((root) => ({
+    className: root.className,
+    inlineColorScheme: root.style.colorScheme
+  }));
+  expect(theme).toEqual({ className: "light", inlineColorScheme: "" });
+  await page.close();
+});
+
 test("insert is acknowledged, preserves a draft, and never sends", async () => {
   await seedPrompt();
   const page = await openSidebar();

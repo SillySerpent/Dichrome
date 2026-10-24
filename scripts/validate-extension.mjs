@@ -61,7 +61,7 @@ const requiredFiles = [
   "content/chatgpt/runtime/app.js",
   "content/chatgpt/90-bootstrap.js",
   "content/chatgpt/main-world-capture.js",
-  "content/mode2/chatgpt-frame-theme.js",
+  "content/mode2/chatgpt-frame-navigation.js",
   "content/mode2/composer-bridge.js",
   "content/shared/selection-popover.js",
   "docs/architecture.md",
@@ -275,8 +275,8 @@ async function validateManifest() {
   const chatGptContentScript = manifest.content_scripts.find((script) => {
     return script.matches?.includes("https://chatgpt.com/*") && script.matches?.includes("https://chat.openai.com/*");
   });
-  const mode2FrameThemeScript = manifest.content_scripts.find((script) => {
-    return script.js?.includes("content/mode2/chatgpt-frame-theme.js");
+  const mode2FrameNavigationScript = manifest.content_scripts.find((script) => {
+    return script.js?.includes("content/mode2/chatgpt-frame-navigation.js");
   });
 
   assert(selectionPopoverScript, "Missing shared selection popover content script.");
@@ -289,9 +289,9 @@ async function validateManifest() {
     JSON.stringify(chatGptContentScript.js) === JSON.stringify(CHATGPT_CONTENT_SCRIPT_FILES),
     "ChatGPT content script order must match shared contract order."
   );
-  assert(mode2FrameThemeScript, "Missing Mode 2 ChatGPT frame theme content script.");
-  assert(mode2FrameThemeScript.all_frames === true, "Mode 2 frame theme must run in embedded ChatGPT frames.");
-  assert(mode2FrameThemeScript.run_at === "document_start", "Mode 2 frame theme must run before ChatGPT frame rendering settles.");
+  assert(mode2FrameNavigationScript, "Missing Mode 2 ChatGPT frame navigation content script.");
+  assert(mode2FrameNavigationScript.all_frames === true, "Mode 2 frame navigation must run in embedded ChatGPT frames.");
+  assert(mode2FrameNavigationScript.run_at === "document_start", "Mode 2 frame navigation must observe ChatGPT navigation from the start.");
 
   const webAccessibleResources = manifest.web_accessible_resources || [];
   const chatGptCaptureResource = webAccessibleResources.find((resource) => {

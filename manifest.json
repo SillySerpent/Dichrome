@@ -81,7 +81,7 @@
       ],
       "js": [
         "content/mode2/composer-bridge.js",
-        "content/mode2/chatgpt-frame-theme.js"
+        "content/mode2/chatgpt-frame-navigation.js"
       ],
       "run_at": "document_start",
       "all_frames": true
