@@ -40,7 +40,25 @@
   window.addEventListener("popstate", persistCurrentChatGptUrl);
   window.addEventListener("hashchange", persistCurrentChatGptUrl);
   window.addEventListener("pageshow", persistCurrentChatGptUrl);
+  window.addEventListener("pageshow", publishNavigationDiagnostic, { once: true });
   window.setInterval(persistCurrentChatGptUrl, URL_PERSIST_INTERVAL_MS);
+
+  function publishNavigationDiagnostic() {
+    if (!chrome.runtime?.id || window.origin !== location.origin
+      || !["https://chatgpt.com", "https://chat.openai.com"].includes(window.origin)
+      || String(window.name || "").startsWith("dichrome-offscreen-")) return;
+    try {
+      const navigation = performance.getEntriesByType("navigation")[0];
+      const status = navigation?.responseStatus;
+      window.parent.postMessage({
+        type: "dichrome:mode2:frame-diagnostic",
+        navigationType: navigation?.type || "unavailable",
+        responseStatus: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null
+      }, `chrome-extension://${chrome.runtime.id}`);
+    } catch (_error) {
+      // Diagnostics are best effort if the extension frame is closing.
+    }
+  }
 
   function prepareEmbeddedChatGptLink(event) {
     const link = event.target?.closest?.("a[href]");

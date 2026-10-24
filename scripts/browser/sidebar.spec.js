@@ -392,6 +392,119 @@ test("unavailable frame exposes recovery and retains copyable context", async ()
   await page.close();
 });
 
+test("repeated ChatGPT navigations stop and offer the companion window", async () => {
+  await seedPrompt();
+  await context.serviceWorkers()[0].evaluate(() => chrome.storage.local.set({
+    "dichrome.mode2.chatGptFrameUrl": "https://chatgpt.com/"
+  }));
+  const page = await context.newPage();
+  let loads = 0;
+  const diagnostics = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().startsWith("[Dichrome Mode 2] ")) {
+      diagnostics.push(message.text());
+    }
+  });
+  await page.route("https://chatgpt.com/**", (route) => {
+    loads += 1;
+    return route.fulfill({
+      contentType: "text/html",
+      body: "<h1>ChatGPT is reloading</h1><script>setTimeout(() => location.reload(), 100)</script>"
+    });
+  });
+  await page.goto(`chrome-extension://${extensionId}/sidepanel/mode2/sidepanel.html`);
+  await expect(page.locator("#frameStatus")).toHaveText("Needs attention", { timeout: 8000 });
+  await expect(page.locator("#frameNoticeText")).toContainText("repeatedly reloaded");
+  await expect(page.locator("#chatGptFrame")).toHaveAttribute("src", "about:blank");
+  expect(diagnostics).toHaveLength(1);
+  const diagnostic = JSON.parse(diagnostics[0].slice("[Dichrome Mode 2] ".length));
+  expect(diagnostic).toMatchObject({
+    composerReadyEvents: 0,
+    navigationType: "reload", responseStatus: 200
+  });
+  // The fifth document's bridge can stop navigation before its load event arrives.
+  if (diagnostic.reason === "repeated-documents") {
+    expect(diagnostic.bridgeReadyDocuments).toBe(5);
+    expect(diagnostic.loadEvents).toBeLessThan(5);
+  } else {
+    expect(diagnostic.reason).toBe("repeated-loads");
+    expect(diagnostic.loadEvents).toBe(5);
+  }
+  expect(diagnostics[0]).not.toContain("https://");
+  await expect(page.locator("#openFallback")).toBeVisible();
+  await revealContext(page);
+  await expect(page.locator("#copyPrompt")).toBeVisible();
+  const stoppedAt = loads;
+  await page.waitForTimeout(400);
+  expect(loads).toBe(stoppedAt);
+  await page.unroute("https://chatgpt.com/**");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#contextPanel")).toBeHidden();
+  await page.locator("#retryFrame").click();
+  await expect(page.locator("#frameStatus")).toHaveText("Connected");
+  await page.close();
+});
+
+test("repeated reloads stop even when the composer connects between loads", async () => {
+  await context.serviceWorkers()[0].evaluate(() => chrome.storage.local.set({
+    "dichrome.mode2.chatGptFrameUrl": "https://chatgpt.com/"
+  }));
+  const page = await context.newPage();
+  let loads = 0;
+  const diagnostics = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().startsWith("[Dichrome Mode 2] ")) {
+      diagnostics.push(JSON.parse(message.text().slice("[Dichrome Mode 2] ".length)));
+    }
+  });
+  await page.route("https://chatgpt.com/**", (route) => {
+    loads += 1;
+    return route.fulfill({
+      contentType: "text/html",
+      body: '<form><textarea aria-label="Message ChatGPT" placeholder="Message ChatGPT"></textarea></form><script>setTimeout(() => location.reload(), 800)</script>'
+    });
+  });
+  await page.goto(`chrome-extension://${extensionId}/sidepanel/mode2/sidepanel.html`);
+  await expect(page.locator("#frameStatus")).toHaveText("Connected");
+  await expect.poll(() => loads, { timeout: 7000 }).toBeGreaterThanOrEqual(5);
+  await expect(page.locator("#frameStatus")).toHaveText("Needs attention", { timeout: 3000 });
+  await expect(page.locator("#chatGptFrame")).toHaveAttribute("src", "about:blank");
+  expect(diagnostics).toMatchObject([{
+    reason: "repeated-loads", loadEvents: 5, navigationType: "reload", responseStatus: 200
+  }]);
+  expect(diagnostics[0].composerReadyEvents).toBeGreaterThan(0);
+  await page.close();
+});
+
+test("replacement documents stop before load when ChatGPT reloads during startup", async () => {
+  await context.serviceWorkers()[0].evaluate(() => chrome.storage.local.set({
+    "dichrome.mode2.chatGptFrameUrl": "https://chatgpt.com/"
+  }));
+  const page = await context.newPage();
+  const diagnostics = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().startsWith("[Dichrome Mode 2] ")) {
+      diagnostics.push(JSON.parse(message.text().slice("[Dichrome Mode 2] ".length)));
+    }
+  });
+  await page.route("https://chatgpt.com/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: '<script>setTimeout(() => location.reload(), 100)</script><img src="https://example.com/slow.png">'
+  }));
+  await page.route("https://example.com/slow.png", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await route.abort().catch(() => null);
+  });
+  await page.goto(`chrome-extension://${extensionId}/sidepanel/mode2/sidepanel.html`);
+  await expect(page.locator("#frameStatus")).toHaveText("Needs attention", { timeout: 8000 });
+  await expect(page.locator("#chatGptFrame")).toHaveAttribute("src", "about:blank");
+  expect(diagnostics).toMatchObject([{
+    reason: "repeated-documents", loadEvents: 0, composerReadyEvents: 0
+  }]);
+  expect(diagnostics[0].bridgeReadyDocuments).toBeGreaterThanOrEqual(5);
+  await page.close();
+});
+
 test("Mode 2 leaves ChatGPT fetch untouched while its composer bridge connects", async () => {
   const page = await openSidebar();
   await expect(page.locator("#frameStatus")).toHaveText("Connected");
@@ -404,15 +517,6 @@ test("Mode 2 leaves ChatGPT fetch untouched while its composer bridge connects",
   await normalTab.goto("https://chatgpt.com/");
   expect(await normalTab.evaluate(() => window.__chatGptRelayMainWorldCaptureInstalled === true)).toBe(false);
   await normalTab.close();
-});
-
-test("the named offscreen chat frame retains Mode 1 network capture", async () => {
-  const page = await context.newPage();
-  await page.goto(`chrome-extension://${extensionId}/offscreen/automation-host.html`);
-  const captureInstalled = await page.frameLocator("#chatgptChatFrame").locator("body")
-    .evaluate(() => window.__chatGptRelayMainWorldCaptureInstalled === true);
-  expect(captureInstalled).toBe(true);
-  await page.close();
 });
 
 test("Mode 2 preserves ChatGPT's own theme state during loading", async () => {
@@ -431,6 +535,15 @@ test("Mode 2 preserves ChatGPT's own theme state during loading", async () => {
     inlineColorScheme: root.style.colorScheme
   }));
   expect(theme).toEqual({ className: "light", inlineColorScheme: "" });
+  await page.close();
+});
+
+test("the named offscreen chat frame retains Mode 1 network capture", async () => {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/offscreen/automation-host.html`);
+  const captureInstalled = await page.frameLocator("#chatgptChatFrame").locator("body")
+    .evaluate(() => window.__chatGptRelayMainWorldCaptureInstalled === true);
+  expect(captureInstalled).toBe(true);
   await page.close();
 });
 

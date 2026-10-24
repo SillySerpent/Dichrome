@@ -166,6 +166,8 @@ No separate non-Chromium package is built; browser smoke coverage is Chrome/Chro
 3. Reload during an attachment. Confirm cancellation is reported and Attach image can be retried after the connection recovers.
 4. Verify a normal top-level ChatGPT tab keeps its own theme and is not controlled by the embedded composer bridge.
 5. Reload the extension while a source page remains open. Click its old popover and confirm a page-refresh instruction appears.
+6. If ChatGPT repeatedly reloads before connecting, confirm the sidebar stops the frame, shows **Needs attention**, and offers **Open ChatGPT**. Confirm the Context drawer remains copyable and **Try again** starts a fresh attempt.
+7. On a frame failure, inspect the side-panel Console for one `[Dichrome Mode 2]` error line with the failure reason, load count, composer readiness count, response status when available, and frame-policy scope. The line must not contain conversation URLs, page text, cookies, or credentials.
 
 Automated coverage is in `scripts/browser/sidebar.spec.js` and uses controlled documents, not a signed-in account. Run `npm run test:browser` after `npm ci` and `npx playwright install chromium`. Complete the signed-in checks above before claiming compatibility with the account’s current ChatGPT UI.
 

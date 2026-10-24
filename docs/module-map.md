@@ -100,7 +100,7 @@ Ownership:
 - `content/chatgpt/runtime/app.js` owns top-level dependency wiring, adapter method composition, extension message registration, active-run/history locking, and module startup.
 - `content/chatgpt/90-bootstrap.js` stays a small marker/entrypoint after runtime modules have loaded.
 - `content/chatgpt/main-world-capture.js` runs in the page world and emits plain text as the canonical response payload. Final HTML rendering and sanitization belongs in the side panel through `shared/response-formatting.js`.
-- `content/mode2/chatgpt-frame-navigation.js` runs only in direct extension-hosted ChatGPT iframes. It owns same-frame ChatGPT link behavior, `dichrome.mode2.chatGptFrameUrl` persistence without changing ChatGPT's theme state. `content/mode2/composer-bridge.js` owns the validated parent handshake, draft-preserving prompt insertion, and acknowledged screenshot attachment through the shared composer adapter. It must not take over top-level ChatGPT tabs.
+- `content/mode2/chatgpt-frame-navigation.js` runs only in direct extension-hosted ChatGPT iframes. It owns same-frame ChatGPT link behavior, `dichrome.mode2.chatGptFrameUrl` persistence, and bounded navigation diagnostics without changing ChatGPT's theme state. `content/mode2/composer-bridge.js` owns the validated parent handshake, draft-preserving prompt insertion, and acknowledged screenshot attachment through the shared composer adapter. It must not take over top-level ChatGPT tabs.
 
 Future content-runtime changes should usually land in the concern-specific module above. Keep `runtime/app.js` as wiring only unless a change genuinely crosses module boundaries.
 
