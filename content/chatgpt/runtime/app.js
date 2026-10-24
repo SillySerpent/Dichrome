@@ -547,12 +547,14 @@
       isNonAutomationChatGptFrame
     });
 
-    networkCaptureClient.install();
-    window.addEventListener("message", networkCaptureClient.handleMessage);
-    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      return handleAutomationMessage(message, sendResponse);
-    });
-    offscreenBridge.setup();
+    if (offscreenBridge.isOffscreenAutomationFrame()) {
+      networkCaptureClient.install();
+      window.addEventListener("message", networkCaptureClient.handleMessage);
+      chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+        return handleAutomationMessage(message, sendResponse);
+      });
+      offscreenBridge.setup();
+    }
   }
 
   function assertExpectedVisiblePage(...args) {

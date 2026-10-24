@@ -14,28 +14,19 @@
   const STORAGE_KEYS = Object.freeze({
     CHATGPT_FRAME_URL: "dichrome.mode2.chatGptFrameUrl"
   });
-  const STYLE_ID = "chatgpt-sidebar-dark-frame-theme";
   const EXCLUDED_CHATGPT_PATH_PREFIXES = ["/api/", "/backend-api/", "/cdn/"];
   const URL_PERSIST_INTERVAL_MS = 750;
   let lastPersistedHref = "";
 
-  applyDarkThemeHint();
   normalizeChatGptLinks();
   persistCurrentChatGptUrl();
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
-      applyDarkThemeHint();
       normalizeChatGptLinks();
       persistCurrentChatGptUrl();
     }, { once: true });
   }
-
-  const observer = new MutationObserver(applyDarkThemeHint);
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ["class", "style", "data-theme"]
-  });
 
   const linkObserver = new MutationObserver(normalizeChatGptLinks);
   linkObserver.observe(document.documentElement, {
@@ -49,35 +40,24 @@
   window.addEventListener("popstate", persistCurrentChatGptUrl);
   window.addEventListener("hashchange", persistCurrentChatGptUrl);
   window.addEventListener("pageshow", persistCurrentChatGptUrl);
+  window.addEventListener("pageshow", publishNavigationDiagnostic, { once: true });
   window.setInterval(persistCurrentChatGptUrl, URL_PERSIST_INTERVAL_MS);
 
-  function applyDarkThemeHint() {
-    if (!document.getElementById(STYLE_ID)) {
-      const style = document.createElement("style");
-      style.id = STYLE_ID;
-      style.textContent = `
-        :root {
-          color-scheme: dark;
-          --bg-primary: #212121;
-          --bg-secondary: #2f2f2f;
-          --bg-tertiary: #393939;
-          --main-surface-primary: #212121;
-          --main-surface-secondary: #2f2f2f;
-          --main-surface-tertiary: #393939;
-          --message-surface: #2f2f2f;
-          --text-primary: #ececec;
-          --text-secondary: #b4b4b4;
-          --text-tertiary: #a0a0a0;
-          --border-light: #ffffff26;
-        }
-        html, body { background: #212121 !important; color: #ececec; min-width: 0 !important; }
-      `;
-      (document.head || document.documentElement).append(style);
+  function publishNavigationDiagnostic() {
+    if (!chrome.runtime?.id || window.origin !== location.origin
+      || !["https://chatgpt.com", "https://chat.openai.com"].includes(window.origin)
+      || String(window.name || "").startsWith("dichrome-offscreen-")) return;
+    try {
+      const navigation = performance.getEntriesByType("navigation")[0];
+      const status = navigation?.responseStatus;
+      window.parent.postMessage({
+        type: "dichrome:mode2:frame-diagnostic",
+        navigationType: navigation?.type || "unavailable",
+        responseStatus: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null
+      }, `chrome-extension://${chrome.runtime.id}`);
+    } catch (_error) {
+      // Diagnostics are best effort if the extension frame is closing.
     }
-    // Only affect this embedded document; never change the account's saved theme.
-    if (document.documentElement.classList.contains("light")) document.documentElement.classList.remove("light");
-    if (!document.documentElement.classList.contains("dark")) document.documentElement.classList.add("dark");
-    if (document.documentElement.style.colorScheme !== "dark") document.documentElement.style.colorScheme = "dark";
   }
 
   function prepareEmbeddedChatGptLink(event) {

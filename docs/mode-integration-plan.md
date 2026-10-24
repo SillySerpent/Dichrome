@@ -117,7 +117,7 @@ The root `manifest.json` is the only manifest. Required mode integration points:
 - `side_panel.default_path` stays `sidepanel/sidepanel.html`, now the root shell.
 - The shared selection popover is registered on `<all_urls>` and exits early on non-HTTP(S) and ChatGPT hosts.
 - Mode 1 ChatGPT automation content scripts keep the `shared/contracts.js` order, `document_start`, and `all_frames: true`.
-- Mode 2's ChatGPT frame theme script is registered separately for ChatGPT hosts with `document_start` and `all_frames: true`, but it only runs in direct extension-hosted ChatGPT iframes.
+- Mode 2's ChatGPT frame navigation script is registered separately for ChatGPT hosts with `document_start` and `all_frames: true`, but it only runs in direct extension-hosted ChatGPT iframes.
 - `clipboardWrite` supports Mode 2 prompt/image copy controls.
 - `windows` supports the Mode 2 fallback ChatGPT companion popup.
 - `frame-src` allows ChatGPT/OpenAI frame hosts for the embedded Mode 2 frame.

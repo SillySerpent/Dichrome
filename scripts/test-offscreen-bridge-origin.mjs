@@ -11,6 +11,8 @@ const source = await readFile(new URL("../content/chatgpt/runtime/offscreen/brid
 
 assert.equal(runBridgeSetupForOrigin("chrome-extension://test-extension", "dichrome-offscreen-chat"), OFFSCREEN_FRAME_ROLES.CHAT);
 assert.equal(runBridgeSetupForOrigin("chrome-extension://test-extension", "dichrome-offscreen-history"), OFFSCREEN_FRAME_ROLES.HISTORY);
+assert.equal(runBridgeSetupForOrigin("chrome-extension://test-extension", ""), false,
+  "A visible ChatGPT frame hosted by the extension must not claim an offscreen automation port.");
 assert.equal(runBridgeSetupForOrigin("safari-extension://test-extension", ""), false);
 assert.equal(runBridgeSetupForOrigin("https://example.com", "dichrome-offscreen-chat"), false);
 
