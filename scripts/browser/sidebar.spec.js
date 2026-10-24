@@ -392,6 +392,29 @@ test("unavailable frame exposes recovery and retains copyable context", async ()
   await page.close();
 });
 
+test("Mode 2 leaves ChatGPT fetch untouched while its composer bridge connects", async () => {
+  const page = await openSidebar();
+  await expect(page.locator("#frameStatus")).toHaveText("Connected");
+  const captureInstalled = await page.frameLocator("#chatGptFrame").locator("body")
+    .evaluate(() => window.__chatGptRelayMainWorldCaptureInstalled === true);
+  expect(captureInstalled).toBe(false);
+  await page.close();
+
+  const normalTab = await context.newPage();
+  await normalTab.goto("https://chatgpt.com/");
+  expect(await normalTab.evaluate(() => window.__chatGptRelayMainWorldCaptureInstalled === true)).toBe(false);
+  await normalTab.close();
+});
+
+test("the named offscreen chat frame retains Mode 1 network capture", async () => {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/offscreen/automation-host.html`);
+  const captureInstalled = await page.frameLocator("#chatgptChatFrame").locator("body")
+    .evaluate(() => window.__chatGptRelayMainWorldCaptureInstalled === true);
+  expect(captureInstalled).toBe(true);
+  await page.close();
+});
+
 test("insert is acknowledged, preserves a draft, and never sends", async () => {
   await seedPrompt();
   const page = await openSidebar();

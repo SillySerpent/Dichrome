@@ -161,6 +161,12 @@
         return false;
       }
 
+      const frameName = String(window.name || "");
+      if (frameName !== `dichrome-offscreen-${OFFSCREEN_FRAME_ROLES.CHAT}`
+        && frameName !== `dichrome-offscreen-${OFFSCREEN_FRAME_ROLES.HISTORY}`) {
+        return false;
+      }
+
       // The offscreen host embeds the real ChatGPT app as a direct child iframe.
       // ChatGPT itself also creates nested same-origin utility iframes such as
       // /backend-api/sentinel/frame.html. Because the manifest uses all_frames,
